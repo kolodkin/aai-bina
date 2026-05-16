@@ -54,7 +54,12 @@ async function walk(dir: string, relRoot: string) {
   }
 }
 
-await walk(inputDir, "")
+try {
+  await walk(inputDir, "")
+} catch (err) {
+  if (!(err instanceof Deno.errors.NotFound)) throw err
+  console.warn(`input dir ${inputDir} not found — emitting an empty report`)
+}
 
 screenshots.sort((a, b) =>
   a.group === b.group ? a.name.localeCompare(b.name) : a.group.localeCompare(b.group)

@@ -31,7 +31,8 @@ jobs:
           deno-version: v2.x
 
       - name: Install frontend dependencies
-        run: deno install --cwd frontend
+        working-directory: frontend
+        run: deno install --allow-scripts
 
       - name: Build frontend
         run: deno task build
