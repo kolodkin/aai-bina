@@ -45,11 +45,15 @@ deno task frontend   # http://localhost:5173
 
 The Vite dev server proxies `/api/*` to the Deno backend, so the SPA can call the API on the same origin.
 
-## Build
+## Build & preview production
 
 ```bash
 deno task build      # produces frontend/dist/
+deno task start      # SERVE_STATIC=1, Deno serves dist/ + /api on :8000
+deno task preview    # build && start in one shot
 ```
+
+In production there is no Vite — the Deno backend serves the bundled SPA from `frontend/dist/` and falls back to `index.html` for any unknown non-`/api` path so client-side routing works. Override the dist location with `STATIC_ROOT=/path/to/dist`.
 
 ## End-to-end tests
 

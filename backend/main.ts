@@ -1,3 +1,6 @@
+import { serveDir, serveFile } from "jsr:@std/http@^1.0.0/file-server"
+import { fromFileUrl, join } from "jsr:@std/path@^1.0.0"
+
 type Item = { id: number; name: string }
 
 const items: Item[] = [
@@ -6,6 +9,10 @@ const items: Item[] = [
   { id: 3, name: "Run e2e tests with `deno task test:e2e`" },
 ]
 let nextId = items.length + 1
+
+const STATIC_ROOT = Deno.env.get("STATIC_ROOT") ??
+  fromFileUrl(new URL("../frontend/dist", import.meta.url))
+const SERVE_STATIC = Deno.env.get("SERVE_STATIC") === "1"
 
 function json(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), {
@@ -17,10 +24,7 @@ function json(data: unknown, init: ResponseInit = {}): Response {
   })
 }
 
-async function handler(req: Request): Promise<Response> {
-  const url = new URL(req.url)
-  const { pathname } = url
-
+async function handleApi(req: Request, pathname: string): Promise<Response | null> {
   if (req.method === "GET" && pathname === "/api/health") {
     return json({ status: "ok", service: "queryview-backend" })
   }
@@ -45,7 +49,29 @@ async function handler(req: Request): Promise<Response> {
     return json(item, { status: 201 })
   }
 
-  return json({ error: "not found" }, { status: 404 })
+  if (pathname.startsWith("/api/")) {
+    return json({ error: "not found" }, { status: 404 })
+  }
+
+  return null
+}
+
+async function handler(req: Request): Promise<Response> {
+  const { pathname } = new URL(req.url)
+
+  const apiResponse = await handleApi(req, pathname)
+  if (apiResponse) return apiResponse
+
+  if (!SERVE_STATIC) {
+    return json({ error: "not found" }, { status: 404 })
+  }
+
+  const fileResponse = await serveDir(req, { fsRoot: STATIC_ROOT, quiet: true })
+  if (fileResponse.status !== 404) return fileResponse
+
+  // SPA fallback: serve index.html for any unknown path so client-side
+  // routing works. The browser still gets a 200 with the SPA shell.
+  return serveFile(req, join(STATIC_ROOT, "index.html"))
 }
 
 const port = Number(Deno.env.get("PORT") ?? 8000)
