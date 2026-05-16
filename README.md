@@ -1,6 +1,6 @@
 # QueryView
 
-Project skeleton: **Deno** backend + **Vite + React + TypeScript** SPA frontend with **Tailwind CSS**, plus **Playwright** end-to-end tests.
+Project skeleton: **Deno** backend + **Vite + React + TypeScript** SPA frontend with **Tailwind CSS**, plus **[Astral](https://github.com/lino-levan/astral)** end-to-end tests running on `deno test`.
 
 ## Layout
 
@@ -8,26 +8,25 @@ Project skeleton: **Deno** backend + **Vite + React + TypeScript** SPA frontend 
 .
 ├── backend/         # Deno HTTP server (Deno.serve) exposing /api/*
 ├── frontend/        # Vite + React + TS + Tailwind v4 SPA
-├── e2e/             # Playwright end-to-end tests
+├── e2e/             # Astral browser tests (deno test)
 └── deno.json        # Root tasks
 ```
 
 ## Prerequisites
 
 - [Deno](https://docs.deno.com/runtime/getting_started/installation/) 2.x
-- A modern browser (Chromium is installed automatically by Playwright)
 
-Node is **not** required — Deno acts as the package manager for the frontend, per the [official Deno + Vite + React tutorial](https://docs.deno.com/examples/react_tutorial/).
+That's it — no Node required. Deno acts as the package manager for the frontend per the [official Deno + Vite + React tutorial](https://docs.deno.com/examples/react_tutorial/), and Astral handles the e2e browser via JSR.
 
 ## Install
 
-Install npm dependencies (Deno reads `package.json` and writes a local `node_modules/`):
+Install the frontend's npm dependencies (Deno reads `package.json`):
 
 ```bash
 deno install --cwd frontend
-deno install --cwd e2e
-deno run -A --cwd e2e npm:playwright install --with-deps chromium
 ```
+
+The first `deno task test:e2e` run downloads a Chromium binary into Astral's cache; no extra step is needed.
 
 ## Run dev servers
 
@@ -60,11 +59,7 @@ Start the dev servers (`deno task dev`) in one terminal, then in another:
 deno task test:e2e
 ```
 
-Or have Playwright start the servers itself:
-
-```bash
-MANAGE_SERVERS=1 deno task test:e2e
-```
+Override the target URL with `BASE_URL=http://localhost:4173 deno task test:e2e` (e.g. to test a built preview).
 
 ## API
 
