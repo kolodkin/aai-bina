@@ -54,9 +54,10 @@ jobs:
           BASE_URL: http://localhost:8000
           CHROME_PATH: /usr/bin/google-chrome
         run: |
-          mkdir -p blob-report
           shard="${{ matrix.shard }}"
           safe_shard="${shard//\//-}"
+          export SCREENSHOT_DIR="blob-report/screenshots-${safe_shard}"
+          mkdir -p "$SCREENSHOT_DIR"
           set +e
           deno test -A \
             --junit-path="blob-report/junit-${safe_shard}.xml" \

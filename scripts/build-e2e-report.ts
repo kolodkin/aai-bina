@@ -22,20 +22,43 @@ await Deno.mkdir(outputDir, { recursive: true })
 
 const cases: TestCase[] = []
 const logs: Array<{ name: string; content: string }> = []
+const screenshots: Array<{ group: string; name: string; href: string }> = []
 const sep = Deno.build.os === "windows" ? "\\" : "/"
+const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i
 
-for await (const entry of Deno.readDir(inputDir)) {
-  if (!entry.isFile) continue
-  const path = `${inputDir}${sep}${entry.name}`
-  if (entry.name.endsWith(".xml")) {
-    const xml = await Deno.readTextFile(path)
-    cases.push(...parseJUnit(xml))
-  } else if (entry.name.endsWith(".log")) {
-    logs.push({ name: entry.name, content: await Deno.readTextFile(path) })
+async function walk(dir: string, relRoot: string) {
+  for await (const entry of Deno.readDir(dir)) {
+    const abs = `${dir}${sep}${entry.name}`
+    const rel = relRoot ? `${relRoot}/${entry.name}` : entry.name
+    if (entry.isDirectory) {
+      await Deno.mkdir(`${outputDir}${sep}${rel.replaceAll("/", sep)}`, {
+        recursive: true,
+      })
+      await walk(abs, rel)
+      continue
+    }
+    if (!entry.isFile) continue
+    if (entry.name.endsWith(".xml")) {
+      cases.push(...parseJUnit(await Deno.readTextFile(abs)))
+    } else if (entry.name.endsWith(".log")) {
+      logs.push({ name: rel, content: await Deno.readTextFile(abs) })
+    } else if (IMG_EXT.test(entry.name)) {
+      screenshots.push({
+        group: relRoot || "(root)",
+        name: entry.name,
+        href: rel,
+      })
+    }
+    // Copy raw artifacts alongside the rendered report so users can drill in.
+    await Deno.copyFile(abs, `${outputDir}${sep}${rel.replaceAll("/", sep)}`)
   }
-  // Copy raw artifacts alongside the rendered report so users can drill in.
-  await Deno.copyFile(path, `${outputDir}${sep}${entry.name}`)
 }
+
+await walk(inputDir, "")
+
+screenshots.sort((a, b) =>
+  a.group === b.group ? a.name.localeCompare(b.name) : a.group.localeCompare(b.group)
+)
 
 const totals = cases.reduce(
   (acc, c) => {
@@ -47,12 +70,13 @@ const totals = cases.reduce(
   { total: 0, passed: 0, failed: 0, skipped: 0, time: 0 },
 )
 
-const html = renderHtml(cases, totals, logs)
+const html = renderHtml(cases, totals, logs, screenshots)
 await Deno.writeTextFile(`${outputDir}${sep}index.html`, html)
 
 console.log(
   `Wrote report to ${outputDir}/index.html — ${totals.passed} passed, ` +
-    `${totals.failed} failed, ${totals.skipped} skipped (${totals.total} total)`,
+    `${totals.failed} failed, ${totals.skipped} skipped (${totals.total} total), ` +
+    `${screenshots.length} screenshot(s)`,
 )
 
 // ---- JUnit parsing -------------------------------------------------------
@@ -121,6 +145,7 @@ function renderHtml(
   cases: TestCase[],
   totals: { total: number; passed: number; failed: number; skipped: number; time: number },
   logs: Array<{ name: string; content: string }>,
+  screenshots: Array<{ group: string; name: string; href: string }>,
 ): string {
   const rows = cases.map((c) => `
       <tr class="row ${c.status}">
@@ -139,6 +164,31 @@ function renderHtml(
   const logsHtml = logs.map((l) =>
     `<details><summary>${esc(l.name)}</summary><pre>${esc(l.content)}</pre></details>`
   ).join("")
+
+  const groups = new Map<string, typeof screenshots>()
+  for (const s of screenshots) {
+    const arr = groups.get(s.group) ?? []
+    arr.push(s)
+    groups.set(s.group, arr)
+  }
+  const screenshotsHtml = screenshots.length === 0 ? "" : `
+    <h2>Screenshots</h2>
+    ${[...groups.entries()].map(([group, items]) => `
+      <details open>
+        <summary>${esc(group)} <span class="count">(${items.length})</span></summary>
+        <div class="gallery">
+          ${items.map((s) => `
+            <figure>
+              <a href="${esc(s.href)}" target="_blank" rel="noopener">
+                <img src="${esc(s.href)}" alt="${esc(s.name)}" loading="lazy">
+              </a>
+              <figcaption>${esc(s.name)}</figcaption>
+            </figure>
+          `).join("")}
+        </div>
+      </details>
+    `).join("")}
+  `
 
   const summaryClass = totals.failed > 0 ? "failed" : "passed"
 
@@ -173,6 +223,11 @@ function renderHtml(
   details { margin-top: 12px; background: #fff; border-radius: 8px; padding: 12px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   summary { cursor: pointer; font-weight: 600; }
   pre { white-space: pre-wrap; }
+  .count { color: #888; font-weight: 400; font-size: 12px; }
+  .gallery { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); margin-top: 12px; }
+  .gallery figure { margin: 0; background: #f3f4f6; border-radius: 6px; overflow: hidden; }
+  .gallery img { display: block; width: 100%; height: auto; }
+  .gallery figcaption { padding: 6px 10px; font-size: 12px; color: #555; word-break: break-all; }
   @media (prefers-color-scheme: dark) {
     body { background: #0d1117; color: #e6edf3; }
     .card, table, details { background: #161b22; box-shadow: none; border: 1px solid #30363d; }
@@ -181,6 +236,8 @@ function renderHtml(
     .meta, .lbl, .time { color: #8b949e; }
     .details td { background: #1c1417; }
     .details.passed td { background: #0e1f15; }
+    .gallery figure { background: #161b22; border: 1px solid #30363d; }
+    .gallery figcaption { color: #8b949e; }
   }
 </style>
 </head>
@@ -197,6 +254,7 @@ function renderHtml(
     <thead><tr><th>Status</th><th>Suite</th><th>Test</th><th>Duration</th></tr></thead>
     <tbody>${rows || `<tr><td colspan="4">No test cases found.</td></tr>`}</tbody>
   </table>
+  ${screenshotsHtml}
   ${logsHtml ? `<h2>Logs</h2>${logsHtml}` : ""}
 </body>
 </html>`
