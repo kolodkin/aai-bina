@@ -1,0 +1,18 @@
+{
+  "tasks": {
+    "backend": "deno task --cwd backend dev",
+    "frontend": "deno task --cwd frontend dev",
+    "dev": "deno run -A npm:concurrently@9 -n backend,frontend -c blue,magenta \"deno task --cwd backend dev\" \"deno task --cwd frontend dev\"",
+    "build": "deno task --cwd frontend build",
+    "test:e2e": "npm --prefix e2e test"
+  },
+  "fmt": {
+    "exclude": [
+      "**/node_modules",
+      "**/dist",
+      "frontend/dist",
+      "e2e/test-results",
+      "e2e/playwright-report"
+    ]
+  }
+}
