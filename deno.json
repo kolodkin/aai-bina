@@ -1,16 +1,16 @@
 {
   "tasks": {
-    "backend": "deno task --cwd backend dev",
+    "backend": "deno run --watch --allow-net --allow-env backend/main.ts",
     "frontend": "deno task --cwd frontend dev",
-    "dev": "deno run -A npm:concurrently@9 -n backend,frontend -c blue,magenta \"deno task --cwd backend dev\" \"deno task --cwd frontend dev\"",
+    "dev": "deno run -A npm:concurrently@9 -n backend,frontend -c blue,magenta \"deno task backend\" \"deno task frontend\"",
     "build": "deno task --cwd frontend build",
-    "test:e2e": "deno task --cwd e2e test"
+    "test:e2e": "deno test -A e2e/"
+  },
+  "imports": {
+    "@astral/astral": "jsr:@astral/astral@^0.5.4",
+    "@std/assert": "jsr:@std/assert@^1.0.0"
   },
   "fmt": {
-    "exclude": [
-      "**/node_modules",
-      "**/dist",
-      "frontend/dist"
-    ]
+    "exclude": ["**/node_modules", "**/dist"]
   }
 }
