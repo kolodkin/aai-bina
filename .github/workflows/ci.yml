@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_RUNNER_NODE_VERSION: node24
+
+jobs:
+  test-e2e:
+    runs-on: ubuntu-latest
+    environment: CICD
+    permissions:
+      contents: write
+      checks: write
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1/1]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: deno install --allow-scripts
+
+      - name: Build frontend
+        run: deno task build
+
+      - name: Start backend (serving built SPA)
+        run: |
+          SERVE_STATIC=1 deno run --allow-net --allow-env --allow-read backend/main.ts > backend.log 2>&1 &
+          echo $! > backend.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/api/health > /dev/null; then
+              echo "Backend is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to start"; cat backend.log; exit 1
+
+      - name: Run Astral e2e tests
+        id: e2e
+        env:
+          BASE_URL: http://localhost:8000
+          CHROME_PATH: /usr/bin/google-chrome
+        run: |
+          shard="${{ matrix.shard }}"
+          safe_shard="${shard//\//-}"
+          export SCREENSHOT_DIR="blob-report/screenshots-${safe_shard}"
+          mkdir -p "$SCREENSHOT_DIR"
+          set +e
+          deno test -A \
+            --junit-path="blob-report/junit-${safe_shard}.xml" \
+            e2e/ 2>&1 | tee "blob-report/output-${safe_shard}.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          exit $status
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill "$(cat backend.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ strategy.job-index }}
+          path: blob-report/
+          retention-days: 1
+
+  merge-e2e-reports:
+    if: ${{ !cancelled() }}
+    needs: test-e2e
+    runs-on: ubuntu-latest
+    environment: CICD
+    permissions:
+      contents: write
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Download blob reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: blob-report-*
+          merge-multiple: true
+          path: all-blob-reports
+
+      - name: Build static HTML report
+        run: deno run -A scripts/build-e2e-report.ts all-blob-reports e2e-report
+
+      - name: Check if report exists
+        id: check-report
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -d "e2e-report" ] && [ "$(ls -A e2e-report)" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "E2E report directory is present"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "E2E report directory missing or empty"
+          fi
+
+      - name: Deploy E2E Report
+        if: always() && steps.check-report.outputs.exists == 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.DEPLOY_KEY }}
+          external_repository: kolodkin/artifact-view
+          publish_dir: ./e2e-report
+          destination_dir: queryview-/e2e-report/${{ github.run_number }}
+          publish_branch: gh-pages
+          keep_files: true
+
+      - name: Determine test outcome
+        id: test-outcome
+        if: always()
+        run: |
+          if [ "${{ needs.test-e2e.result }}" = "success" ]; then
+            echo "outcome=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=failure" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create E2E Report check
+        if: always()
+        uses: LouisBrunner/checks-action@v2.0.0
+        env:
+          REPORT_URL: https://${{ github.repository_owner }}.github.io/artifact-view/queryview-/e2e-report/${{ github.run_number }}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: E2E Report
+          conclusion: ${{ steps.test-outcome.outputs.outcome }}
+          details_url: ${{ env.REPORT_URL }}
+          output: |
+            {"title":"${{ steps.test-outcome.outputs.outcome == 'success' && 'Tests passed' || 'Tests failed' }}","summary":"**[View Full E2E Report](${{ env.REPORT_URL }})**"}
+
+      - name: Delete blob report artifacts
+        if: always()
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: blob-report-*
