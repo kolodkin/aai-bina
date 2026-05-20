@@ -74,8 +74,11 @@ Deno.test("queryview e2e", async (t) => {
 
     if (EXPECT_CLICKHOUSE_OK) {
       await step("shows the connected indicator in the top-left", async () => {
-        const status = await page.waitForSelector('[data-testid="connection-status"]')
         await page.waitForSelector('[data-testid="connection-indicator"]')
+        // Acquire the status handle last and read it immediately: an
+        // intervening waitForSelector invalidates an element's nodeId in
+        // Astral, which makes a later innerText() call throw.
+        const status = await page.waitForSelector('[data-testid="connection-status"]')
         assertStringIncludes(await status.innerText(), "clickhouse")
       })
     }
