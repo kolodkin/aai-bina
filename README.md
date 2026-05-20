@@ -67,10 +67,14 @@ Override the target URL with `BASE_URL=http://localhost:4173 deno task test:e2e`
 
 ## API
 
-| Method | Path          | Description              |
-| ------ | ------------- | ------------------------ |
-| GET    | `/api/health` | Service health check     |
-| GET    | `/api/items`  | List items               |
-| POST   | `/api/items`  | Create item `{ name }`   |
+| Method | Path                    | Description                                      |
+| ------ | ----------------------- | ------------------------------------------------ |
+| GET    | `/api/health`           | Service health check                             |
+| GET    | `/api/items`            | List items                                       |
+| POST   | `/api/items`            | Create item `{ name }`                           |
+| POST   | `/api/clickhouse/test`  | Test a ClickHouse connection `{ host, port, username, password }` |
+
+The single-page prompt UI is described in [docs/queryview.md](docs/queryview.md);
+the `connect clickhouse` flow is specified in [docs/connect.md](docs/connect.md).
 
 Items live in memory and reset when the backend restarts — replace `backend/main.ts` with real storage when you are ready.

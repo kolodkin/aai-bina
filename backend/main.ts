@@ -24,9 +24,68 @@ function json(data: unknown, init: ResponseInit = {}): Response {
   })
 }
 
+type ClickHouseTestResult = { ok: boolean; message: string }
+
+async function testClickHouse(
+  host: string,
+  port: number,
+  username: string,
+  password: string,
+): Promise<ClickHouseTestResult> {
+  const url = `http://${host}:${port}/?query=${encodeURIComponent("SELECT 1")}`
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Basic ${btoa(`${username}:${password}`)}` },
+      signal: controller.signal,
+    })
+    const text = (await res.text()).trim()
+    if (!res.ok) {
+      return {
+        ok: false,
+        message: `ClickHouse responded ${res.status}: ${text.slice(0, 200)}`,
+      }
+    }
+    return { ok: true, message: `Connected — SELECT 1 returned ${text}` }
+  } catch (err) {
+    const message = err instanceof Error
+      ? (err.name === "AbortError" ? "connection timed out" : err.message)
+      : "connection failed"
+    return { ok: false, message }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 async function handleApi(req: Request, pathname: string): Promise<Response | null> {
   if (req.method === "GET" && pathname === "/api/health") {
     return json({ status: "ok", service: "queryview-backend" })
+  }
+
+  if (req.method === "POST" && pathname === "/api/clickhouse/test") {
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return json({ ok: false, message: "invalid JSON" }, { status: 400 })
+    }
+    const b = (body ?? {}) as Record<string, unknown>
+    const host = typeof b.host === "string" ? b.host.trim() : ""
+    const port = typeof b.port === "number"
+      ? b.port
+      : typeof b.port === "string"
+      ? Number(b.port)
+      : NaN
+    const username = typeof b.username === "string" ? b.username : ""
+    const password = typeof b.password === "string" ? b.password : ""
+    if (!host) {
+      return json({ ok: false, message: "host required" }, { status: 400 })
+    }
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      return json({ ok: false, message: "valid port required" }, { status: 400 })
+    }
+    return json(await testClickHouse(host, port, username, password))
   }
 
   if (req.method === "GET" && pathname === "/api/items") {

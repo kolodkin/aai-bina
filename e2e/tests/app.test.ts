@@ -3,6 +3,9 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert"
 
 const BASE_URL = Deno.env.get("BASE_URL") ?? "http://localhost:5173"
 const SCREENSHOT_DIR = Deno.env.get("SCREENSHOT_DIR") ?? "./screenshots"
+// When "1", assert the ClickHouse connection test actually succeeds (CI runs a
+// real ClickHouse service). Otherwise only assert the UI flow renders a result.
+const EXPECT_CLICKHOUSE_OK = Deno.env.get("EXPECT_CLICKHOUSE_OK") === "1"
 
 await Deno.mkdir(SCREENSHOT_DIR, { recursive: true })
 
@@ -42,33 +45,40 @@ Deno.test("queryview e2e", async (t) => {
       assertEquals(await h1.innerText(), "QueryView")
     })
 
-    await step("shows backend health status", async () => {
-      const health = await page.waitForSelector('[data-testid="health-status"]')
-      assertStringIncludes(await health.innerText(), "ok")
+    await step("typing `connect clickhouse` reveals the connection form", async () => {
+      const input = await page.waitForSelector('[data-testid="prompt-input"]')
+      await input.type("connect clickhouse")
+      await page.keyboard.press("Enter")
+      await page.waitForSelector('[data-testid="clickhouse-form"]')
     })
 
-    await step("lists initial items from the backend", async () => {
-      const list = await page.waitForSelector('[data-testid="item-list"]')
-      const items = await list.$$("li")
-      assert(items.length >= 3, `expected >= 3 items, got ${items.length}`)
-      assertStringIncludes(await list.innerText(), "Welcome to QueryView")
+    await step("shows host/port/username/password fields with defaults", async () => {
+      for (const id of ["ch-name", "ch-host", "ch-port", "ch-username", "ch-password"]) {
+        await page.waitForSelector(`[data-testid="${id}"]`)
+      }
     })
 
-    await step("can add a new item", async () => {
-      const name = `Test item ${Date.now()}`
-      const input = await page.waitForSelector('input[aria-label="New item name"]')
-      await input.type(name)
-
-      const button = await page.waitForSelector(
-        'button[type="submit"]:not([disabled])',
-      )
+    await step("test connection returns a result", async () => {
+      const button = await page.waitForSelector('[data-testid="ch-test"]')
       await button.click()
+      const result = await page.waitForSelector('[data-testid="ch-result"]')
+      const text = await result.innerText()
+      assert(text.trim().length > 0, "expected a non-empty result message")
 
-      const needle = JSON.stringify(name)
-      await page.waitForFunction(
-        `Array.from(document.querySelectorAll('[data-testid="item-list"] > li')).some(li => li.textContent && li.textContent.includes(${needle}))`,
-      )
+      if (EXPECT_CLICKHOUSE_OK) {
+        const ok = await result.getAttribute("data-ok")
+        assertEquals(ok, "true", `expected a successful connection, got: ${text}`)
+        assertStringIncludes(text, "Connected")
+      }
     })
+
+    if (EXPECT_CLICKHOUSE_OK) {
+      await step("shows the connected indicator in the top-left", async () => {
+        const status = await page.waitForSelector('[data-testid="connection-status"]')
+        await page.waitForSelector('[data-testid="connection-indicator"]')
+        assertStringIncludes(await status.innerText(), "clickhouse")
+      })
+    }
   } finally {
     await browser.close()
   }
