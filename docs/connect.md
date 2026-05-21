@@ -91,9 +91,19 @@ CREATE TABLE connections (
 - **Selecting a database** updates `database` for that row.
 - **Latest active** = the row with the greatest `last_active_at`.
 
-> Passwords are stored in plaintext — this is a local developer tool, not a
-> shared service. Don't point it at credentials you wouldn't keep in a local
-> dotfile.
+### Password encryption
+
+The `password` column is **encrypted at rest** with AES-256-GCM; the stored
+value is `base64(iv ‖ ciphertext)`, never plaintext. The key is resolved once at
+startup:
+
+- `DB_ENCRYPTION_KEY` — base64 of 32 bytes, if set (use this in CI/shared envs);
+- otherwise a key is generated and written to `<DB_PATH>.key` (gitignored,
+  mode `600`), overridable with `DB_KEY_PATH`.
+
+If the key changes (or a row predates encryption) the value can't be decrypted;
+auto-connect simply skips that connection and the user reconnects, which
+re-encrypts it with the current key.
 
 ## Session start / auto-connect
 

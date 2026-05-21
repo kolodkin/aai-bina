@@ -1,5 +1,6 @@
 import { serveDir, serveFile } from "jsr:@std/http@^1.0.0/file-server"
 import { fromFileUrl, join } from "jsr:@std/path@^1.0.0"
+import { decodeBase64, encodeBase64 } from "jsr:@std/encoding@^1/base64"
 import { DatabaseSync } from "node:sqlite"
 
 const STATIC_ROOT = Deno.env.get("STATIC_ROOT") ??
@@ -94,9 +95,60 @@ db.exec(`
   )
 `)
 
+// --- Password encryption at rest (AES-256-GCM) ----------------------------
+// The key comes from DB_ENCRYPTION_KEY (base64, 32 bytes) or a generated local
+// key file next to the DB (gitignored). Stored values are base64(iv ‖ ciphertext).
+const KEY_PATH = Deno.env.get("DB_KEY_PATH") ?? `${DB_PATH}.key`
+
+async function loadOrCreateKey(): Promise<CryptoKey> {
+  let raw: Uint8Array
+  const envKey = Deno.env.get("DB_ENCRYPTION_KEY")
+  if (envKey) {
+    raw = decodeBase64(envKey)
+  } else {
+    try {
+      raw = await Deno.readFile(KEY_PATH)
+    } catch {
+      raw = crypto.getRandomValues(new Uint8Array(32))
+      await Deno.writeFile(KEY_PATH, raw, { mode: 0o600 })
+    }
+  }
+  return await crypto.subtle.importKey("raw", new Uint8Array(raw), "AES-GCM", false, [
+    "encrypt",
+    "decrypt",
+  ])
+}
+const encryptionKey = await loadOrCreateKey()
+
+async function encryptPassword(plain: string): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      encryptionKey,
+      new Uint8Array(new TextEncoder().encode(plain)),
+    ),
+  )
+  const combined = new Uint8Array(iv.length + ct.length)
+  combined.set(iv, 0)
+  combined.set(ct, iv.length)
+  return encodeBase64(combined)
+}
+
+async function decryptPassword(stored: string): Promise<string> {
+  const combined = new Uint8Array(decodeBase64(stored))
+  const pt = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: combined.subarray(0, 12) },
+    encryptionKey,
+    combined.subarray(12),
+  )
+  return new TextDecoder().decode(pt)
+}
+
 type StoredConnection = ChConfig & { name: string; database: string | null }
 
-function saveActiveConnection(name: string, c: ChConfig): void {
+async function saveActiveConnection(name: string, c: ChConfig): Promise<void> {
+  const password = await encryptPassword(c.password)
   db.prepare(
     `INSERT INTO connections (name, host, port, username, password, last_active_at)
      VALUES (?, ?, ?, ?, ?, ?)
@@ -104,7 +156,7 @@ function saveActiveConnection(name: string, c: ChConfig): void {
        host = excluded.host, port = excluded.port,
        username = excluded.username, password = excluded.password,
        last_active_at = excluded.last_active_at`,
-  ).run(name, c.host, c.port, c.username, c.password, Date.now())
+  ).run(name, c.host, c.port, c.username, password, Date.now())
 }
 
 function saveSelectedDatabase(name: string, database: string): void {
@@ -112,18 +164,25 @@ function saveSelectedDatabase(name: string, database: string): void {
     .run(database, name)
 }
 
-function latestActiveConnection(): StoredConnection | null {
+async function latestActiveConnection(): Promise<StoredConnection | null> {
   const row = db.prepare(
     `SELECT name, host, port, username, password, database
      FROM connections ORDER BY last_active_at DESC LIMIT 1`,
   ).get() as Record<string, unknown> | undefined
   if (!row) return null
+  let password: string
+  try {
+    password = await decryptPassword(String(row.password))
+  } catch {
+    // Unreadable (key changed / legacy plaintext) — skip auto-connect.
+    return null
+  }
   return {
     name: String(row.name),
     host: String(row.host),
     port: Number(row.port),
     username: String(row.username),
-    password: String(row.password),
+    password,
     database: row.database == null ? null : String(row.database),
   }
 }
@@ -158,7 +217,7 @@ async function openConnection(
 // At session start, attempt to reconnect the latest active connection.
 async function ensureSession(): Promise<void> {
   if (session) return
-  const stored = latestActiveConnection()
+  const stored = await latestActiveConnection()
   if (!stored) return
   const { name, database, ...config } = stored
   await openConnection(name, config, database)
@@ -208,7 +267,7 @@ async function handleApi(req: Request, pathname: string): Promise<Response | nul
       : "clickhouse"
     const opened = await openConnection(name, parsed.config, null)
     if (!opened.ok) return json({ ok: false, message: opened.message })
-    saveActiveConnection(name, parsed.config)
+    await saveActiveConnection(name, parsed.config)
     return json({ ok: true, name, databases: session!.databases })
   }
 
