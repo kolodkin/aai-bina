@@ -53,9 +53,6 @@ Deno.test("queryview e2e", async (t) => {
       await input.type("connect clickhouse")
       await page.keyboard.press("Enter")
       await page.waitForSelector('[data-testid="clickhouse-form"]')
-    })
-
-    await step("shows name/host/port/username/password fields with defaults", async () => {
       for (const id of ["ch-name", "ch-host", "ch-port", "ch-username", "ch-password"]) {
         await page.waitForSelector(`[data-testid="${id}"]`)
       }
