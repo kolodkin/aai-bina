@@ -8,15 +8,14 @@ page reacts to it inline.
 
 ```
 ┌─────────────────────────────────────────────┐
-│ 🟢 clickhouse        ← connection indicator   │
-│                                               │
+│ 🟢 connected - default   ← connection pill    │
 │                                               │
 │                  QueryView                    │
 │        ┌─────────────────────────────┐        │
 │        │  Type a command…            │  ← prompt
 │        └─────────────────────────────┘        │
 │                                               │
-│        (command output renders here)          │
+│        Database:  [default] [system] …         │  ← shown once connected
 │                                               │
 └─────────────────────────────────────────────┘
 ```
@@ -26,9 +25,11 @@ page reacts to it inline.
   Submitting (Enter) interprets the typed text as a command.
 - **Inline response** — the result of a command renders directly under the
   prompt. The prompt itself stays in place; the page does not navigate.
+- **Database picker** — once a steady connection is open, the prompt view also
+  shows the connection's databases to pick from (see [connect.md](./connect.md)).
 - **Connection indicator** — a small pill in the **top-left** corner. It is
-  hidden until a connection is established, then shows a green circle 🟢 next
-  to the connection name (see [connect.md](./connect.md)).
+  hidden until a database is selected on the active connection, then shows a
+  green circle 🟢 followed by `connected - <database>`.
 
 ## Interaction model
 
@@ -36,6 +37,18 @@ page reacts to it inline.
 2. The user types a command and presses Enter.
 3. Recognized commands swap in their own UI below the prompt.
 4. Unrecognized input shows a short hint instead of an error page.
+
+## Sessions
+
+The active connection is **session state**, not global UI state:
+
+- It is held per session at the backend, and persisted in SQLite (see
+  [connect.md](./connect.md)).
+- **At session start the app attempts to connect to the latest active
+  connection.** The SPA asks `GET /api/session` on load; if a previously active
+  connection re-connects, the page opens already connected — prompt + database
+  picker, the previously selected database pre-selected, and the indicator
+  shown. Otherwise it opens at the empty prompt.
 
 ## Commands
 
@@ -52,5 +65,7 @@ Command matching is case-insensitive and trims surrounding whitespace.
 - **One thing at a time.** The prompt is the only persistent control. Each
   command owns the space beneath it.
 - **No dead ends.** Unknown input is guided, never punished.
-- **State is visible.** Once connected, the top-left indicator makes the active
-  connection obvious from anywhere on the page.
+- **State is visible.** Once a database is selected, the top-left indicator
+  makes the active connection and database obvious from anywhere on the page.
+- **Resumable.** Sessions reconnect to the last active connection on start, so
+  the common case needs no typing at all.

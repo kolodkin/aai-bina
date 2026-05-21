@@ -67,14 +67,17 @@ Override the target URL with `BASE_URL=http://localhost:4173 deno task test:e2e`
 
 ## API
 
-| Method | Path                    | Description                                      |
-| ------ | ----------------------- | ------------------------------------------------ |
-| GET    | `/api/health`           | Service health check                             |
-| GET    | `/api/items`            | List items                                       |
-| POST   | `/api/items`            | Create item `{ name }`                           |
-| POST   | `/api/clickhouse/test`  | Test a ClickHouse connection `{ host, port, username, password }` |
+| Method | Path                        | Description                                      |
+| ------ | --------------------------- | ------------------------------------------------ |
+| GET    | `/api/health`               | Service health check                             |
+| GET    | `/api/session`              | Current session; auto-connects the latest active connection |
+| POST   | `/api/clickhouse/test`      | Test a connection (test only) `{ host, port, username, password }` |
+| POST   | `/api/clickhouse/connect`   | Open + save + activate a connection `{ name, host, port, username, password }` |
+| POST   | `/api/clickhouse/database`  | Select the active connection's database `{ database }` |
 
 The single-page prompt UI is described in [docs/queryview.md](docs/queryview.md);
-the `connect clickhouse` flow is specified in [docs/connect.md](docs/connect.md).
+the `connect clickhouse` flow, SQLite persistence, and session auto-connect are
+specified in [docs/connect.md](docs/connect.md).
 
-Items live in memory and reset when the backend restarts — replace `backend/main.ts` with real storage when you are ready.
+Connections are stored in SQLite (`backend/queryview.db`, override with
+`DB_PATH`); the backend therefore runs with `--allow-write`.

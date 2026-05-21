@@ -1,70 +1,129 @@
 # `connect clickhouse`
 
-Typing `connect clickhouse` into the prompt reveals a connection form. The user
-fills it in, tests the connection, and on success the page shows a green
-connection indicator in the top-left.
+Typing `connect clickhouse` into the prompt opens a connection form. From there
+the user can **test** a connection (a throwaway check) or **connect** (open a
+steady connection that is saved and becomes the session's active connection).
+Connections are persisted in SQLite, and the latest active one is re-connected
+automatically when a session starts.
+
+## Concepts
+
+- **Test connection** — a throwaway connectivity check (`SELECT 1`). It reports
+  pass/fail and nothing else: it does **not** save the connection, does not open
+  a steady connection, and does not change what the session is connected to.
+- **Connect** — opens a *steady* connection: it validates, lists the databases,
+  **saves** the connection to SQLite, marks it the latest active, and makes it
+  the session's active connection. The UI then returns to the single prompt with
+  a database picker.
+- **Active connection** — held at the **session** level (see
+  [queryview.md](./queryview.md)). One per session.
+- **Database selection** — after connecting, the user picks a database. Only
+  then does the top-left indicator read `🟢 connected - <database>`. The choice
+  is remembered with the connection.
 
 ## Trigger
 
 - Command: `connect clickhouse` (case-insensitive, whitespace-trimmed).
-- On match, the ClickHouse connection form renders below the prompt.
+- On match, the connection form renders below the prompt.
 
-## Form fields
+## Connection form
 
 | Field    | Default     | Notes                                          |
 | -------- | ----------- | ---------------------------------------------- |
-| Name     | `clickhouse`| Label for the connection; shown in the indicator. |
+| Name     | `clickhouse`| Label for the connection (unique key in storage). |
 | Host     | `localhost` | ClickHouse host.                               |
 | Port     | `8123`      | ClickHouse HTTP interface port.                |
 | Username | `default`   | ClickHouse user.                               |
 | Password | *(empty)*   | ClickHouse password.                           |
 
-Below the fields is a **Test connection** button.
+Two actions:
 
-## Test connection
+- **Test connection** — `POST /api/clickhouse/test`. Shows a pass/fail message
+  inline. No side effects.
+- **Connect** — `POST /api/clickhouse/connect`. On success the form closes and
+  the prompt view returns with a database picker.
 
-Clicking **Test connection** POSTs the form to the backend, which connects to
-ClickHouse and reports back.
-
-### Request
+## Flow
 
 ```
-POST /api/clickhouse/test
-Content-Type: application/json
-
-{ "host": "localhost", "port": 8123, "username": "default", "password": "" }
+prompt ── type "connect clickhouse" ──▶ connection form
+                                          │
+                          ┌── Test ───────┤   (inline pass/fail, stays here)
+                          │               │
+                          └── Connect ────┴──▶ prompt + database picker
+                                                      │
+                                       pick a database │
+                                                      ▼
+                                       🟢 connected - <database>
 ```
 
-### Backend behaviour
+## Database picker
 
-- Validates `host` (non-empty) and `port` (integer in `1..65535`).
-- Issues `GET http://{host}:{port}/?query=SELECT 1` to the ClickHouse HTTP
-  interface, authenticating with HTTP Basic auth (`username:password`).
-- Aborts after a 5s timeout.
+After connecting, the prompt view shows the list of databases returned by
+`SHOW DATABASES`. Selecting one:
 
-### Response
+- sets the session's selected database,
+- persists it on the saved connection (`POST /api/clickhouse/database`),
+- shows the top-left indicator `🟢 connected - <database>`.
 
-Always `200` for a request that ran (validation errors are `400`):
+## Persistence (SQLite)
 
-```json
-{ "ok": true,  "message": "Connected — SELECT 1 returned 1" }
-{ "ok": false, "message": "connection timed out" }
+Connection details are stored in a SQLite database (default
+`backend/queryview.db`, override with `DB_PATH`). This requires the backend to
+run with `--allow-write` (and `--allow-read`) for the DB file.
+
+Schema:
+
+```sql
+CREATE TABLE connections (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  name           TEXT NOT NULL UNIQUE,
+  host           TEXT NOT NULL,
+  port           INTEGER NOT NULL,
+  username       TEXT NOT NULL,
+  password       TEXT NOT NULL,
+  database       TEXT,            -- last selected database (nullable)
+  last_active_at INTEGER NOT NULL -- unix ms; the max is the "latest active"
+);
 ```
 
-## Connected indicator
+- **Connect** upserts the row by `name` and bumps `last_active_at`.
+- **Selecting a database** updates `database` for that row.
+- **Latest active** = the row with the greatest `last_active_at`.
 
-When the test succeeds, a pill appears in the **top-left** of the page:
+> Passwords are stored in plaintext — this is a local developer tool, not a
+> shared service. Don't point it at credentials you wouldn't keep in a local
+> dotfile.
 
-> 🟢 &nbsp; *{name}*
+## Session start / auto-connect
 
-- A green circle (`bg-emerald-500`) signals a live connection.
-- The text is the **Name** field value (falls back to `clickhouse` if blank).
-- The indicator stays visible while the connection is active.
+The active connection lives at the session level. When a session starts the
+backend reads the **latest active** connection from SQLite and attempts to
+connect to it:
+
+- `GET /api/session` returns the current session state and, if nothing is active
+  yet, lazily auto-connects to the latest active connection.
+- On success the SPA loads already connected — prompt + database picker, with
+  the previously selected database pre-selected and the indicator shown.
+- On failure (server down, bad credentials) the SPA falls back to the empty
+  prompt; the saved connection is left in place to retry.
+
+## API
+
+| Method | Path                          | Body                                   | Result |
+| ------ | ----------------------------- | -------------------------------------- | ------ |
+| POST   | `/api/clickhouse/test`        | `{host,port,username,password}`        | `{ok, message}` — test only |
+| POST   | `/api/clickhouse/connect`     | `{name,host,port,username,password}`   | `{ok, name, databases}` \| `{ok:false, message}`; saves + activates |
+| POST   | `/api/clickhouse/database`    | `{database}`                           | `{ok}`; sets the session/connection database |
+| GET    | `/api/session`                | —                                      | `{connected, name?, databases?, database?}`; auto-connects latest active |
+
+All validate `host` (non-empty) and `port` (integer `1..65535`); validation
+errors return `400`. ClickHouse queries run over the HTTP interface with HTTP
+Basic auth and a 5s timeout.
 
 ## CI
 
-CI runs a real `clickhouse/clickhouse-server` service container (HTTP port
-`8123`) so the e2e test exercises an actual `SELECT 1`. The e2e run sets
-`EXPECT_CLICKHOUSE_OK=1`, which makes the test assert the connection succeeds
-and the indicator appears. Without that flag the test only asserts the UI flow
-renders a result, so it stays green in environments without ClickHouse.
+CI runs a real `clickhouse/clickhouse-server` service container so the e2e test
+exercises an actual connection. With `EXPECT_CLICKHOUSE_OK=1` the test asserts
+that connecting succeeds, a database can be selected, and the indicator shows
+`connected - <database>`.
