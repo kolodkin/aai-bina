@@ -23,4 +23,4 @@ Connections are stored in SQLite (`backend/queryview.db`, override with
 ## Related docs
 
 - [queryview.md](./queryview.md) — the single-prompt page concept.
-- [connect.md](./connect.md) — the `connect clickhouse` flow, storage, sessions.
+- [connect.md](./connect.md) — connecting (`new <type>` / `connect <name>`), storage, sessions.
