@@ -55,11 +55,7 @@ function App() {
       setShowForm(false)
       setHint(null)
       setConnection({ name: data.name, databases, database })
-      setPrompt(
-        database
-          ? `connect ${data.name} db ${database}`
-          : `connect ${data.name} db`,
-      )
+      setPrompt(database ? '' : `connect ${data.name} db`)
     } catch (err) {
       setHint(err instanceof Error ? err.message : 'request failed')
     }
@@ -103,7 +99,9 @@ function App() {
     })
     if (res.ok) {
       setConnection({ ...connection, database })
-      setPrompt(`connect ${connection.name} db ${database}`)
+      // Database chosen — clear the prompt; the placeholder now invites a
+      // table view or query.
+      setPrompt('')
     }
   }
 
@@ -133,7 +131,11 @@ function App() {
             type="text"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Type a command, e.g. new clickhouse"
+            placeholder={
+              connection?.database
+                ? 'table <name> / query'
+                : 'Type a command, e.g. new clickhouse'
+            }
             aria-label="Prompt"
             data-testid="prompt-input"
             autoFocus

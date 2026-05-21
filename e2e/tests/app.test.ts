@@ -90,18 +90,15 @@ Deno.test("queryview e2e", async (t) => {
         assertStringIncludes(await status.innerText(), "connected - default")
       })
 
-      await step("reloading resumes the session (auto-connect)", async () => {
+      await step("reload resumes the session, then `connect <name> db <database>` switches db", async () => {
         await page.goto(BASE_URL, { waitUntil: "networkidle2" })
-        await page.waitForSelector('[data-testid="connection-indicator"]')
-        const status = await page.waitForSelector('[data-testid="connection-status"]')
-        assertStringIncludes(await status.innerText(), "connected - default")
-      })
-
-      await step("`connect <name> db <database>` opens a saved connection", async () => {
+        // Resume: came back connected to the previously selected database.
+        const resumed = await page.waitForSelector('[data-testid="connection-status"]')
+        assertStringIncludes(await resumed.innerText(), "connected - default")
+        // Switch databases by name in one command.
         const input = await page.waitForSelector('[data-testid="prompt-input"]')
         await input.type("connect clickhouse db system")
         await page.keyboard.press("Enter")
-        // Indicator is already showing "default"; wait for it to switch.
         await page.waitForFunction(
           `document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('connected - system') === true`,
         )
