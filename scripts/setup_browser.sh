@@ -73,8 +73,8 @@ log "installing frontend deps"
 log "building SPA"
 deno task build
 log "starting backend (serving built SPA) on :$BACKEND_PORT"
-SERVE_STATIC=1 PORT="$BACKEND_PORT" \
-  deno run --allow-net --allow-env --allow-read backend/main.ts \
+SERVE_STATIC=1 PORT="$BACKEND_PORT" DB_PATH="${DB_PATH:-$CACHE/queryview.db}" \
+  deno run --allow-net --allow-env --allow-read --allow-write backend/main.ts \
   > "$CACHE/backend.log" 2>&1 &
 BACKEND_PID=$!
 wait_for "http://localhost:$BACKEND_PORT/api/health" "backend"

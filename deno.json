@@ -1,10 +1,10 @@
 {
   "tasks": {
-    "backend": "deno run --watch --allow-net --allow-env --allow-read backend/main.ts",
+    "backend": "deno run --watch --allow-net --allow-env --allow-read --allow-write backend/main.ts",
     "frontend": "deno task --cwd frontend dev",
     "dev": "deno run -A npm:concurrently@9 -n backend,frontend -c blue,magenta \"deno task backend\" \"deno task frontend\"",
     "build": "deno task --cwd frontend build",
-    "start": "SERVE_STATIC=1 deno run --allow-net --allow-env --allow-read backend/main.ts",
+    "start": "SERVE_STATIC=1 deno run --allow-net --allow-env --allow-read --allow-write backend/main.ts",
     "preview": "deno task build && deno task start",
     "test:e2e": "deno test -A e2e/"
   },

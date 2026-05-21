@@ -26,6 +26,10 @@ e2e/playwright/.cache/
 # data, logs, screenshots.
 .cache/
 
+# SQLite connection store (backend)
+backend/*.db
+backend/*.db-*
+
 # Editor
 .DS_Store
 .idea/

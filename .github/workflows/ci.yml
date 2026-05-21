@@ -60,7 +60,7 @@ jobs:
 
       - name: Start backend (serving built SPA)
         run: |
-          SERVE_STATIC=1 deno run --allow-net --allow-env --allow-read backend/main.ts > backend.log 2>&1 &
+          SERVE_STATIC=1 deno run --allow-net --allow-env --allow-read --allow-write backend/main.ts > backend.log 2>&1 &
           echo $! > backend.pid
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/api/health > /dev/null; then

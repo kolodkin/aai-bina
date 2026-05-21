@@ -1,31 +1,67 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 type TestResult = { ok: boolean; message: string }
 
-type Connection = { name: string }
+type Connection = {
+  name: string
+  databases: string[]
+  database: string | null
+}
 
 function App() {
   const [prompt, setPrompt] = useState('')
-  const [showClickHouse, setShowClickHouse] = useState(false)
   const [hint, setHint] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
   const [connection, setConnection] = useState<Connection | null>(null)
+
+  // At session start, attempt to resume the latest active connection.
+  useEffect(() => {
+    fetch('/api/session')
+      .then((r) => r.json())
+      .then((s) => {
+        if (s.connected) {
+          setConnection({
+            name: s.name,
+            databases: s.databases ?? [],
+            database: s.database ?? null,
+          })
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   function submitPrompt(e: React.FormEvent) {
     e.preventDefault()
     const cmd = prompt.trim().toLowerCase()
     if (!cmd) return
     if (cmd === 'connect clickhouse') {
-      setShowClickHouse(true)
+      setShowForm(true)
       setHint(null)
     } else {
-      setShowClickHouse(false)
+      setShowForm(false)
       setHint(prompt.trim())
+    }
+  }
+
+  function handleConnected(name: string, databases: string[]) {
+    setConnection({ name, databases, database: null })
+    setShowForm(false)
+  }
+
+  async function selectDatabase(database: string) {
+    const res = await fetch('/api/clickhouse/database', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ database }),
+    })
+    if (res.ok) {
+      setConnection((c) => (c ? { ...c, database } : c))
     }
   }
 
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-900">
-      {connection && (
+      {connection?.database && (
         <div
           className="absolute left-4 top-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium shadow-sm"
           data-testid="connection-status"
@@ -35,7 +71,7 @@ function App() {
             data-testid="connection-indicator"
             aria-label="connected"
           />
-          {connection.name}
+          connected - {connection.database}
         </div>
       )}
 
@@ -66,43 +102,69 @@ function App() {
           </p>
         )}
 
-        {showClickHouse && (
-          <ClickHouseForm onConnected={(name) => setConnection({ name })} />
+        {showForm && <ClickHouseForm onConnected={handleConnected} />}
+
+        {!showForm && connection && (
+          <DatabasePicker connection={connection} onSelect={selectDatabase} />
         )}
       </div>
     </main>
   )
 }
 
-function ClickHouseForm({ onConnected }: { onConnected: (name: string) => void }) {
+function ClickHouseForm({
+  onConnected,
+}: {
+  onConnected: (name: string, databases: string[]) => void
+}) {
   const [name, setName] = useState('clickhouse')
   const [host, setHost] = useState('localhost')
   const [port, setPort] = useState('8123')
   const [username, setUsername] = useState('default')
   const [password, setPassword] = useState('')
   const [result, setResult] = useState<TestResult | null>(null)
-  const [testing, setTesting] = useState(false)
+  const [busy, setBusy] = useState(false)
 
-  async function testConnection(e: React.FormEvent) {
-    e.preventDefault()
-    setTesting(true)
+  function body() {
+    return JSON.stringify({ name, host, port: Number(port), username, password })
+  }
+
+  async function testConnection() {
+    setBusy(true)
     setResult(null)
     try {
       const res = await fetch('/api/clickhouse/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host, port: Number(port), username, password }),
+        body: body(),
       })
-      const data = (await res.json()) as TestResult
-      setResult(data)
-      if (data.ok) onConnected(name.trim() || 'clickhouse')
+      setResult((await res.json()) as TestResult)
     } catch (err) {
-      setResult({
-        ok: false,
-        message: err instanceof Error ? err.message : 'request failed',
-      })
+      setResult({ ok: false, message: err instanceof Error ? err.message : 'request failed' })
     } finally {
-      setTesting(false)
+      setBusy(false)
+    }
+  }
+
+  async function connect() {
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await fetch('/api/clickhouse/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body(),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        onConnected(data.name as string, (data.databases ?? []) as string[])
+      } else {
+        setResult({ ok: false, message: data.message ?? 'connect failed' })
+      }
+    } catch (err) {
+      setResult({ ok: false, message: err instanceof Error ? err.message : 'request failed' })
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -111,81 +173,56 @@ function ClickHouseForm({ onConnected }: { onConnected: (name: string) => void }
 
   return (
     <form
-      onSubmit={testConnection}
+      onSubmit={(e) => {
+        e.preventDefault()
+        connect()
+      }}
       data-testid="clickhouse-form"
       className="mt-6 space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
     >
       <h2 className="text-lg font-semibold">Connect ClickHouse</h2>
 
-      <label className="block text-sm font-medium text-slate-700">
-        Name
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          aria-label="Name"
-          data-testid="ch-name"
-          className={`mt-1 ${fieldClass}`}
-        />
-      </label>
+      {(
+        [
+          ['Name', name, setName, 'ch-name', 'text'],
+          ['Host', host, setHost, 'ch-host', 'text'],
+          ['Port', port, setPort, 'ch-port', 'text'],
+          ['Username', username, setUsername, 'ch-username', 'text'],
+          ['Password', password, setPassword, 'ch-password', 'password'],
+        ] as const
+      ).map(([label, value, setter, testid, type]) => (
+        <label key={testid} className="block text-sm font-medium text-slate-700">
+          {label}
+          <input
+            type={type}
+            value={value}
+            onChange={(e) => setter(e.target.value)}
+            aria-label={label}
+            data-testid={testid}
+            className={`mt-1 ${fieldClass}`}
+          />
+        </label>
+      ))}
 
-      <label className="block text-sm font-medium text-slate-700">
-        Host
-        <input
-          type="text"
-          value={host}
-          onChange={(e) => setHost(e.target.value)}
-          aria-label="Host"
-          data-testid="ch-host"
-          className={`mt-1 ${fieldClass}`}
-        />
-      </label>
-
-      <label className="block text-sm font-medium text-slate-700">
-        Port
-        <input
-          type="text"
-          inputMode="numeric"
-          value={port}
-          onChange={(e) => setPort(e.target.value)}
-          aria-label="Port"
-          data-testid="ch-port"
-          className={`mt-1 ${fieldClass}`}
-        />
-      </label>
-
-      <label className="block text-sm font-medium text-slate-700">
-        Username
-        <input
-          type="text"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          aria-label="Username"
-          data-testid="ch-username"
-          className={`mt-1 ${fieldClass}`}
-        />
-      </label>
-
-      <label className="block text-sm font-medium text-slate-700">
-        Password
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          aria-label="Password"
-          data-testid="ch-password"
-          className={`mt-1 ${fieldClass}`}
-        />
-      </label>
-
-      <button
-        type="submit"
-        data-testid="ch-test"
-        disabled={testing}
-        className="w-full rounded-md bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
-      >
-        {testing ? 'Testing…' : 'Test connection'}
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={testConnection}
+          data-testid="ch-test"
+          disabled={busy}
+          className="flex-1 rounded-md border border-indigo-600 px-4 py-2 font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
+        >
+          Test connection
+        </button>
+        <button
+          type="submit"
+          data-testid="ch-connect"
+          disabled={busy}
+          className="flex-1 rounded-md bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+        >
+          Connect
+        </button>
+      </div>
 
       {result && (
         <p
@@ -197,6 +234,46 @@ function ClickHouseForm({ onConnected }: { onConnected: (name: string) => void }
         </p>
       )}
     </form>
+  )
+}
+
+function DatabasePicker({
+  connection,
+  onSelect,
+}: {
+  connection: Connection
+  onSelect: (database: string) => void
+}) {
+  return (
+    <section
+      data-testid="db-picker"
+      className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+    >
+      <h2 className="text-sm font-medium text-slate-700">
+        Connected to {connection.name}. Select a database:
+      </h2>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {connection.databases.map((db) => {
+          const selected = db === connection.database
+          return (
+            <button
+              key={db}
+              type="button"
+              onClick={() => onSelect(db)}
+              data-testid="db-option"
+              data-db={db}
+              className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                selected
+                  ? 'border-indigo-600 bg-indigo-600 text-white'
+                  : 'border-slate-300 hover:border-indigo-400 hover:bg-indigo-50'
+              }`}
+            >
+              {db}
+            </button>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 

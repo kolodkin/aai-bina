@@ -3,8 +3,8 @@ import { assert, assertEquals, assertStringIncludes } from "@std/assert"
 
 const BASE_URL = Deno.env.get("BASE_URL") ?? "http://localhost:5173"
 const SCREENSHOT_DIR = Deno.env.get("SCREENSHOT_DIR") ?? "./screenshots"
-// When "1", assert the ClickHouse connection test actually succeeds (CI runs a
-// real ClickHouse service). Otherwise only assert the UI flow renders a result.
+// When "1", assert the ClickHouse connection actually succeeds (CI runs a real
+// ClickHouse service). Otherwise only assert the UI flow renders.
 const EXPECT_CLICKHOUSE_OK = Deno.env.get("EXPECT_CLICKHOUSE_OK") === "1"
 
 await Deno.mkdir(SCREENSHOT_DIR, { recursive: true })
@@ -55,7 +55,7 @@ Deno.test("queryview e2e", async (t) => {
       await page.waitForSelector('[data-testid="clickhouse-form"]')
     })
 
-    await step("shows host/port/username/password fields with defaults", async () => {
+    await step("shows name/host/port/username/password fields with defaults", async () => {
       for (const id of ["ch-name", "ch-host", "ch-port", "ch-username", "ch-password"]) {
         await page.waitForSelector(`[data-testid="${id}"]`)
       }
@@ -67,22 +67,37 @@ Deno.test("queryview e2e", async (t) => {
       const result = await page.waitForSelector('[data-testid="ch-result"]')
       const text = await result.innerText()
       assert(text.trim().length > 0, "expected a non-empty result message")
-
       if (EXPECT_CLICKHOUSE_OK) {
         const ok = await result.getAttribute("data-ok")
-        assertEquals(ok, "true", `expected a successful connection, got: ${text}`)
+        assertEquals(ok, "true", `expected a successful test, got: ${text}`)
         assertStringIncludes(text, "Connected")
       }
     })
 
     if (EXPECT_CLICKHOUSE_OK) {
-      await step("shows the connected indicator in the top-left", async () => {
+      await step("connect opens the database picker", async () => {
+        const connect = await page.waitForSelector('[data-testid="ch-connect"]')
+        await connect.click()
+        await page.waitForSelector('[data-testid="db-picker"]')
+        await page.waitForSelector('[data-db="default"]')
+      })
+
+      await step("selecting a database shows the connected indicator", async () => {
+        const dbButton = await page.waitForSelector('[data-db="default"]')
+        await dbButton.click()
         await page.waitForSelector('[data-testid="connection-indicator"]')
         // Acquire the status handle last and read it immediately: an
         // intervening waitForSelector invalidates an element's nodeId in
         // Astral, which makes a later innerText() call throw.
         const status = await page.waitForSelector('[data-testid="connection-status"]')
-        assertStringIncludes(await status.innerText(), "clickhouse")
+        assertStringIncludes(await status.innerText(), "connected - default")
+      })
+
+      await step("reloading resumes the session (auto-connect)", async () => {
+        await page.goto(BASE_URL, { waitUntil: "networkidle2" })
+        await page.waitForSelector('[data-testid="connection-indicator"]')
+        const status = await page.waitForSelector('[data-testid="connection-status"]')
+        assertStringIncludes(await status.innerText(), "connected - default")
       })
     }
   } finally {
