@@ -53,13 +53,16 @@ The active connection is **session state**, not global UI state:
 
 ## Commands
 
-| Command             | Effect                                              |
-| ------------------- | --------------------------------------------------- |
-| `connect clickhouse`| Reveals the ClickHouse connection form. See below.  |
+| Command                  | Effect                                              |
+| ------------------------ | --------------------------------------------------- |
+| `new clickhouse`         | Reveals the form to create a new ClickHouse connection. |
+| `connect <name>`         | Opens the saved connection `<name>` and shows its database picker. |
+| `connect <name> db [db]` | Opens `<name>` for database selection (optionally selecting a database directly). |
 
-Anything else shows: `Unknown command “…”. Try “connect clickhouse”.`
+Anything else shows a hint: `Try “new clickhouse” or “connect <name>”`.
 
-Command matching is case-insensitive and trims surrounding whitespace.
+Command matching is case-insensitive and trims surrounding whitespace. See
+[connect.md](./connect.md) for the full connection flow.
 
 ## Design principles
 

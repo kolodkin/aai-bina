@@ -10,7 +10,8 @@ connection-config bodies validate `host` (non-empty) and `port` (integer
 | GET    | `/api/health`               | —                                      | Service health check. |
 | GET    | `/api/session`              | —                                      | Current session state `{connected, name?, databases?, database?}`. Lazily auto-connects the latest active connection. |
 | POST   | `/api/clickhouse/test`      | `{host,port,username,password}`        | Test a connection (test only — no save, no activation). `{ok, message}`. |
-| POST   | `/api/clickhouse/connect`   | `{name,host,port,username,password}`   | Open + save + activate a connection; lists databases. `{ok, name, databases}` \| `{ok:false, message}`. |
+| POST   | `/api/clickhouse/connect`   | `{name,host,port,username,password}`   | Create: open + save + activate a connection; lists databases (`new <type>` form). `{ok, name, databases}` \| `{ok:false, message}`. |
+| POST   | `/api/clickhouse/open`      | `{name}`                               | Open a saved connection by name; lists databases (`connect <name>`). `{ok, name, databases}` \| `{ok:false, message}`. |
 | POST   | `/api/clickhouse/database`  | `{database}`                           | Select the active connection's database. `{ok}`. |
 
 ## Persistence

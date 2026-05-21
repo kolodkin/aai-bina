@@ -1,10 +1,23 @@
-# `connect clickhouse`
+# Connecting
 
-Typing `connect clickhouse` into the prompt opens a connection form. From there
-the user can **test** a connection (a throwaway check) or **connect** (open a
-steady connection that is saved and becomes the session's active connection).
-Connections are persisted in SQLite, and the latest active one is re-connected
-automatically when a session starts.
+Connections have two halves: a **type** (the driver, e.g. `clickhouse`) and a
+**name** (your label, e.g. `clickhouse`, `prod-ch`). You create a connection
+once with `new <type>`, then open it by name with `connect <name>`. Connections
+are persisted in SQLite and the latest active one is re-connected automatically
+when a session starts.
+
+## Commands
+
+| Command                       | Effect |
+| ----------------------------- | ------ |
+| `new clickhouse`              | Open the form to create a new ClickHouse connection. |
+| `connect <name>`              | Open the saved connection `<name>` and show its database picker (db view). |
+| `connect <name> db`           | Same — open `<name>` ready to pick a database. |
+| `connect <name> db <database>`| Open `<name>` and select `<database>` directly (skips the picker). |
+
+All matching is case-insensitive and whitespace-trimmed. An unknown command
+shows a hint (`Try "new clickhouse" or "connect <name>"`); `connect <name>` for
+an unknown name reports `no connection named "<name>"`.
 
 ## Concepts
 
@@ -21,12 +34,11 @@ automatically when a session starts.
   then does the top-left indicator read `🟢 connected - <database>`. The choice
   is remembered with the connection.
 
-## Trigger
+## Creating a connection (`new <type>`)
 
-- Command: `connect clickhouse` (case-insensitive, whitespace-trimmed).
-- On match, the connection form renders below the prompt.
+`new clickhouse` renders the connection form below the prompt.
 
-## Connection form
+### Connection form
 
 | Field    | Default     | Notes                                          |
 | -------- | ----------- | ---------------------------------------------- |
@@ -46,16 +58,25 @@ Two actions:
 ## Flow
 
 ```
-prompt ── type "connect clickhouse" ──▶ connection form
-                                          │
-                          ┌── Test ───────┤   (inline pass/fail, stays here)
-                          │               │
-                          └── Connect ────┴──▶ prompt + database picker
-                                                      │
-                                       pick a database │
-                                                      ▼
-                                       🟢 connected - <database>
+prompt ── "new clickhouse" ──▶ connection form
+                                 │
+                 ┌── Test ───────┤   (inline pass/fail, stays here)
+                 │               │
+                 └── Connect ────┴──▶ prompt "connect <name> db" + database picker
+                                              │
+                              pick a database  │   (picker collapses)
+                                              ▼
+                                  🟢 connected - <database>
+
+prompt ── "connect <name>" ──▶ opens saved <name> ──▶ database picker
+prompt ── "connect <name> db <database>" ──▶ opens <name>, selects <database>
 ```
+
+## Opening a saved connection (`connect <name>`)
+
+`connect <name>` looks up the saved connection by name, opens it (lists its
+databases), makes it the active session connection, and shows the database
+picker. Optionally append `db <database>` to select a database in one step.
 
 ## Database picker
 
@@ -123,7 +144,8 @@ connect to it:
 | Method | Path                          | Body                                   | Result |
 | ------ | ----------------------------- | -------------------------------------- | ------ |
 | POST   | `/api/clickhouse/test`        | `{host,port,username,password}`        | `{ok, message}` — test only |
-| POST   | `/api/clickhouse/connect`     | `{name,host,port,username,password}`   | `{ok, name, databases}` \| `{ok:false, message}`; saves + activates |
+| POST   | `/api/clickhouse/connect`     | `{name,host,port,username,password}`   | `{ok, name, databases}` \| `{ok:false, message}`; saves + activates (`new <type>` form) |
+| POST   | `/api/clickhouse/open`        | `{name}`                               | `{ok, name, databases}` \| `{ok:false, message}`; opens a saved connection (`connect <name>`) |
 | POST   | `/api/clickhouse/database`    | `{database}`                           | `{ok}`; sets the session/connection database |
 | GET    | `/api/session`                | —                                      | `{connected, name?, databases?, database?}`; auto-connects latest active |
 
