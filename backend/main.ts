@@ -208,61 +208,69 @@ function touchConnection(name: string): void {
     .run(Date.now(), name)
 }
 
-// --- Session (one active connection, held in memory) ----------------------
+// --- Sessions (one active connection per session, keyed by a cookie) ------
 type Session = {
   name: string
   config: ChConfig
   databases: string[]
   database: string | null
 }
-let session: Session | null = null
+const sessions = new Map<string, Session>()
 
-// Open a steady connection: list its databases and make it the active session.
-async function openConnection(
+// Open a steady connection: list its databases and build a session object.
+async function buildSession(
   name: string,
   config: ChConfig,
   database: string | null,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; session: Session } | { ok: false; message: string }> {
   const r = await chQuery(config, "SHOW DATABASES")
   if (!r.ok) return { ok: false, message: r.message }
   const databases = r.text.split("\n").map((s) => s.trim()).filter(Boolean)
-  session = {
-    name,
-    config,
-    databases,
-    database: database && databases.includes(database) ? database : null,
+  return {
+    ok: true,
+    session: {
+      name,
+      config,
+      databases,
+      database: database && databases.includes(database) ? database : null,
+    },
   }
-  return { ok: true }
 }
 
-// At session start, attempt to reconnect the latest active connection.
-async function ensureSession(): Promise<void> {
-  if (session) return
+// At session start (a cookie we haven't seen), reconnect the latest active
+// connection so a fresh session resumes where the last one left off.
+async function ensureSession(sid: string): Promise<void> {
+  if (sessions.has(sid)) return
   const stored = await latestActiveConnection()
   if (!stored) return
   const { name, database, ...config } = stored
-  await openConnection(name, config, database)
+  const built = await buildSession(name, config, database)
+  if (built.ok) sessions.set(sid, built.session)
 }
 
-function sessionState(): Record<string, unknown> {
-  return session
+function sessionState(s: Session | undefined): Record<string, unknown> {
+  return s
     ? {
       connected: true,
-      name: session.name,
-      databases: session.databases,
-      database: session.database,
+      name: s.name,
+      databases: s.databases,
+      database: s.database,
     }
     : { connected: false }
 }
 
-async function handleApi(req: Request, pathname: string): Promise<Response | null> {
+async function handleApi(
+  req: Request,
+  pathname: string,
+  sid: string,
+): Promise<Response | null> {
   if (req.method === "GET" && pathname === "/api/health") {
     return json({ status: "ok", service: "queryview-backend" })
   }
 
   if (req.method === "GET" && pathname === "/api/session") {
-    await ensureSession()
-    return json(sessionState())
+    await ensureSession(sid)
+    return json(sessionState(sessions.get(sid)))
   }
 
   // Test only: a throwaway connectivity check, no save, no activation.
@@ -277,7 +285,8 @@ async function handleApi(req: Request, pathname: string): Promise<Response | nul
     )
   }
 
-  // Open a steady connection: list databases, persist, and activate it.
+  // Open a steady connection: list databases, persist, and activate it for
+  // this session.
   if (req.method === "POST" && pathname === "/api/clickhouse/connect") {
     const body = await readJson(req)
     const parsed = parseChConfig(body)
@@ -286,13 +295,14 @@ async function handleApi(req: Request, pathname: string): Promise<Response | nul
     const name = typeof b.name === "string" && b.name.trim()
       ? b.name.trim()
       : "clickhouse"
-    const opened = await openConnection(name, parsed.config, null)
-    if (!opened.ok) return json({ ok: false, message: opened.message })
+    const built = await buildSession(name, parsed.config, null)
+    if (!built.ok) return json({ ok: false, message: built.message })
+    sessions.set(sid, built.session)
     await saveActiveConnection(name, parsed.config)
-    return json({ ok: true, name, databases: session!.databases })
+    return json({ ok: true, name, databases: built.session.databases })
   }
 
-  // Open a saved connection by name (connect <name>).
+  // Open a saved connection by name for this session (connect <name>).
   if (req.method === "POST" && pathname === "/api/clickhouse/open") {
     const b = (await readJson(req) ?? {}) as Record<string, unknown>
     const name = typeof b.name === "string" ? b.name.trim() : ""
@@ -306,24 +316,26 @@ async function handleApi(req: Request, pathname: string): Promise<Response | nul
     }
     const { name: _n, database: _d, ...config } = stored
     // Reset the database so `connect <name>` always lands on the picker.
-    const opened = await openConnection(name, config, null)
-    if (!opened.ok) return json({ ok: false, message: opened.message })
+    const built = await buildSession(name, config, null)
+    if (!built.ok) return json({ ok: false, message: built.message })
+    sessions.set(sid, built.session)
     touchConnection(name)
-    return json({ ok: true, name, databases: session!.databases })
+    return json({ ok: true, name, databases: built.session.databases })
   }
 
-  // Select the active connection's database.
+  // Select this session's active connection's database.
   if (req.method === "POST" && pathname === "/api/clickhouse/database") {
-    if (!session) {
+    const s = sessions.get(sid)
+    if (!s) {
       return json({ ok: false, message: "not connected" }, { status: 409 })
     }
     const b = (await readJson(req) ?? {}) as Record<string, unknown>
     const database = typeof b.database === "string" ? b.database : ""
-    if (!database || !session.databases.includes(database)) {
+    if (!database || !s.databases.includes(database)) {
       return json({ ok: false, message: "unknown database" }, { status: 400 })
     }
-    session.database = database
-    saveSelectedDatabase(session.name, database)
+    s.database = database
+    saveSelectedDatabase(s.name, database)
     return json({ ok: true })
   }
 
@@ -334,10 +346,22 @@ async function handleApi(req: Request, pathname: string): Promise<Response | nul
   return null
 }
 
-async function handler(req: Request): Promise<Response> {
-  const { pathname } = new URL(req.url)
+function cookieValue(header: string | null, name: string): string | undefined {
+  if (!header) return undefined
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=")
+    if (eq === -1) continue
+    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim()
+  }
+  return undefined
+}
 
-  const apiResponse = await handleApi(req, pathname)
+async function route(
+  req: Request,
+  pathname: string,
+  sid: string,
+): Promise<Response> {
+  const apiResponse = await handleApi(req, pathname, sid)
   if (apiResponse) return apiResponse
 
   if (!SERVE_STATIC) {
@@ -350,6 +374,23 @@ async function handler(req: Request): Promise<Response> {
   // SPA fallback: serve index.html for any unknown path so client-side
   // routing works. The browser still gets a 200 with the SPA shell.
   return serveFile(req, join(STATIC_ROOT, "index.html"))
+}
+
+async function handler(req: Request): Promise<Response> {
+  const { pathname } = new URL(req.url)
+
+  let sid = cookieValue(req.headers.get("cookie"), "qv_session")
+  const newSession = !sid
+  if (!sid) sid = crypto.randomUUID()
+
+  const res = await route(req, pathname, sid)
+  if (newSession) {
+    res.headers.append(
+      "set-cookie",
+      `qv_session=${sid}; Path=/; HttpOnly; SameSite=Lax`,
+    )
+  }
+  return res
 }
 
 const port = Number(Deno.env.get("PORT") ?? 8000)

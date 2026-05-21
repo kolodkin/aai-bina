@@ -105,6 +105,16 @@ Deno.test("queryview e2e", async (t) => {
           `document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('connected - system') === true`,
         )
       })
+
+      await step("opening with ?connection=<name> opens that connection", async () => {
+        await page.goto(`${BASE_URL}/?connection=clickhouse`, { waitUntil: "networkidle2" })
+        await page.waitForSelector('[data-testid="db-picker"]')
+        const infoDb = await page.waitForSelector('[data-db="information_schema"]')
+        await infoDb.click()
+        await page.waitForFunction(
+          `document.querySelector('[data-testid="connection-status"]')?.textContent?.includes('connected - information_schema') === true`,
+        )
+      })
     }
   } finally {
     await browser.close()

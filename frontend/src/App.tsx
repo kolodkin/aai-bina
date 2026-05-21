@@ -14,8 +14,16 @@ function App() {
   const [showForm, setShowForm] = useState(false)
   const [connection, setConnection] = useState<Connection | null>(null)
 
-  // At session start, attempt to resume the latest active connection.
+  // On load: open a connection named explicitly via ?connection=<name>,
+  // otherwise resume the session's last active connection.
   useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('connection')
+    if (requested) {
+      // Clean the URL so a later reload resumes normally instead of re-opening.
+      history.replaceState(null, '', window.location.pathname)
+      void openSaved(requested)
+      return
+    }
     fetch('/api/session')
       .then((r) => r.json())
       .then((s) => {

@@ -129,18 +129,32 @@ If the key changes (or a row predates encryption) the value can't be decrypted;
 auto-connect simply skips that connection and the user reconnects, which
 re-encrypts it with the current key.
 
-## Session start / auto-connect
+## Sessions, cookies & auto-connect
 
-The active connection lives at the session level. When a session starts the
-backend reads the **latest active** connection from SQLite and attempts to
-connect to it:
+Each browser session has **one active connection**, held server-side and keyed
+by a session **cookie** (`qv_session`, HttpOnly, set on first request). Different
+sessions (browsers / profiles) connect independently — one session switching
+connections doesn't affect another. Saved connections themselves are shared
+(stored once in SQLite); the *active* one is per session.
 
-- `GET /api/session` returns the current session state and, if nothing is active
-  yet, lazily auto-connects to the latest active connection.
+When a session starts (a cookie the backend hasn't seen) it reconnects the
+**latest active** connection from SQLite, so a fresh session resumes where the
+last one left off:
+
+- `GET /api/session` returns this session's state and, for an unseen cookie,
+  lazily auto-connects to the latest active connection.
 - On success the SPA loads already connected — prompt + database picker, with
   the previously selected database pre-selected and the indicator shown.
 - On failure (server down, bad credentials) the SPA falls back to the empty
   prompt; the saved connection is left in place to retry.
+
+To open a **specific** connection on load instead of the latest active one,
+pass it as a query param: `…/?connection=<name>` opens that saved connection
+(equivalent to `connect <name>`). The SPA then cleans the URL so a later reload
+resumes normally.
+
+The per-session state lives in memory, so a backend restart drops it; the next
+request gets a new session that auto-connects the latest active connection.
 
 ## API
 

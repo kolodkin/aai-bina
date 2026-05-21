@@ -41,15 +41,17 @@ page reacts to it inline.
 
 ## Sessions
 
-The active connection is **session state**, not global UI state:
+The active connection is **session state**, not global UI state. Each browser
+session has its own active connection, held at the backend and keyed by a
+cookie; saved connections are shared (SQLite). See [connect.md](./connect.md).
 
-- It is held per session at the backend, and persisted in SQLite (see
-  [connect.md](./connect.md)).
-- **At session start the app attempts to connect to the latest active
-  connection.** The SPA asks `GET /api/session` on load; if a previously active
-  connection re-connects, the page opens already connected — prompt + database
-  picker, the previously selected database pre-selected, and the indicator
-  shown. Otherwise it opens at the empty prompt.
+On load the SPA either:
+
+- **resumes the latest active connection** (`GET /api/session`) — opening already
+  connected, with the previously selected database pre-selected; or
+- **opens a specific connection** when the URL has `?connection=<name>`.
+
+If neither yields a connection it opens at the empty prompt.
 
 ## Commands
 
