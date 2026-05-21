@@ -18,6 +18,9 @@ Deno.test("queryview e2e", async (t) => {
     args: ["--no-sandbox"],
   })
   const page = await browser.newPage()
+  // Desktop viewport so screenshots capture the whole page (title, prompt,
+  // form, and the top-left connection indicator) instead of a cropped window.
+  await page.setViewportSize({ width: 1280, height: 900 })
 
   let stepIndex = 0
   const step = (name: string, fn: () => Promise<void>) =>
