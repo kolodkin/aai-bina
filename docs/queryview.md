@@ -53,11 +53,10 @@ The active connection is **session state**, not global UI state:
 
 ## Commands
 
-| Command                  | Effect                                              |
-| ------------------------ | --------------------------------------------------- |
-| `new clickhouse`         | Reveals the form to create a new ClickHouse connection. |
-| `connect <name>`         | Opens the saved connection `<name>` and shows its database picker. |
-| `connect <name> db [db]` | Opens `<name>` for database selection (optionally selecting a database directly). |
+| Command          | Effect                                              |
+| ---------------- | --------------------------------------------------- |
+| `new clickhouse` | Reveals the form to create a new ClickHouse connection. |
+| `connect <name>` | Opens the saved connection `<name>` and shows its database picker. |
 
 Anything else shows a hint: `Try “new clickhouse” or “connect <name>”`.
 

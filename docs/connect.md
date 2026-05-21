@@ -8,12 +8,10 @@ when a session starts.
 
 ## Commands
 
-| Command                       | Effect |
-| ----------------------------- | ------ |
-| `new clickhouse`              | Open the form to create a new ClickHouse connection. |
-| `connect <name>`              | Open the saved connection `<name>` and show its database picker (db view). |
-| `connect <name> db`           | Same — open `<name>` ready to pick a database. |
-| `connect <name> db <database>`| Open `<name>` and select `<database>` directly (skips the picker). |
+| Command          | Effect |
+| ---------------- | ------ |
+| `new clickhouse` | Open the form to create a new ClickHouse connection. |
+| `connect <name>` | Open the saved connection `<name>` and show its database picker. |
 
 All matching is case-insensitive and whitespace-trimmed. An unknown command
 shows a hint (`Try "new clickhouse" or "connect <name>"`); `connect <name>` for
@@ -62,21 +60,20 @@ prompt ── "new clickhouse" ──▶ connection form
                                  │
                  ┌── Test ───────┤   (inline pass/fail, stays here)
                  │               │
-                 └── Connect ────┴──▶ prompt "connect <name> db" + database picker
+                 └── Connect ────┴──▶ prompt "connect <name>" + database picker
                                               │
                               pick a database  │   (picker collapses)
                                               ▼
                                   🟢 connected - <database>
 
-prompt ── "connect <name>" ──▶ opens saved <name> ──▶ database picker
-prompt ── "connect <name> db <database>" ──▶ opens <name>, selects <database>
+prompt ── "connect <name>" ──▶ opens saved <name> ──▶ database picker ──▶ pick
 ```
 
 ## Opening a saved connection (`connect <name>`)
 
 `connect <name>` looks up the saved connection by name, opens it (lists its
 databases), makes it the active session connection, and shows the database
-picker. Optionally append `db <database>` to select a database in one step.
+picker. Pick a database from the picker to finish.
 
 ## Database picker
 
@@ -89,9 +86,9 @@ After connecting, the prompt view shows the list of databases returned by
 - clears the prompt and switches its placeholder to `table <name> / query`,
   inviting the next action.
 
-While the picker is open the prompt reads `connect <name> db`; once a database
-is selected the prompt clears and prompts (via placeholder) for a table view or
-a query.
+While the picker is open the prompt reads `connect <name>`; once a database is
+selected the prompt clears and its placeholder (`table <name> / query`) prompts
+for the next action.
 
 ## Persistence (SQLite)
 

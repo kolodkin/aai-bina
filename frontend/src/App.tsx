@@ -30,7 +30,7 @@ function App() {
       .catch(() => {})
   }, [])
 
-  async function openSaved(name: string, targetDb?: string) {
+  async function openSaved(name: string) {
     try {
       const res = await fetch('/api/clickhouse/open', {
         method: 'POST',
@@ -42,20 +42,14 @@ function App() {
         setHint(data.message ?? `no connection named “${name}”`)
         return
       }
-      const databases = (data.databases ?? []) as string[]
-      let database: string | null = null
-      if (targetDb && databases.includes(targetDb)) {
-        await fetch('/api/clickhouse/database', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ database: targetDb }),
-        })
-        database = targetDb
-      }
       setShowForm(false)
       setHint(null)
-      setConnection({ name: data.name, databases, database })
-      setPrompt(database ? '' : `connect ${data.name} db`)
+      setConnection({
+        name: data.name,
+        databases: (data.databases ?? []) as string[],
+        database: null,
+      })
+      setPrompt(`connect ${data.name}`)
     } catch (err) {
       setHint(err instanceof Error ? err.message : 'request failed')
     }
@@ -72,11 +66,9 @@ function App() {
       return
     }
     if (lower.startsWith('connect ')) {
-      const tokens = raw.slice('connect '.length).trim().split(/\s+/)
-      const name = tokens[0]
-      const targetDb = tokens[1]?.toLowerCase() === 'db' ? tokens[2] : undefined
+      const name = raw.slice('connect '.length).trim().split(/\s+/)[0]
       if (name) {
-        void openSaved(name, targetDb)
+        void openSaved(name)
         return
       }
     }
@@ -87,7 +79,7 @@ function App() {
   function handleConnected(name: string, databases: string[]) {
     setConnection({ name, databases, database: null })
     setShowForm(false)
-    setPrompt(`connect ${name} db`)
+    setPrompt(`connect ${name}`)
   }
 
   async function selectDatabase(database: string) {
