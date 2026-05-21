@@ -46,6 +46,7 @@ function App() {
   function handleConnected(name: string, databases: string[]) {
     setConnection({ name, databases, database: null })
     setShowForm(false)
+    setPrompt('connect clickhouse db')
   }
 
   async function selectDatabase(database: string) {
@@ -104,7 +105,7 @@ function App() {
 
         {showForm && <ClickHouseForm onConnected={handleConnected} />}
 
-        {!showForm && connection && (
+        {!showForm && connection && connection.database === null && (
           <DatabasePicker connection={connection} onSelect={selectDatabase} />
         )}
       </div>
