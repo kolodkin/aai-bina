@@ -2,6 +2,12 @@ import { serveDir, serveFile } from "jsr:@std/http@^1.0.0/file-server"
 import { fromFileUrl, join } from "jsr:@std/path@^1.0.0"
 import { decodeBase64, encodeBase64 } from "jsr:@std/encoding@^1/base64"
 import { DatabaseSync } from "node:sqlite"
+import {
+  type ChConfig,
+  listDatabases,
+  parseChConfig,
+  testConnection,
+} from "./clickhouse.ts"
 
 const STATIC_ROOT = Deno.env.get("STATIC_ROOT") ??
   fromFileUrl(new URL("../frontend/dist", import.meta.url))
@@ -15,59 +21,6 @@ function json(data: unknown, init: ResponseInit = {}): Response {
       ...(init.headers ?? {}),
     },
   })
-}
-
-type ChConfig = { host: string; port: number; username: string; password: string }
-type ChQueryResult = { ok: true; text: string } | { ok: false; message: string }
-
-async function chQuery(c: ChConfig, query: string): Promise<ChQueryResult> {
-  const url = `http://${c.host}:${c.port}/?query=${encodeURIComponent(query)}`
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 5000)
-  try {
-    const res = await fetch(url, {
-      headers: { Authorization: `Basic ${btoa(`${c.username}:${c.password}`)}` },
-      signal: controller.signal,
-    })
-    const text = (await res.text()).trim()
-    if (!res.ok) {
-      return {
-        ok: false,
-        message: `ClickHouse responded ${res.status}: ${text.slice(0, 200)}`,
-      }
-    }
-    return { ok: true, text }
-  } catch (err) {
-    const message = err instanceof Error
-      ? (err.name === "AbortError" ? "connection timed out" : err.message)
-      : "connection failed"
-    return { ok: false, message }
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-function parseChConfig(
-  body: unknown,
-): { config: ChConfig } | { error: Response } {
-  const b = (body ?? {}) as Record<string, unknown>
-  const host = typeof b.host === "string" ? b.host.trim() : ""
-  const port = typeof b.port === "number"
-    ? b.port
-    : typeof b.port === "string"
-    ? Number(b.port)
-    : NaN
-  const username = typeof b.username === "string" ? b.username : ""
-  const password = typeof b.password === "string" ? b.password : ""
-  if (!host) {
-    return { error: json({ ok: false, message: "host required" }, { status: 400 }) }
-  }
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    return {
-      error: json({ ok: false, message: "valid port required" }, { status: 400 }),
-    }
-  }
-  return { config: { host, port, username, password } }
 }
 
 async function readJson(req: Request): Promise<unknown | undefined> {
@@ -223,9 +176,9 @@ async function buildSession(
   config: ChConfig,
   database: string | null,
 ): Promise<{ ok: true; session: Session } | { ok: false; message: string }> {
-  const r = await chQuery(config, "SHOW DATABASES")
+  const r = await listDatabases(config)
   if (!r.ok) return { ok: false, message: r.message }
-  const databases = r.text.split("\n").map((s) => s.trim()).filter(Boolean)
+  const databases = r.databases
   return {
     ok: true,
     session: {
@@ -276,13 +229,10 @@ async function handleApi(
   // Test only: a throwaway connectivity check, no save, no activation.
   if (req.method === "POST" && pathname === "/api/clickhouse/test") {
     const parsed = parseChConfig(await readJson(req))
-    if ("error" in parsed) return parsed.error
-    const r = await chQuery(parsed.config, "SELECT 1")
-    return json(
-      r.ok
-        ? { ok: true, message: `Connected — SELECT 1 returned ${r.text}` }
-        : { ok: false, message: r.message },
-    )
+    if ("error" in parsed) {
+      return json({ ok: false, message: parsed.error }, { status: 400 })
+    }
+    return json(await testConnection(parsed.config))
   }
 
   // Open a steady connection: list databases, persist, and activate it for
@@ -290,7 +240,9 @@ async function handleApi(
   if (req.method === "POST" && pathname === "/api/clickhouse/connect") {
     const body = await readJson(req)
     const parsed = parseChConfig(body)
-    if ("error" in parsed) return parsed.error
+    if ("error" in parsed) {
+      return json({ ok: false, message: parsed.error }, { status: 400 })
+    }
     const b = (body ?? {}) as Record<string, unknown>
     const name = typeof b.name === "string" && b.name.trim()
       ? b.name.trim()
