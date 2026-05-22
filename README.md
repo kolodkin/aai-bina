@@ -67,10 +67,11 @@ Override the target URL with `BASE_URL=http://localhost:4173 deno task test:e2e`
 
 ## API
 
-| Method | Path          | Description              |
-| ------ | ------------- | ------------------------ |
-| GET    | `/api/health` | Service health check     |
-| GET    | `/api/items`  | List items               |
-| POST   | `/api/items`  | Create item `{ name }`   |
+See [docs/api.md](docs/api.md) for the full endpoint reference.
 
-Items live in memory and reset when the backend restarts — replace `backend/main.ts` with real storage when you are ready.
+The single-page prompt UI is described in [docs/queryview.md](docs/queryview.md);
+connecting (`new <type>` / `connect <name>`), SQLite persistence, and session
+auto-connect are specified in [docs/connect.md](docs/connect.md).
+
+Connections are stored in SQLite (`backend/queryview.db`, override with
+`DB_PATH`); the backend therefore runs with `--allow-write`.

@@ -22,6 +22,19 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1/1]
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:24
+        ports:
+          - 8123:8123
+        # Probe the HTTP interface (8123) — what the backend actually uses —
+        # so the readiness gate matches the app.
+        options: >-
+          --health-cmd "curl -sf http://localhost:8123/ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+          --health-start-period 10s
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +52,7 @@ jobs:
 
       - name: Start backend (serving built SPA)
         run: |
-          SERVE_STATIC=1 deno run --allow-net --allow-env --allow-read backend/main.ts > backend.log 2>&1 &
+          SERVE_STATIC=1 deno run --allow-net --allow-env --allow-read --allow-write backend/main.ts > backend.log 2>&1 &
           echo $! > backend.pid
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/api/health > /dev/null; then
@@ -54,6 +67,7 @@ jobs:
         env:
           BASE_URL: http://localhost:8000
           CHROME_PATH: /usr/bin/google-chrome
+          EXPECT_CLICKHOUSE_OK: "1"
         run: |
           shard="${{ matrix.shard }}"
           safe_shard="${shard//\//-}"
