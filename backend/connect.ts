@@ -7,27 +7,39 @@ import { decodeBase64, encodeBase64 } from "jsr:@std/encoding@^1/base64"
 import { DatabaseSync } from "node:sqlite"
 import { type ChConfig, listDatabases } from "./clickhouse.ts"
 
-// --- Storage (SQLite) -----------------------------------------------------
-const DB_PATH = Deno.env.get("DB_PATH") ??
-  fromFileUrl(new URL("./queryview.db", import.meta.url))
-const db = new DatabaseSync(DB_PATH)
-db.exec(`
-  CREATE TABLE IF NOT EXISTS connections (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    name           TEXT NOT NULL UNIQUE,
-    host           TEXT NOT NULL,
-    port           INTEGER NOT NULL,
-    username       TEXT NOT NULL,
-    password       TEXT NOT NULL,
-    database       TEXT,
-    last_active_at INTEGER NOT NULL
-  )
-`)
+// --- Storage (SQLite, lazily opened) --------------------------------------
+function dbPath(): string {
+  return Deno.env.get("DB_PATH") ??
+    fromFileUrl(new URL("./queryview.db", import.meta.url))
+}
+
+let _db: DatabaseSync | undefined
+// Open the DB and ensure the schema on first use; memoized thereafter. Lazy so
+// importing this module has no side effects (no file is touched until needed).
+function db(): DatabaseSync {
+  if (_db) return _db
+  _db = new DatabaseSync(dbPath())
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS connections (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      name           TEXT NOT NULL UNIQUE,
+      host           TEXT NOT NULL,
+      port           INTEGER NOT NULL,
+      username       TEXT NOT NULL,
+      password       TEXT NOT NULL,
+      database       TEXT,
+      last_active_at INTEGER NOT NULL
+    )
+  `)
+  return _db
+}
 
 // --- Password encryption at rest (AES-256-GCM) ----------------------------
 // The key comes from DB_ENCRYPTION_KEY (base64, 32 bytes) or a generated local
 // key file next to the DB (gitignored). Stored values are base64(iv ‖ ciphertext).
-const KEY_PATH = Deno.env.get("DB_KEY_PATH") ?? `${DB_PATH}.key`
+function keyPath(): string {
+  return Deno.env.get("DB_KEY_PATH") ?? `${dbPath()}.key`
+}
 
 async function loadOrCreateKey(): Promise<CryptoKey> {
   let raw: Uint8Array
@@ -36,10 +48,10 @@ async function loadOrCreateKey(): Promise<CryptoKey> {
     raw = decodeBase64(envKey)
   } else {
     try {
-      raw = await Deno.readFile(KEY_PATH)
+      raw = await Deno.readFile(keyPath())
     } catch {
       raw = crypto.getRandomValues(new Uint8Array(32))
-      await Deno.writeFile(KEY_PATH, raw, { mode: 0o600 })
+      await Deno.writeFile(keyPath(), raw, { mode: 0o600 })
     }
   }
   return await crypto.subtle.importKey("raw", new Uint8Array(raw), "AES-GCM", false, [
@@ -47,14 +59,19 @@ async function loadOrCreateKey(): Promise<CryptoKey> {
     "decrypt",
   ])
 }
-const encryptionKey = await loadOrCreateKey()
+
+let _key: Promise<CryptoKey> | undefined
+// Lazily load (or generate) the encryption key once; memoized.
+function key(): Promise<CryptoKey> {
+  return (_key ??= loadOrCreateKey())
+}
 
 async function encryptPassword(plain: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const ct = new Uint8Array(
     await crypto.subtle.encrypt(
       { name: "AES-GCM", iv },
-      encryptionKey,
+      await key(),
       new Uint8Array(new TextEncoder().encode(plain)),
     ),
   )
@@ -68,7 +85,7 @@ async function decryptPassword(stored: string): Promise<string> {
   const combined = new Uint8Array(decodeBase64(stored))
   const pt = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: combined.subarray(0, 12) },
-    encryptionKey,
+    await key(),
     combined.subarray(12),
   )
   return new TextDecoder().decode(pt)
@@ -78,7 +95,7 @@ type StoredConnection = ChConfig & { name: string; database: string | null }
 
 async function saveActiveConnection(name: string, c: ChConfig): Promise<void> {
   const password = await encryptPassword(c.password)
-  db.prepare(
+  db().prepare(
     `INSERT INTO connections (name, host, port, username, password, last_active_at)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(name) DO UPDATE SET
@@ -89,7 +106,7 @@ async function saveActiveConnection(name: string, c: ChConfig): Promise<void> {
 }
 
 function saveSelectedDatabase(name: string, database: string): void {
-  db.prepare(`UPDATE connections SET database = ? WHERE name = ?`)
+  db().prepare(`UPDATE connections SET database = ? WHERE name = ?`)
     .run(database, name)
 }
 
@@ -116,7 +133,7 @@ async function rowToConnection(
 
 function latestActiveConnection(): Promise<StoredConnection | null> {
   return rowToConnection(
-    db.prepare(
+    db().prepare(
       `SELECT name, host, port, username, password, database
        FROM connections ORDER BY last_active_at DESC LIMIT 1`,
     ).get() as Record<string, unknown> | undefined,
@@ -125,7 +142,7 @@ function latestActiveConnection(): Promise<StoredConnection | null> {
 
 function connectionByName(name: string): Promise<StoredConnection | null> {
   return rowToConnection(
-    db.prepare(
+    db().prepare(
       `SELECT name, host, port, username, password, database
        FROM connections WHERE name = ?`,
     ).get(name) as Record<string, unknown> | undefined,
@@ -133,7 +150,7 @@ function connectionByName(name: string): Promise<StoredConnection | null> {
 }
 
 function touchConnection(name: string): void {
-  db.prepare(`UPDATE connections SET last_active_at = ? WHERE name = ?`)
+  db().prepare(`UPDATE connections SET last_active_at = ? WHERE name = ?`)
     .run(Date.now(), name)
 }
 
