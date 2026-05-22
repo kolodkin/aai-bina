@@ -146,6 +146,30 @@ type Session = {
 }
 const sessions = new Map<string, Session>()
 
+// Cap the session map and evict the least-recently-used entry so it can't grow
+// unbounded (every fresh cookie adds one). An evicted session transparently
+// rebuilds on its next request via ensureSession. Map keeps insertion order, so
+// re-inserting on access moves an entry to the most-recently-used end.
+const MAX_SESSIONS = Number(Deno.env.get("MAX_SESSIONS") ?? 1000)
+
+function getSessionEntry(sid: string): Session | undefined {
+  const s = sessions.get(sid)
+  if (s !== undefined) {
+    sessions.delete(sid)
+    sessions.set(sid, s)
+  }
+  return s
+}
+
+function setSessionEntry(sid: string, s: Session): void {
+  sessions.delete(sid)
+  sessions.set(sid, s)
+  if (sessions.size > MAX_SESSIONS) {
+    const oldest = sessions.keys().next().value
+    if (oldest !== undefined) sessions.delete(oldest)
+  }
+}
+
 // List a connection's databases and build a session object.
 async function buildSession(
   name: string,
@@ -169,12 +193,12 @@ async function buildSession(
 // At session start (a cookie we haven't seen), reconnect the latest active
 // connection so a fresh session resumes where the last one left off.
 async function ensureSession(sid: string): Promise<void> {
-  if (sessions.has(sid)) return
+  if (getSessionEntry(sid)) return
   const stored = await latestActiveConnection()
   if (!stored) return
   const { name, database, ...config } = stored
   const built = await buildSession(name, config, database)
-  if (built.ok) sessions.set(sid, built.session)
+  if (built.ok) setSessionEntry(sid, built.session)
 }
 
 export type SessionView =
@@ -184,7 +208,7 @@ export type SessionView =
 /** This session's state; auto-connects the latest active for an unseen cookie. */
 export async function getSession(sid: string): Promise<SessionView> {
   await ensureSession(sid)
-  const s = sessions.get(sid)
+  const s = getSessionEntry(sid)
   return s
     ? { connected: true, name: s.name, databases: s.databases, database: s.database }
     : { connected: false }
@@ -202,7 +226,7 @@ export async function connectNew(
 ): Promise<OpenResult> {
   const built = await buildSession(name, config, null)
   if (!built.ok) return { ok: false, message: built.message }
-  sessions.set(sid, built.session)
+  setSessionEntry(sid, built.session)
   await saveActiveConnection(name, config)
   return { ok: true, name, databases: built.session.databases }
 }
@@ -217,7 +241,7 @@ export async function openSaved(sid: string, name: string): Promise<OpenResult> 
   // Reset the database so `connect <name>` always lands on the picker.
   const built = await buildSession(name, config, null)
   if (!built.ok) return { ok: false, message: built.message }
-  sessions.set(sid, built.session)
+  setSessionEntry(sid, built.session)
   touchConnection(name)
   return { ok: true, name, databases: built.session.databases }
 }
@@ -227,7 +251,7 @@ export function selectDatabase(
   sid: string,
   database: string,
 ): { ok: true } | { ok: false; message: string; reason: "no-session" | "unknown" } {
-  const s = sessions.get(sid)
+  const s = getSessionEntry(sid)
   if (!s) return { ok: false, message: "not connected", reason: "no-session" }
   if (!database || !s.databases.includes(database)) {
     return { ok: false, message: "unknown database", reason: "unknown" }
