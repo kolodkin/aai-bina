@@ -25,6 +25,7 @@ import html
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -80,6 +81,19 @@ def find_chrome() -> str | None:
     return None
 
 
+def image_size(path: Path) -> tuple[int, int] | None:
+    """Pixel (width, height) for a PNG, else None (stdlib only — PNG is what the
+    Astral suite emits). Used to reserve space so off-screen steps don't reflow."""
+    try:
+        head = path.read_bytes()[:24]
+    except OSError:
+        return None
+    if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+        w, h = struct.unpack(">II", head[16:24])
+        return w, h
+    return None
+
+
 def data_uri(path: Path) -> str:
     mime = {
         ".png": "image/png",
@@ -95,13 +109,25 @@ def data_uri(path: Path) -> str:
 def build_html(images: list[Path], title: str) -> str:
     generated = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     steps_html = []
+    content_width = 920  # approximate rendered image width inside a .step card
     for img in images:
         number, step_title = humanize(img.name)
         label = f"{number}. {step_title}" if number else step_title
+        dims = image_size(img)
+        if dims:
+            w, h = dims
+            dim_attrs = f' width="{w}" height="{h}"'
+            render_h = round(content_width * h / w)
+        else:
+            dim_attrs = ""
+            render_h = 675
+        # Reserve the card's rendered height so off-screen steps (which
+        # content-visibility skips) don't reflow the page when scrolled into view.
+        reserve = render_h + 96  # heading + card padding
         steps_html.append(
-            f"""    <section class="step">
+            f"""    <section class="step" style="contain-intrinsic-size: {content_width}px {reserve}px;">
       <h2><span class="num">{html.escape(number or '')}</span>{html.escape(step_title)}</h2>
-      <img alt="{html.escape(label)}" src="{data_uri(img)}" />
+      <img alt="{html.escape(label)}"{dim_attrs} loading="lazy" decoding="async" src="{data_uri(img)}" />
     </section>"""
         )
     body = "\n".join(steps_html)
@@ -128,6 +154,9 @@ def build_html(images: list[Path], title: str) -> str:
     background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
     box-shadow: 0 1px 2px rgba(15,23,42,.04);
     break-inside: avoid; page-break-inside: avoid;
+    /* Skip painting/decoding off-screen steps so a 7-image gallery scrolls
+       smoothly; the inline contain-intrinsic-size reserves each card's height. */
+    content-visibility: auto;
   }}
   .step h2 {{
     display: flex; align-items: center; gap: .6rem;
@@ -147,7 +176,8 @@ def build_html(images: list[Path], title: str) -> str:
   footer {{ max-width: 960px; margin: 2rem auto 0; color: #94a3b8; font-size: .8rem; text-align: center; }}
   @media print {{
     body {{ background: #fff; padding: 0; }}
-    .step {{ box-shadow: none; }}
+    /* Force every step to render so all pages appear in the PDF. */
+    .step {{ box-shadow: none; content-visibility: visible; }}
   }}
 </style>
 </head>
