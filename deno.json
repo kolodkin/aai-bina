@@ -1,9 +1,9 @@
 {
   "tasks": {
     "backend": "uv run --project backend uvicorn queryview.main:app --reload --port 8000",
-    "frontend": "deno task --cwd frontend dev",
+    "frontend": "npm --prefix frontend run dev",
     "dev": "deno run -A npm:concurrently@9 -n backend,frontend -c blue,magenta \"deno task backend\" \"deno task frontend\"",
-    "build": "deno task --cwd frontend build",
+    "build": "npm --prefix frontend run build",
     "start": "SERVE_STATIC=1 uv run --project backend queryview-backend",
     "preview": "deno task build && deno task start",
     "test:e2e": "deno test -A e2e/"

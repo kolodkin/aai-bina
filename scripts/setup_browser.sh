@@ -43,6 +43,7 @@ wait_for() { # url label
 
 command -v deno >/dev/null 2>&1 || die "deno not found — install from https://deno.com"
 command -v uv >/dev/null 2>&1 || die "uv not found — install from https://docs.astral.sh/uv/"
+command -v npm >/dev/null 2>&1 || die "npm not found — install Node.js from https://nodejs.org"
 
 # --- Chrome --------------------------------------------------------------
 if [ -z "${CHROME_PATH:-}" ]; then
@@ -70,9 +71,9 @@ CLICKHOUSE_PORT="$CLICKHOUSE_PORT" "$ROOT/scripts/setup_clickhouse.sh"
 
 # --- Frontend build + backend -------------------------------------------
 log "installing frontend deps"
-( cd frontend && deno install --allow-scripts )
+( cd frontend && npm ci )
 log "building SPA"
-deno task build
+( cd frontend && npm run build )
 log "installing backend deps"
 uv sync --project "$ROOT/backend" --frozen
 log "starting backend (serving built SPA) on :$BACKEND_PORT"

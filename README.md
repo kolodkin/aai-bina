@@ -16,11 +16,14 @@ Project skeleton: **Python** backend (**FastAPI + SQLModel**) + **Vite + React +
 
 - [uv](https://docs.astral.sh/uv/) — runs the Python backend (it manages the
   Python toolchain and dependencies for you).
-- [Deno](https://docs.deno.com/runtime/getting_started/installation/) 2.x —
-  package manager + dev server for the frontend, and the runner for the Astral
-  e2e suite.
+- [Node.js](https://nodejs.org) 20+ (with npm) — installs and runs the Vite
+  frontend.
+- [Deno](https://docs.deno.com/runtime/getting_started/installation/) 2.x — the
+  root task runner (`deno task …`) and the runner for the Astral e2e suite
+  (`deno test`).
 
-Deno acts as the package manager for the frontend per the [official Deno + Vite + React tutorial](https://docs.deno.com/examples/react_tutorial/); uv handles the backend's Python virtualenv and dependencies; Astral handles the e2e browser via JSR.
+npm manages the frontend; uv handles the backend's Python virtualenv and
+dependencies; Deno runs the root tasks and the Astral e2e browser (via JSR).
 
 ## Install
 
@@ -30,10 +33,10 @@ Install the backend's Python dependencies (uv reads `backend/pyproject.toml`):
 uv sync --project backend
 ```
 
-Install the frontend's npm dependencies (Deno reads `package.json`):
+Install the frontend's npm dependencies (npm reads `frontend/package.json`):
 
 ```bash
-deno install --cwd frontend
+npm --prefix frontend install
 ```
 
 The first `deno task test:e2e` run downloads a Chromium binary into Astral's cache; no extra step is needed.
