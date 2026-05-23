@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a single consolidated e2e artifact from Astral screenshots.
+"""Build a single consolidated e2e artifact from Playwright screenshots.
 
 Each screenshot is shown under its humanized step title (derived from the file
 name, e.g. ``05-selecting-a-database...png`` -> "5. Selecting a database..."),
@@ -154,7 +154,7 @@ def main() -> int:
     if src is None:
         print(
             "No screenshots found. Run the e2e suite first (e.g. scripts/setup.sh "
-            "or deno task test:e2e) or pass --screenshots DIR.",
+            "or npm run test:e2e) or pass --screenshots DIR.",
             file=sys.stderr,
         )
         return 1

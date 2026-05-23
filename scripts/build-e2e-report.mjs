@@ -1,63 +1,55 @@
-// Builds a self-contained static HTML report from deno-test JUnit XML files
-// and captured stdout logs. Mirrors the role of `playwright merge-reports`
-// for the queryview e2e workflow: input dir holds per-shard artifacts, output
-// dir gets an index.html + the raw report sources copied alongside.
+// Builds a self-contained static HTML report from Playwright JUnit XML files
+// and captured stdout logs. Mirrors the role of `playwright merge-reports` for
+// the queryview e2e workflow: the input dir holds per-shard artifacts, the
+// output dir gets an index.html + the raw report sources copied alongside.
+//
+// Dependency-free Node ESM: run with `node scripts/build-e2e-report.mjs <in> <out>`.
 
-type TestCase = {
-  suite: string
-  name: string
-  time: number
-  status: "passed" | "failed" | "skipped"
-  message?: string
-  details?: string
-}
+import { readFile, readdir, mkdir, copyFile, writeFile } from "node:fs/promises"
+import { join, sep } from "node:path"
 
-const [inputDir, outputDir] = Deno.args
+const [inputDir, outputDir] = process.argv.slice(2)
 if (!inputDir || !outputDir) {
-  console.error("usage: build-e2e-report.ts <input-dir> <output-dir>")
-  Deno.exit(2)
+  console.error("usage: build-e2e-report.mjs <input-dir> <output-dir>")
+  process.exit(2)
 }
 
-await Deno.mkdir(outputDir, { recursive: true })
+await mkdir(outputDir, { recursive: true })
 
-const cases: TestCase[] = []
-const logs: Array<{ name: string; content: string }> = []
-const screenshots: Array<{ group: string; name: string; href: string }> = []
-const sep = Deno.build.os === "windows" ? "\\" : "/"
+/** @type {Array<{suite:string,name:string,time:number,status:"passed"|"failed"|"skipped",message?:string,details?:string}>} */
+const cases = []
+/** @type {Array<{name:string,content:string}>} */
+const logs = []
+/** @type {Array<{group:string,name:string,href:string}>} */
+const screenshots = []
 const IMG_EXT = /\.(png|jpe?g|gif|webp)$/i
 
-async function walk(dir: string, relRoot: string) {
-  for await (const entry of Deno.readDir(dir)) {
-    const abs = `${dir}${sep}${entry.name}`
+async function walk(dir, relRoot) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const abs = join(dir, entry.name)
     const rel = relRoot ? `${relRoot}/${entry.name}` : entry.name
-    if (entry.isDirectory) {
-      await Deno.mkdir(`${outputDir}${sep}${rel.replaceAll("/", sep)}`, {
-        recursive: true,
-      })
+    if (entry.isDirectory()) {
+      await mkdir(join(outputDir, rel.replaceAll("/", sep)), { recursive: true })
       await walk(abs, rel)
       continue
     }
-    if (!entry.isFile) continue
+    if (!entry.isFile()) continue
     if (entry.name.endsWith(".xml")) {
-      cases.push(...parseJUnit(await Deno.readTextFile(abs)))
+      cases.push(...parseJUnit(await readFile(abs, "utf8")))
     } else if (entry.name.endsWith(".log")) {
-      logs.push({ name: rel, content: await Deno.readTextFile(abs) })
+      logs.push({ name: rel, content: await readFile(abs, "utf8") })
     } else if (IMG_EXT.test(entry.name)) {
-      screenshots.push({
-        group: relRoot || "(root)",
-        name: entry.name,
-        href: rel,
-      })
+      screenshots.push({ group: relRoot || "(root)", name: entry.name, href: rel })
     }
     // Copy raw artifacts alongside the rendered report so users can drill in.
-    await Deno.copyFile(abs, `${outputDir}${sep}${rel.replaceAll("/", sep)}`)
+    await copyFile(abs, join(outputDir, rel.replaceAll("/", sep)))
   }
 }
 
 try {
   await walk(inputDir, "")
 } catch (err) {
-  if (!(err instanceof Deno.errors.NotFound)) throw err
+  if (err?.code !== "ENOENT") throw err
   console.warn(`input dir ${inputDir} not found — emitting an empty report`)
 }
 
@@ -76,7 +68,7 @@ const totals = cases.reduce(
 )
 
 const html = renderHtml(cases, totals, logs, screenshots)
-await Deno.writeTextFile(`${outputDir}${sep}index.html`, html)
+await writeFile(join(outputDir, "index.html"), html)
 
 console.log(
   `Wrote report to ${outputDir}/index.html — ${totals.passed} passed, ` +
@@ -86,22 +78,20 @@ console.log(
 
 // ---- JUnit parsing -------------------------------------------------------
 
-function parseJUnit(xml: string): TestCase[] {
-  const out: TestCase[] = []
+function parseJUnit(xml) {
+  const out = []
   const suiteRegex = /<testsuite\b([^>]*)>([\s\S]*?)<\/testsuite>/g
-  let suiteMatch: RegExpExecArray | null
+  let suiteMatch
   while ((suiteMatch = suiteRegex.exec(xml)) !== null) {
     const suiteAttrs = parseAttrs(suiteMatch[1])
     const suiteName = suiteAttrs.name ?? "(unnamed suite)"
     const body = suiteMatch[2]
     const caseRegex = /<testcase\b([^>]*?)(\/>|>([\s\S]*?)<\/testcase>)/g
-    let caseMatch: RegExpExecArray | null
+    let caseMatch
     while ((caseMatch = caseRegex.exec(body)) !== null) {
       const attrs = parseAttrs(caseMatch[1])
       const inner = caseMatch[3] ?? ""
-      const failure = /<failure\b([^>]*)(?:\/>|>([\s\S]*?)<\/failure>)/.exec(
-        inner,
-      )
+      const failure = /<failure\b([^>]*)(?:\/>|>([\s\S]*?)<\/failure>)/.exec(inner)
       const error = /<error\b([^>]*)(?:\/>|>([\s\S]*?)<\/error>)/.exec(inner)
       const skipped = /<skipped\b[^>]*\/>/.test(inner)
       const problem = failure ?? error
@@ -118,15 +108,15 @@ function parseJUnit(xml: string): TestCase[] {
   return out
 }
 
-function parseAttrs(s: string): Record<string, string> {
-  const attrs: Record<string, string> = {}
+function parseAttrs(s) {
+  const attrs = {}
   const re = /(\w+)="([^"]*)"/g
-  let m: RegExpExecArray | null
+  let m
   while ((m = re.exec(s)) !== null) attrs[m[1]] = decode(m[2])
   return attrs
 }
 
-function decode(s: string): string {
+function decode(s) {
   return s
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -137,7 +127,7 @@ function decode(s: string): string {
 
 // ---- HTML rendering ------------------------------------------------------
 
-function esc(s: string): string {
+function esc(s) {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -146,12 +136,7 @@ function esc(s: string): string {
     .replace(/'/g, "&#39;")
 }
 
-function renderHtml(
-  cases: TestCase[],
-  totals: { total: number; passed: number; failed: number; skipped: number; time: number },
-  logs: Array<{ name: string; content: string }>,
-  screenshots: Array<{ group: string; name: string; href: string }>,
-): string {
+function renderHtml(cases, totals, logs, screenshots) {
   const rows = cases.map((c) => `
       <tr class="row ${c.status}">
         <td><span class="badge ${c.status}">${c.status}</span></td>
@@ -170,7 +155,7 @@ function renderHtml(
     `<details><summary>${esc(l.name)}</summary><pre>${esc(l.content)}</pre></details>`
   ).join("")
 
-  const groups = new Map<string, typeof screenshots>()
+  const groups = new Map()
   for (const s of screenshots) {
     const arr = groups.get(s.group) ?? []
     arr.push(s)

@@ -5,7 +5,7 @@ the spec lives here until it ships, then moves into the relevant doc.
 
 ## Skill: `e2e pdf`
 
-A skill that turns the Astral e2e screenshots into a PDF artifact, scoped by a
+A skill that turns the Playwright e2e screenshots into a PDF artifact, scoped by a
 single argument. It builds on the existing
 [`e2e-report`](../.claude/skills/e2e-report/SKILL.md) skill (which already
 renders all screenshots — each under its step title — to a self-contained HTML
@@ -28,7 +28,7 @@ Running `e2e pdf` with no argument is equivalent to `e2e pdf pr`.
 
 - **`pr` (default)** — the common case while iterating on a branch. It uses the
   screenshots from the latest local e2e run (`scripts/setup.sh` or
-  `deno task test:e2e`), renders them locally to a PDF, and hands back the file
+  `npm run test:e2e`), renders them locally to a PDF, and hands back the file
   path. Nothing is pushed or attached to the PR by default; it is a local
   artifact for review.
 - **`<module name>`** — scopes the report to the screenshots produced by the

@@ -1,6 +1,6 @@
 # QueryView
 
-Project skeleton: **Python** backend (**FastAPI + SQLModel**) + **Vite + React + TypeScript** SPA frontend with **Tailwind CSS**, plus **[Astral](https://github.com/lino-levan/astral)** end-to-end tests running on `deno test`.
+Project skeleton: **Python** backend (**FastAPI + SQLModel**) + **Vite + React + TypeScript** SPA frontend with **Tailwind CSS**, plus **[Playwright](https://playwright.dev)** end-to-end tests.
 
 ## Layout
 
@@ -8,22 +8,19 @@ Project skeleton: **Python** backend (**FastAPI + SQLModel**) + **Vite + React +
 .
 ├── backend/         # Python FastAPI + SQLModel app exposing /api/*
 ├── frontend/        # Vite + React + TS + Tailwind v4 SPA
-├── e2e/             # Astral browser tests (deno test)
-└── deno.json        # Root tasks (frontend build, dev orchestration, e2e)
+├── e2e/             # Playwright browser tests
+└── package.json     # Root tasks (dev orchestration, build, e2e) + Playwright
 ```
 
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) — runs the Python backend (it manages the
   Python toolchain and dependencies for you).
-- [Node.js](https://nodejs.org) 20+ (with npm) — installs and runs the Vite
-  frontend.
-- [Deno](https://docs.deno.com/runtime/getting_started/installation/) 2.x — the
-  root task runner (`deno task …`) and the runner for the Astral e2e suite
-  (`deno test`).
+- [Node.js](https://nodejs.org) 20+ (with npm) — runs the root tasks, the Vite
+  frontend, and the Playwright e2e suite.
 
-npm manages the frontend; uv handles the backend's Python virtualenv and
-dependencies; Deno runs the root tasks and the Astral e2e browser (via JSR).
+npm runs the frontend, the root task scripts, and the Playwright e2e browser;
+uv handles the backend's Python virtualenv and dependencies.
 
 ## Install
 
@@ -39,21 +36,26 @@ Install the frontend's npm dependencies (npm reads `frontend/package.json`):
 npm --prefix frontend install
 ```
 
-The first `deno task test:e2e` run downloads a Chromium binary into Astral's cache; no extra step is needed.
+Install the root dev dependencies (the task runner + Playwright) and its browser:
+
+```bash
+npm install
+npx playwright install chromium
+```
 
 ## Run dev servers
 
 Run backend and frontend together:
 
 ```bash
-deno task dev
+npm run dev
 ```
 
 Or individually:
 
 ```bash
-deno task backend    # uvicorn --reload on http://localhost:8000
-deno task frontend   # http://localhost:5173
+npm run backend    # uvicorn --reload on http://localhost:8000
+npm run frontend   # http://localhost:5173
 ```
 
 The Vite dev server proxies `/api/*` to the FastAPI backend, so the SPA can call the API on the same origin.
@@ -61,22 +63,22 @@ The Vite dev server proxies `/api/*` to the FastAPI backend, so the SPA can call
 ## Build & preview production
 
 ```bash
-deno task build      # produces frontend/dist/
-deno task start      # SERVE_STATIC=1, FastAPI serves dist/ + /api on :8000
-deno task preview    # build && start in one shot
+npm run build      # produces frontend/dist/
+npm run start      # SERVE_STATIC=1, FastAPI serves dist/ + /api on :8000
+npm run preview    # build && start in one shot
 ```
 
 In production there is no Vite — the FastAPI backend serves the bundled SPA from `frontend/dist/` and falls back to `index.html` for any unknown non-`/api` path so client-side routing works. Override the dist location with `STATIC_ROOT=/path/to/dist`.
 
 ## End-to-end tests
 
-Start the dev servers (`deno task dev`) in one terminal, then in another:
+Start the dev servers (`npm run dev`) in one terminal, then in another:
 
 ```bash
-deno task test:e2e
+npm run test:e2e
 ```
 
-Override the target URL with `BASE_URL=http://localhost:4173 deno task test:e2e` (e.g. to test a built preview).
+Override the target URL with `BASE_URL=http://localhost:4173 npm run test:e2e` (e.g. to test a built preview). To run the full suite against a real ClickHouse the way CI does, use `scripts/setup.sh`.
 
 ## API
 

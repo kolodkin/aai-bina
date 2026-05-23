@@ -1,6 +1,6 @@
 ---
 name: e2e-report
-description: Build a single consolidated e2e artifact from the Astral browser screenshots — every screenshot shown under its humanized step title, as a self-contained HTML file. Use when the user asks for an "e2e report", "e2e artifact", a document/gallery of the e2e screenshots, or wants to bundle the screenshots from .cache/screenshots (or SCREENSHOT_DIR) into one shareable file.
+description: Build a single consolidated e2e artifact from the Playwright browser screenshots — every screenshot shown under its humanized step title, as a self-contained HTML file. Use when the user asks for an "e2e report", "e2e artifact", a document/gallery of the e2e screenshots, or wants to bundle the screenshots from .cache/screenshots (or SCREENSHOT_DIR) into one shareable file.
 ---
 
 # e2e-report
@@ -14,7 +14,7 @@ the test prints), as a self-contained HTML file with images embedded.
 - The user wants a "nice e2e artifact", an e2e screenshot report, or a
   document/gallery of the run.
 - After an e2e run has produced screenshots (locally via `scripts/setup.sh` or
-  `deno task test:e2e`; in CI they land under the blob report).
+  `npm run test:e2e`; in CI they land under the blob report).
 
 ## How to run
 
