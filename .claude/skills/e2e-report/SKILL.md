@@ -19,11 +19,16 @@ PDF rendered through Chrome when one is available.
 
 ## How to run
 
-The generator is pure Python stdlib — no dependencies to install.
+Run with `uv run` so Pillow (declared in the script's PEP 723 metadata) is
+auto-installed — it downscales the screenshots, which is what keeps the gallery
+scrolling smoothly:
 
 ```bash
-python .claude/skills/e2e-report/build_report.py
+uv run .claude/skills/e2e-report/build_report.py
 ```
+
+Plain `python .claude/skills/e2e-report/build_report.py` also works but, without
+Pillow, embeds the screenshots at full resolution (heavier to scroll).
 
 It auto-discovers the screenshots directory (first match of `$SCREENSHOT_DIR`,
 `.cache/screenshots`, `e2e/screenshots`, `./screenshots`) and writes
@@ -35,6 +40,11 @@ Common options:
 - `--out PATH` — output HTML path; the PDF is written alongside with a `.pdf`
   suffix.
 - `--title "..."` — report heading (default `QueryView E2E Report`).
+- `--max-width PX` — downscale screenshots wider than this (default `1000`;
+  `0` keeps original size). Smaller = smoother scrolling.
+- `--image-format png|webp|jpeg|original` — re-encode embedded images (default
+  `png`; `webp`/`jpeg` shrink bytes further; `original` keeps source bytes).
+- `--quality N` — webp/jpeg quality (default `80`).
 - `--pdf` — require a PDF (exit non-zero if no Chrome); `--no-pdf` — HTML only.
 - `CHROME_PATH=/path/to/chrome` — use a specific Chrome/Chromium for the PDF.
 

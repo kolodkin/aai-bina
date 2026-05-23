@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pillow>=10"]
+# ///
 """Build a single consolidated e2e artifact from Astral screenshots.
 
 Each screenshot is shown under its humanized step title (derived from the file
@@ -7,9 +11,15 @@ matching the step names from the test run. Output is a self-contained HTML file
 (images embedded as base64, so it is portable as a single artifact); a PDF is
 also rendered when a Chrome/Chromium binary is available.
 
+Screenshots are downscaled (default max-width 1000px) and re-encoded so the
+gallery scrolls smoothly — full-resolution bitmaps are expensive to paint per
+frame. This needs Pillow; run via `uv run` to auto-install it (PEP 723 metadata
+above), otherwise the originals are embedded at full size.
+
 Usage:
-  python build_report.py [--screenshots DIR] [--out FILE]
-                         [--title TITLE] [--pdf] [--no-pdf]
+  uv run build_report.py [--screenshots DIR] [--out FILE] [--title TITLE]
+                         [--max-width PX] [--image-format png|webp|jpeg|original]
+                         [--quality N] [--pdf] [--no-pdf]
 
 Defaults: screenshots from $SCREENSHOT_DIR or the first existing of
 .cache/screenshots, e2e/screenshots, ./screenshots; output to
@@ -94,26 +104,81 @@ def image_size(path: Path) -> tuple[int, int] | None:
     return None
 
 
-def data_uri(path: Path) -> str:
-    mime = {
+def mime_for(suffix: str) -> str:
+    return {
         ".png": "image/png",
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
         ".gif": "image/gif",
         ".webp": "image/webp",
-    }.get(path.suffix.lower(), "application/octet-stream")
-    b64 = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f"data:{mime};base64,{b64}"
+    }.get(suffix.lower(), "application/octet-stream")
 
 
-def build_html(images: list[Path], title: str) -> str:
+def load_pillow():
+    """Return PIL.Image if available, else None (run via `uv run` to auto-install)."""
+    try:
+        from PIL import Image
+
+        return Image
+    except ModuleNotFoundError:
+        return None
+
+
+def prepare_image(
+    path: Path, max_width: int, fmt: str, quality: int, Image
+) -> tuple[bytes, str, tuple[int, int] | None]:
+    """Downscale to max_width and re-encode so each embedded image is small enough
+    to paint cheaply while scrolling. Falls back to the original bytes when Pillow
+    is unavailable or processing fails. Returns (data, mime, (w, h))."""
+    raw = path.read_bytes()
+    if Image is None or fmt == "original":
+        return raw, mime_for(path.suffix), image_size(path)
+    try:
+        from io import BytesIO
+
+        im = Image.open(BytesIO(raw))
+        im.load()
+        w, h = im.size
+        if max_width and w > max_width:
+            im = im.resize(
+                (max_width, round(h * max_width / w)),
+                getattr(Image, "Resampling", Image).LANCZOS,
+            )
+            w, h = im.size
+        buf = BytesIO()
+        if fmt == "jpeg":
+            im.convert("RGB").save(buf, "JPEG", quality=quality, optimize=True)
+            mime = "image/jpeg"
+        elif fmt == "webp":
+            im.save(buf, "WEBP", quality=quality, method=6)
+            mime = "image/webp"
+        else:  # png
+            im.convert("RGBA" if im.mode in ("P", "LA") else im.mode)
+            im.save(buf, "PNG", optimize=True)
+            mime = "image/png"
+        return buf.getvalue(), mime, (w, h)
+    except Exception as err:  # noqa: BLE001 — never let one bad image break the report
+        print(f"image processing failed for {path.name}: {err}", file=sys.stderr)
+        return raw, mime_for(path.suffix), image_size(path)
+
+
+def data_uri(data: bytes, mime: str) -> str:
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def build_html(
+    images: list[Path], title: str, max_width: int, fmt: str, quality: int, Image
+) -> str:
     generated = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     steps_html = []
     content_width = 920  # approximate rendered image width inside a .step card
+    raw_total = out_total = 0
     for img in images:
         number, step_title = humanize(img.name)
         label = f"{number}. {step_title}" if number else step_title
-        dims = image_size(img)
+        data, mime, dims = prepare_image(img, max_width, fmt, quality, Image)
+        raw_total += img.stat().st_size
+        out_total += len(data)
         if dims:
             w, h = dims
             dim_attrs = f' width="{w}" height="{h}"'
@@ -127,11 +192,16 @@ def build_html(images: list[Path], title: str) -> str:
         steps_html.append(
             f"""    <section class="step" style="contain-intrinsic-size: {content_width}px {reserve}px;">
       <h2><span class="num">{html.escape(number or '')}</span>{html.escape(step_title)}</h2>
-      <img alt="{html.escape(label)}"{dim_attrs} loading="lazy" decoding="async" src="{data_uri(img)}" />
+      <img alt="{html.escape(label)}"{dim_attrs} loading="lazy" decoding="async" src="{data_uri(data, mime)}" />
     </section>"""
         )
     body = "\n".join(steps_html)
     count = len(images)
+    if out_total and out_total != raw_total:
+        print(
+            f"images: {raw_total // 1024} KB -> {out_total // 1024} KB "
+            f"({fmt}, max-width {max_width}px)"
+        )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -233,6 +303,15 @@ def main() -> int:
     parser.add_argument("--out", default=".cache/e2e-report/index.html",
                         help="output HTML path (PDF written alongside)")
     parser.add_argument("--title", default="QueryView E2E Report")
+    parser.add_argument(
+        "--max-width", type=int, default=1000,
+        help="downscale screenshots wider than this many px (0 = keep original size)",
+    )
+    parser.add_argument(
+        "--image-format", choices=("png", "webp", "jpeg", "original"), default="png",
+        help="re-encode embedded images (default png; 'original' keeps source bytes)",
+    )
+    parser.add_argument("--quality", type=int, default=80, help="webp/jpeg quality")
     pdf = parser.add_mutually_exclusive_group()
     pdf.add_argument("--pdf", action="store_true", help="require a PDF (fail if no Chrome)")
     pdf.add_argument("--no-pdf", action="store_true", help="HTML only, never render a PDF")
@@ -248,9 +327,19 @@ def main() -> int:
         return 1
 
     images = sorted(p for p in src.iterdir() if p.suffix.lower() in IMAGE_EXTS)
+    Image = load_pillow()
+    if Image is None and args.image_format != "original":
+        print(
+            "Pillow not available — embedding originals at full size. Run via "
+            "`uv run` to auto-install it (faster scrolling), or pass --image-format original.",
+            file=sys.stderr,
+        )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(build_html(images, args.title), encoding="utf-8")
+    out.write_text(
+        build_html(images, args.title, args.max_width, args.image_format, args.quality, Image),
+        encoding="utf-8",
+    )
     print(f"HTML  -> {out}  ({len(images)} screenshots from {src})")
 
     if not args.no_pdf:
