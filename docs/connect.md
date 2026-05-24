@@ -93,10 +93,10 @@ for the next action.
 ## Persistence (SQLite)
 
 Connection details are stored in a SQLite database (default
-`backend/queryview.db`, override with `DB_PATH`). This requires the backend to
-run with `--allow-write` (and `--allow-read`) for the DB file.
+`backend/queryview.db`, override with `DB_PATH`) managed with SQLModel. The
+backend creates the file and its schema on first use.
 
-Schema:
+Schema (the `connections` table SQLModel maps to):
 
 ```sql
 CREATE TABLE connections (
@@ -118,8 +118,9 @@ CREATE TABLE connections (
 ### Password encryption
 
 The `password` column is **encrypted at rest** with AES-256-GCM; the stored
-value is `base64(iv ‖ ciphertext)`, never plaintext. The key is resolved once at
-startup:
+value is `base64(iv ‖ ciphertext)` (AES-GCM appends its 16-byte tag to the
+ciphertext), never plaintext. The key is resolved once and memoized on first
+use:
 
 - `DB_ENCRYPTION_KEY` — base64 of 32 bytes, if set (use this in CI/shared envs);
 - otherwise a key is generated and written to `<DB_PATH>.key` (gitignored,

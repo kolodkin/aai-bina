@@ -30,29 +30,39 @@ jobs:
         # Probe the HTTP interface (8123) — what the backend actually uses —
         # so the readiness gate matches the app.
         options: >-
-          --health-cmd "curl -sf http://localhost:8123/ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 12
-          --health-start-period 10s
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --add-host=host.docker.internal:host-gateway
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: deno install --allow-scripts
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install backend dependencies
+        run: uv sync --frozen
+
+      - name: Install dependencies (workspaces + e2e)
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
 
       - name: Build frontend
-        run: deno task build
+        run: npm run build -w frontend
 
       - name: Start backend (serving built SPA)
         run: |
-          SERVE_STATIC=1 deno run --allow-net --allow-env --allow-read --allow-write backend/main.ts > backend.log 2>&1 &
+          SERVE_STATIC=1 uv run --frozen queryview-backend > backend.log 2>&1 &
           echo $! > backend.pid
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/api/health > /dev/null; then
@@ -62,24 +72,11 @@ jobs:
           done
           echo "Backend failed to start"; cat backend.log; exit 1
 
-      - name: Run Astral e2e tests
-        id: e2e
+      - name: Run Playwright e2e tests
         env:
           BASE_URL: http://localhost:8000
-          CHROME_PATH: /usr/bin/google-chrome
           EXPECT_CLICKHOUSE_OK: "1"
-        run: |
-          shard="${{ matrix.shard }}"
-          safe_shard="${shard//\//-}"
-          export SCREENSHOT_DIR="blob-report/screenshots-${safe_shard}"
-          mkdir -p "$SCREENSHOT_DIR"
-          set +e
-          deno test -A \
-            --junit-path="blob-report/junit-${safe_shard}.xml" \
-            e2e/ 2>&1 | tee "blob-report/output-${safe_shard}.log"
-          status=${PIPESTATUS[0]}
-          set -e
-          exit $status
+        run: npx playwright test --shard=${{ matrix.shard }}
 
       - name: Stop backend
         if: always()
@@ -107,10 +104,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Download blob reports
         uses: actions/download-artifact@v4
@@ -119,14 +121,14 @@ jobs:
           merge-multiple: true
           path: all-blob-reports
 
-      - name: Build static HTML report
-        run: deno run -A scripts/build-e2e-report.ts all-blob-reports e2e-report
+      - name: Merge blob reports into HTML
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
 
       - name: Check if report exists
         id: check-report
         if: ${{ !cancelled() }}
         run: |
-          if [ -d "e2e-report" ] && [ "$(ls -A e2e-report)" ]; then
+          if [ -d "playwright-report" ] && [ "$(ls -A playwright-report)" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "E2E report directory is present"
           else
@@ -136,11 +138,15 @@ jobs:
 
       - name: Deploy E2E Report
         if: always() && steps.check-report.outputs.exists == 'true'
+        # Publishing to the external artifact-view repo needs DEPLOY_KEY; don't
+        # fail the PR check when that publish can't run — the step still surfaces
+        # the error as a warning annotation.
+        continue-on-error: true
         uses: peaceiris/actions-gh-pages@v4
         with:
           deploy_key: ${{ secrets.DEPLOY_KEY }}
           external_repository: kolodkin/artifact-view
-          publish_dir: ./e2e-report
+          publish_dir: ./playwright-report
           destination_dir: queryview-/e2e-report/${{ github.run_number }}
           publish_branch: gh-pages
           keep_files: true

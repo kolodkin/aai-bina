@@ -1,7 +1,7 @@
 # API
 
-The Deno backend exposes a small JSON API under `/api/*`. ClickHouse queries run
-over the HTTP interface with HTTP Basic auth and a 5s timeout. All
+The FastAPI backend exposes a small JSON API under `/api/*`. ClickHouse queries
+run over the HTTP interface with HTTP Basic auth and a 5s timeout. All
 connection-config bodies validate `host` (non-empty) and `port` (integer
 `1..65535`); validation errors return `400`.
 
@@ -22,8 +22,8 @@ independently. Saved connections themselves are shared (SQLite).
 ## Persistence
 
 Connections are stored in SQLite (`backend/queryview.db`, override with
-`DB_PATH`); the backend runs with `--allow-write`. See
-[connect.md](./connect.md) for the schema and the session / auto-connect model.
+`DB_PATH`) via SQLModel. See [connect.md](./connect.md) for the schema and the
+session / auto-connect model.
 
 ## Related docs
 
