@@ -7,7 +7,7 @@ matching the step names from the test run. Output is a single self-contained
 HTML file (images embedded as base64), portable as one artifact.
 
 Usage:
-  python build_report.py [--screenshots DIR] [--out FILE] [--title TITLE]
+  uv run .claude/skills/e2e-report/build_report.py [--screenshots DIR] [--out FILE] [--title TITLE]
 
 Defaults: screenshots from $SCREENSHOT_DIR or the first existing of
 .cache/screenshots, e2e/screenshots, ./screenshots; output to
