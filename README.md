@@ -6,10 +6,11 @@ Project skeleton: **Python** backend (**FastAPI + SQLModel**) + **Vite + React +
 
 ```
 .
-├── backend/         # Python FastAPI + SQLModel app exposing /api/*
-├── frontend/        # Vite + React + TS + Tailwind v4 SPA
+├── backend/         # Python FastAPI + SQLModel app exposing /api/* (queryview package)
+├── frontend/        # Vite + React + TS + Tailwind v4 SPA (npm workspace)
 ├── e2e/             # Playwright browser tests
-└── package.json     # Root tasks (dev orchestration, build, e2e) + Playwright
+├── pyproject.toml   # Backend deps + console script (uv); package in backend/queryview
+└── package.json     # npm workspace root: dev orchestration, build, Playwright e2e
 ```
 
 ## Prerequisites
@@ -24,19 +25,16 @@ uv handles the backend's Python virtualenv and dependencies.
 
 ## Install
 
-Install the backend's Python dependencies (uv reads `backend/pyproject.toml`):
+Install the backend's Python dependencies (uv reads the root `pyproject.toml`;
+the package lives in `backend/queryview`):
 
 ```bash
-uv sync --project backend
+uv sync
 ```
 
-Install the frontend's npm dependencies (npm reads `frontend/package.json`):
-
-```bash
-npm --prefix frontend install
-```
-
-Install the root dev dependencies (the task runner + Playwright) and its browser:
+Install the JavaScript dependencies — a single `npm install` at the root covers
+both the frontend workspace and the Playwright e2e tooling — then fetch the
+browser:
 
 ```bash
 npm install

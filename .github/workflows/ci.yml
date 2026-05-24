@@ -43,33 +43,26 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
       - name: Install backend dependencies
-        run: uv sync --project backend --frozen
+        run: uv sync --frozen
 
-      - name: Install root dependencies
+      - name: Install dependencies (workspaces + e2e)
         run: npm ci
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
       - name: Build frontend
-        working-directory: frontend
-        run: npm run build
+        run: npm run build -w frontend
 
       - name: Start backend (serving built SPA)
         run: |
-          SERVE_STATIC=1 uv run --project backend --frozen queryview-backend > backend.log 2>&1 &
+          SERVE_STATIC=1 uv run --frozen queryview-backend > backend.log 2>&1 &
           echo $! > backend.pid
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/api/health > /dev/null; then

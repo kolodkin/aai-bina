@@ -57,15 +57,13 @@ fi
 CLICKHOUSE_PORT="$CLICKHOUSE_PORT" "$ROOT/scripts/setup_clickhouse.sh"
 
 # --- Frontend build + backend -------------------------------------------
-log "installing frontend deps"
-( cd frontend && npm ci )
 log "building SPA"
-( cd frontend && npm run build )
+npm run build -w frontend
 log "installing backend deps"
-uv sync --project "$ROOT/backend" --frozen
+uv sync --frozen
 log "starting backend (serving built SPA) on :$BACKEND_PORT"
 SERVE_STATIC=1 PORT="$BACKEND_PORT" DB_PATH="${DB_PATH:-$CACHE/queryview.db}" \
-  uv run --project "$ROOT/backend" --frozen queryview-backend \
+  uv run --frozen queryview-backend \
   > "$CACHE/backend.log" 2>&1 &
 BACKEND_PID=$!
 wait_for "http://localhost:$BACKEND_PORT/api/health" "backend"

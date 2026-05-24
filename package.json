@@ -3,12 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "frontend"
+  ],
   "scripts": {
-    "backend": "uv run --project backend uvicorn queryview.main:app --reload --port 8000",
-    "frontend": "npm --prefix frontend run dev",
+    "backend": "uv run uvicorn queryview.main:app --reload --port 8000",
+    "frontend": "npm run dev -w frontend",
     "dev": "concurrently -n backend,frontend -c blue,magenta \"npm run backend\" \"npm run frontend\"",
-    "build": "npm --prefix frontend run build",
-    "start": "SERVE_STATIC=1 uv run --project backend queryview-backend",
+    "build": "npm run build -w frontend",
+    "start": "SERVE_STATIC=1 uv run queryview-backend",
     "preview": "npm run build && npm run start",
     "test:e2e": "playwright test"
   },
