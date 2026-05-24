@@ -30,11 +30,11 @@ jobs:
         # Probe the HTTP interface (8123) — what the backend actually uses —
         # so the readiness gate matches the app.
         options: >-
-          --health-cmd "curl -sf http://localhost:8123/ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 12
-          --health-start-period 10s
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --add-host=host.docker.internal:host-gateway
     steps:
       - uses: actions/checkout@v4
 
