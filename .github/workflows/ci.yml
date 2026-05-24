@@ -151,6 +151,10 @@ jobs:
 
       - name: Deploy E2E Report
         if: always() && steps.check-report.outputs.exists == 'true'
+        # Publishing to the external artifact-view repo needs DEPLOY_KEY; don't
+        # fail the PR check when that publish can't run — the step still surfaces
+        # the error as a warning annotation.
+        continue-on-error: true
         uses: peaceiris/actions-gh-pages@v4
         with:
           deploy_key: ${{ secrets.DEPLOY_KEY }}
