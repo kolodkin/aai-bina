@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "devpowers": {
+      "source": {
+        "source": "github",
+        "repo": "kolodkin/devpowers"
+      }
+    }
+  }
+}
