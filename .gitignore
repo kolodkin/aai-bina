@@ -12,10 +12,10 @@ __pycache__/
 .ruff_cache/
 
 # Playwright
-test-results/
-playwright-report/
-blob-report/
-e2e-report/
+/test-results/
+/playwright-report/
+/blob-report/
+/e2e-report/
 .cache/screenshots/
 
 # Local browser-e2e helper (scripts/browser_local.sh): clickhouse binary,

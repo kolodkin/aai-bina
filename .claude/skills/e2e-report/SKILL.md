@@ -18,10 +18,10 @@ the test prints), as a self-contained HTML file with images embedded.
 
 ## How to run
 
-The generator is pure Python stdlib — no dependencies to install.
+Run it with uv — pure Python stdlib, no dependencies to install:
 
 ```bash
-python .claude/skills/e2e-report/build_report.py
+uv run .claude/skills/e2e-report/build_report.py
 ```
 
 It auto-discovers the screenshots directory (first match of `$SCREENSHOT_DIR`,
