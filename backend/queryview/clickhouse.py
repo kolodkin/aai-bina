@@ -25,14 +25,19 @@ class ChResult(NamedTuple):
     value: str
 
 
-async def ch_query(c: ChConfig, query: str) -> ChResult:
-    """Run a query against the ClickHouse HTTP interface (Basic auth, 5s timeout)."""
+async def ch_query(
+    c: ChConfig, query: str, database: str | None = None, fmt: str | None = None
+) -> ChResult:
+    """Run a query against the ClickHouse HTTP interface (Basic auth, 5s timeout).
+    `database` scopes the query; `fmt` appends a ClickHouse `FORMAT` clause."""
     url = f"http://{c.host}:{c.port}/"
+    q = f"{query}\nFORMAT {fmt}" if fmt else query
+    params = {"query": q}
+    if database:
+        params["database"] = database
     try:
         async with httpx.AsyncClient(timeout=CH_TIMEOUT_SECONDS) as client:
-            res = await client.get(
-                url, params={"query": query}, auth=(c.username, c.password)
-            )
+            res = await client.get(url, params=params, auth=(c.username, c.password))
     except httpx.TimeoutException:
         return ChResult(False, "connection timed out")
     except httpx.HTTPError as err:
