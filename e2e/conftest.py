@@ -48,11 +48,14 @@ def _ch_exec(sql: str) -> None:
 @pytest.fixture(scope="module")
 def seeded_test_db():
     """Module-level: create a ClickHouse database named `test` with a small
-    `items` table of known rows, then drop the whole database on teardown."""
-    _ch_exec("CREATE DATABASE IF NOT EXISTS test")
+    `items` table of known rows, then drop the whole database on teardown.
+
+    Drops `test` up front too, so seeding is idempotent and never accumulates
+    rows from an earlier run that left the database behind."""
+    _ch_exec("DROP DATABASE IF EXISTS test")
+    _ch_exec("CREATE DATABASE test")
     _ch_exec(
-        "CREATE TABLE IF NOT EXISTS test.items (id UInt32, name String) "
-        "ENGINE = MergeTree ORDER BY id"
+        "CREATE TABLE test.items (id UInt32, name String) ENGINE = MergeTree ORDER BY id"
     )
     _ch_exec(
         "INSERT INTO test.items (id, name) VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')"
