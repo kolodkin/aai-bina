@@ -59,6 +59,7 @@ If neither yields a connection it opens at the empty prompt.
 | ---------------- | --------------------------------------------------- |
 | `new clickhouse` | Reveals the form to create a new ClickHouse connection. |
 | `connect <name>` | Opens the saved connection `<name>` and shows its database picker. |
+| `query`          | Once a database is selected, opens the query panel — run SQL with pagination, save/load predefined queries, download CSV (see [query.md](./query.md)). |
 
 Anything else shows a hint: `Try “new clickhouse” or “connect <name>”`.
 

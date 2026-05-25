@@ -13,11 +13,14 @@ independently. Saved connections themselves are shared (SQLite).
 | Method | Path                        | Body                                   | Description |
 | ------ | --------------------------- | -------------------------------------- | ----------- |
 | GET    | `/api/health`               | —                                      | Service health check. |
-| GET    | `/api/session`              | —                                      | This session's state `{connected, name?, databases?, database?}`. For an unseen cookie, auto-connects the latest active connection. |
+| GET    | `/api/session`              | —                                      | This session's state `{connected, name?, type?, databases?, database?}`. For an unseen cookie, auto-connects the latest active connection. |
 | POST   | `/api/clickhouse/test`      | `{host,port,username,password}`        | Test a connection (test only — no save, no activation). `{ok, message}`. |
 | POST   | `/api/clickhouse/connect`   | `{name,host,port,username,password}`   | Create: open + save + activate for this session; lists databases (`new <type>` form). `{ok, name, databases}` \| `{ok:false, message}`. |
 | POST   | `/api/clickhouse/open`      | `{name}`                               | Open a saved connection by name for this session; lists databases (`connect <name>`). `{ok, name, databases}` \| `{ok:false, message}`. |
 | POST   | `/api/clickhouse/database`  | `{database}`                           | Select this session's active connection's database. `{ok}`. |
+| POST   | `/api/clickhouse/query`     | `{query, limit?, offset?, format?}`    | Run SQL against this session's selected database, paginated by `limit`/`offset` (defaults 100/0). `format:"csv"` returns CSV. `{ok, output}` (raw text) \| `{ok:false, message}`. Empty query → `400`; no session → `409`. |
+| GET    | `/api/predefined-queries`   | `?type=<connType>`                     | Global predefined queries for a connection type. `{queries:[{query_name, query}]}`. |
+| POST   | `/api/predefined-queries`   | `{query_name, type, query}`            | Upsert a global predefined query. `{ok}`; missing fields → `400`. |
 
 ## Persistence
 
@@ -29,3 +32,4 @@ session / auto-connect model.
 
 - [queryview.md](./queryview.md) — the single-prompt page concept.
 - [connect.md](./connect.md) — connecting (`new <type>` / `connect <name>`), storage, sessions.
+- [query.md](./query.md) — running queries: pagination, predefined queries, CSV.

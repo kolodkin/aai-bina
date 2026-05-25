@@ -1,5 +1,6 @@
 import os
 
+import httpx
 import pytest
 from playwright.sync_api import expect
 
@@ -22,3 +23,42 @@ def browser_type_launch_args(browser_type_launch_args: dict) -> dict:
 @pytest.fixture
 def browser_context_args(browser_context_args: dict) -> dict:
     return {**browser_context_args, "viewport": {"width": 1280, "height": 900}}
+
+
+# --- ClickHouse seeding for query tests -----------------------------------
+# Coordinates default to the connection-form defaults the suite uses.
+CH_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
+CH_PORT = os.environ.get("CLICKHOUSE_PORT", "8123")
+CH_USER = os.environ.get("CLICKHOUSE_USER", "default")
+CH_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
+
+
+def _ch_exec(sql: str) -> None:
+    """Run a statement against ClickHouse over HTTP. POST allows writes (the GET
+    interface is read-only by default), so seeding/teardown go through here."""
+    res = httpx.post(
+        f"http://{CH_HOST}:{CH_PORT}/",
+        content=sql.encode("utf-8"),
+        auth=(CH_USER, CH_PASSWORD),
+        timeout=10.0,
+    )
+    res.raise_for_status()
+
+
+@pytest.fixture(scope="module")
+def seeded_test_db():
+    """Module-level: create a ClickHouse database named `test` with a small
+    `items` table of known rows, then drop the whole database on teardown.
+
+    Drops `test` up front too, so seeding is idempotent and never accumulates
+    rows from an earlier run that left the database behind."""
+    _ch_exec("DROP DATABASE IF EXISTS test")
+    _ch_exec("CREATE DATABASE test")
+    _ch_exec(
+        "CREATE TABLE test.items (id UInt32, name String) ENGINE = MergeTree ORDER BY id"
+    )
+    _ch_exec(
+        "INSERT INTO test.items (id, name) VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')"
+    )
+    yield
+    _ch_exec("DROP DATABASE IF EXISTS test")

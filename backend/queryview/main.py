@@ -12,7 +12,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from .clickhouse import parse_ch_config, test_connection
-from .connect import connect_new, get_session, open_saved, select_database
+from .connect import connect_new, get_session, open_saved, run_query, select_database
+from .queries import list_predefined_queries, save_predefined_query
 
 SERVE_STATIC = os.environ.get("SERVE_STATIC") == "1"
 
@@ -29,6 +30,19 @@ async def _read_json(request: Request) -> Any:
         return await request.json()
     except Exception:
         return None
+
+
+def _parse_int(value: Any, default: int) -> int:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 app = FastAPI(title="queryview-backend")
@@ -95,7 +109,7 @@ async def clickhouse_open(request: Request):
             {"ok": False, "message": r["message"]},
             status_code=404 if r.get("not_found") else 200,
         )
-    return {"ok": True, "name": r["name"], "databases": r["databases"]}
+    return {"ok": True, "name": r["name"], "type": r["type"], "databases": r["databases"]}
 
 
 # Select this session's active connection's database.
@@ -110,6 +124,53 @@ async def clickhouse_database(request: Request):
             {"ok": False, "message": r["message"]},
             status_code=409 if r["reason"] == "no-session" else 400,
         )
+    return {"ok": True}
+
+
+# Run a SQL query (paginated) against this session's selected database.
+@app.post("/api/clickhouse/query")
+async def clickhouse_query(request: Request):
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    raw_sql = b.get("query")
+    sql = raw_sql.strip() if isinstance(raw_sql, str) else ""
+    if not sql:
+        return JSONResponse({"ok": False, "message": "query required"}, status_code=400)
+    limit = _parse_int(b.get("limit"), 100)
+    limit = 100 if limit < 1 else min(limit, 1000)
+    offset = _parse_int(b.get("offset"), 0)
+    offset = 0 if offset < 0 else offset
+    fmt = "CSVWithNames" if b.get("format") == "csv" else "TabSeparatedWithNames"
+    r = await run_query(request.state.sid, sql, limit, offset, fmt)
+    if not r["ok"]:
+        status = 409 if r.get("reason") == "no-session" else 200
+        return JSONResponse({"ok": False, "message": r["message"]}, status_code=status)
+    return {"ok": True, "output": r["output"]}
+
+
+# Predefined queries: global, keyed by connection type.
+@app.get("/api/predefined-queries")
+async def predefined_queries_list(request: Request):
+    conn_type = request.query_params.get("type") or "clickhouse"
+    return {"queries": await list_predefined_queries(conn_type)}
+
+
+@app.post("/api/predefined-queries")
+async def predefined_queries_save(request: Request):
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    name = b.get("query_name")
+    conn_type = b.get("type")
+    query = b.get("query")
+    name = name.strip() if isinstance(name, str) else ""
+    conn_type = conn_type.strip() if isinstance(conn_type, str) else ""
+    query = query.strip() if isinstance(query, str) else ""
+    if not name or not conn_type or not query:
+        return JSONResponse(
+            {"ok": False, "message": "query_name, type and query are required"},
+            status_code=400,
+        )
+    await save_predefined_query(name, conn_type, query)
     return {"ok": True}
 
 

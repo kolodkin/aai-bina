@@ -72,7 +72,6 @@ jobs:
         id: e2e
         env:
           BASE_URL: http://localhost:8000
-          EXPECT_CLICKHOUSE_OK: "1"
         run: |
           uv run --frozen --group test pytest e2e \
             --tracing retain-on-failure \

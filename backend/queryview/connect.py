@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import Field, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from .clickhouse import ChConfig, list_databases
+from .clickhouse import ChConfig, ch_query, list_databases
 
 # --- Storage (SQLite, lazily opened) --------------------------------------
 
@@ -27,6 +27,7 @@ class Connection(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(unique=True, index=True)
+    type: str = Field(default="clickhouse", index=True)
     host: str
     port: int
     username: str
@@ -115,11 +116,12 @@ def _decrypt_password(stored: str) -> str:
 @dataclass
 class StoredConnection:
     name: str
+    type: str
     config: ChConfig
     database: str | None
 
 
-async def _save_active_connection(name: str, c: ChConfig) -> None:
+async def _save_active_connection(name: str, c: ChConfig, conn_type: str = "clickhouse") -> None:
     password = _encrypt_password(c.password)
     now = _now_ms()
     await _ensure_schema()
@@ -128,6 +130,7 @@ async def _save_active_connection(name: str, c: ChConfig) -> None:
         if row is None:
             row = Connection(
                 name=name,
+                type=conn_type,
                 host=c.host,
                 port=c.port,
                 username=c.username,
@@ -136,6 +139,7 @@ async def _save_active_connection(name: str, c: ChConfig) -> None:
             )
         else:
             # Upsert by name; the selected database is intentionally left as-is.
+            row.type = conn_type
             row.host = c.host
             row.port = c.port
             row.username = c.username
@@ -165,6 +169,7 @@ def _row_to_stored(row: Connection | None) -> StoredConnection | None:
         return None
     return StoredConnection(
         name=row.name,
+        type=row.type,
         config=ChConfig(
             host=row.host, port=row.port, username=row.username, password=password
         ),
@@ -210,6 +215,7 @@ def _now_ms() -> int:
 @dataclass
 class _SessionState:
     name: str
+    type: str
     config: ChConfig
     databases: list[str]
     database: str | None
@@ -238,7 +244,7 @@ def _set_session_entry(sid: str, state: _SessionState) -> None:
 
 
 async def _build_session(
-    name: str, config: ChConfig, database: str | None
+    name: str, config: ChConfig, database: str | None, conn_type: str = "clickhouse"
 ) -> tuple[_SessionState | None, str | None]:
     """List a connection's databases and build a session object."""
     ok, result = await list_databases(config)
@@ -248,6 +254,7 @@ async def _build_session(
     return (
         _SessionState(
             name=name,
+            type=conn_type,
             config=config,
             databases=databases,
             database=database if database and database in databases else None,
@@ -264,7 +271,7 @@ async def _ensure_session(sid: str) -> None:
     stored = await _latest_active_connection()
     if stored is None:
         return
-    state, _ = await _build_session(stored.name, stored.config, stored.database)
+    state, _ = await _build_session(stored.name, stored.config, stored.database, stored.type)
     if state is not None:
         _set_session_entry(sid, state)
 
@@ -278,6 +285,7 @@ async def get_session(sid: str) -> dict[str, Any]:
     return {
         "connected": True,
         "name": s.name,
+        "type": s.type,
         "databases": s.databases,
         "database": s.database,
     }
@@ -285,12 +293,12 @@ async def get_session(sid: str) -> dict[str, Any]:
 
 async def connect_new(sid: str, name: str, config: ChConfig) -> dict[str, Any]:
     """Create: open a config, save + activate it for this session."""
-    state, message = await _build_session(name, config, None)
+    state, message = await _build_session(name, config, None, "clickhouse")
     if state is None:
         return {"ok": False, "message": message}
     _set_session_entry(sid, state)
-    await _save_active_connection(name, config)
-    return {"ok": True, "name": name, "databases": state.databases}
+    await _save_active_connection(name, config, "clickhouse")
+    return {"ok": True, "name": name, "type": state.type, "databases": state.databases}
 
 
 async def open_saved(sid: str, name: str) -> dict[str, Any]:
@@ -303,12 +311,12 @@ async def open_saved(sid: str, name: str) -> dict[str, Any]:
             "not_found": True,
         }
     # Reset the database so `connect <name>` always lands on the picker.
-    state, message = await _build_session(stored.name, stored.config, None)
+    state, message = await _build_session(stored.name, stored.config, None, stored.type)
     if state is None:
         return {"ok": False, "message": message}
     _set_session_entry(sid, state)
     await _touch_connection(name)
-    return {"ok": True, "name": name, "databases": state.databases}
+    return {"ok": True, "name": name, "type": state.type, "databases": state.databases}
 
 
 async def select_database(sid: str, database: str) -> dict[str, Any]:
@@ -321,3 +329,22 @@ async def select_database(sid: str, database: str) -> dict[str, Any]:
     s.database = database
     await _save_selected_database(s.name, database)
     return {"ok": True}
+
+
+async def run_query(
+    sid: str, sql: str, limit: int, offset: int, fmt: str
+) -> dict[str, Any]:
+    """Run a paginated SQL query against this session's selected database.
+    Pagination wraps the query in a subselect so any SELECT can be paged."""
+    await _ensure_session(sid)
+    s = _get_session_entry(sid)
+    if s is None:
+        return {"ok": False, "message": "not connected", "reason": "no-session"}
+    if not s.database:
+        return {"ok": False, "message": "select a database first", "reason": "no-database"}
+    inner = sql.rstrip().rstrip(";")
+    paginated = f"SELECT * FROM (\n{inner}\n) LIMIT {int(limit)} OFFSET {int(offset)}"
+    r = await ch_query(s.config, paginated, database=s.database, fmt=fmt)
+    if not r.ok:
+        return {"ok": False, "message": r.value}
+    return {"ok": True, "output": r.value}

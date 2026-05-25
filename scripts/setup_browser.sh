@@ -10,7 +10,6 @@
 # Environment overrides:
 #   BACKEND_PORT      backend / BASE_URL port            (default 8000)
 #   CLICKHOUSE_PORT   ClickHouse HTTP port               (default 8123)
-#   EXPECT_CLICKHOUSE_OK  assert the connection succeeds (default 1)
 #
 # The ClickHouse server is owned by setup_clickhouse.sh and left running; the
 # backend this script starts is stopped on exit.
@@ -21,7 +20,6 @@ cd "$ROOT"
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 CLICKHOUSE_PORT="${CLICKHOUSE_PORT:-8123}"
-EXPECT_CLICKHOUSE_OK="${EXPECT_CLICKHOUSE_OK:-1}"
 CACHE="$ROOT/.cache"
 mkdir -p "$CACHE"
 
@@ -71,7 +69,6 @@ wait_for "http://localhost:$BACKEND_PORT/api/health" "backend"
 # --- e2e -----------------------------------------------------------------
 log "running Playwright e2e tests"
 BASE_URL="http://localhost:$BACKEND_PORT" \
-EXPECT_CLICKHOUSE_OK="$EXPECT_CLICKHOUSE_OK" \
   uv run --frozen --group test pytest e2e \
     --tracing retain-on-failure \
     --html=report/index.html --self-contained-html
