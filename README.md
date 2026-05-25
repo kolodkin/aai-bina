@@ -8,20 +8,20 @@ Project skeleton: **Python** backend (**FastAPI + SQLModel**) + **Vite + React +
 .
 ├── backend/         # Python FastAPI + SQLModel app exposing /api/* (queryview package)
 ├── frontend/        # Vite + React + TS + Tailwind v4 SPA (npm workspace)
-├── e2e/             # Playwright browser tests
-├── pyproject.toml   # Backend deps + console script (uv); package in backend/queryview
-└── package.json     # npm workspace root: dev orchestration, build, Playwright e2e
+├── e2e/             # Playwright (pytest) browser tests
+├── pyproject.toml   # Backend deps + console script + e2e `test` group (uv)
+└── package.json     # npm workspace root: dev orchestration + frontend build
 ```
 
 ## Prerequisites
 
-- [uv](https://docs.astral.sh/uv/) — runs the Python backend (it manages the
-  Python toolchain and dependencies for you).
-- [Node.js](https://nodejs.org) 20+ (with npm) — runs the root tasks, the Vite
-  frontend, and the Playwright e2e suite.
+- [uv](https://docs.astral.sh/uv/) — runs the Python backend and the Playwright
+  (pytest) e2e suite (it manages the Python toolchain and dependencies for you).
+- [Node.js](https://nodejs.org) 20+ (with npm) — runs the root tasks and the
+  Vite frontend.
 
-npm runs the frontend, the root task scripts, and the Playwright e2e browser;
-uv handles the backend's Python virtualenv and dependencies.
+npm runs the frontend and the root task scripts; uv handles the backend's and
+e2e suite's Python virtualenv and dependencies.
 
 ## Install
 
@@ -32,13 +32,18 @@ the package lives in `backend/queryview`):
 uv sync
 ```
 
-Install the JavaScript dependencies — a single `npm install` at the root covers
-both the frontend workspace and the Playwright e2e tooling — then fetch the
-browser:
+Install the JavaScript dependencies for the frontend workspace:
 
 ```bash
 npm install
-npx playwright install chromium
+```
+
+Install the e2e tooling (the `test` dependency group) and fetch the Playwright
+browser:
+
+```bash
+uv sync --group test
+uv run --group test playwright install chromium
 ```
 
 ## Run dev servers
@@ -70,13 +75,16 @@ In production there is no Vite — the FastAPI backend serves the bundled SPA fr
 
 ## End-to-end tests
 
+The e2e suite is [pytest-playwright](https://playwright.dev/python/docs/test-runners),
+installed via the `test` dependency group and run through `uv`.
+
 Start the dev servers (`npm run dev`) in one terminal, then in another:
 
 ```bash
-npm run test:e2e
+uv run --group test pytest
 ```
 
-Override the target URL with `BASE_URL=http://localhost:4173 npm run test:e2e` (e.g. to test a built preview). To run the full suite against a real ClickHouse the way CI does, use `scripts/setup.sh`.
+Override the target URL with `BASE_URL=http://localhost:4173 uv run --group test pytest` (e.g. to test a built preview). To run the full suite against a real ClickHouse the way CI does, use `scripts/setup.sh`.
 
 ## API
 

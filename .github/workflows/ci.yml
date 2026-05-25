@@ -18,10 +18,6 @@ jobs:
     permissions:
       contents: write
       checks: write
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1/1]
     services:
       clickhouse:
         image: clickhouse/clickhouse-server:24
@@ -48,14 +44,14 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Install backend dependencies
-        run: uv sync --frozen
+      - name: Install backend + test dependencies
+        run: uv sync --frozen --group test
 
-      - name: Install dependencies (workspaces + e2e)
+      - name: Install frontend dependencies
         run: npm ci
 
       - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+        run: uv run --frozen --group test playwright install --with-deps chromium
 
       - name: Build frontend
         run: npm run build -w frontend
@@ -73,10 +69,15 @@ jobs:
           echo "Backend failed to start"; cat backend.log; exit 1
 
       - name: Run Playwright e2e tests
+        id: e2e
         env:
           BASE_URL: http://localhost:8000
           EXPECT_CLICKHOUSE_OK: "1"
-        run: npx playwright test --shard=${{ matrix.shard }}
+        run: |
+          uv run --frozen --group test pytest e2e \
+            --tracing retain-on-failure \
+            --output test-results \
+            --html=report/index.html --self-contained-html
 
       - name: Stop backend
         if: always()
@@ -85,55 +86,25 @@ jobs:
             kill "$(cat backend.pid)" 2>/dev/null || true
           fi
 
-      - name: Upload blob report
+      - name: Upload trace artifacts
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: blob-report-${{ strategy.job-index }}
-          path: blob-report/
+          name: playwright-traces
+          path: test-results/
           retention-days: 1
-
-  merge-e2e-reports:
-    if: ${{ !cancelled() }}
-    needs: test-e2e
-    runs-on: ubuntu-latest
-    environment: CICD
-    permissions:
-      contents: write
-      checks: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Download blob reports
-        uses: actions/download-artifact@v4
-        with:
-          pattern: blob-report-*
-          merge-multiple: true
-          path: all-blob-reports
-
-      - name: Merge blob reports into HTML
-        run: npx playwright merge-reports --reporter html ./all-blob-reports
+          if-no-files-found: ignore
 
       - name: Check if report exists
         id: check-report
-        if: ${{ !cancelled() }}
+        if: always()
         run: |
-          if [ -d "playwright-report" ] && [ "$(ls -A playwright-report)" ]; then
+          if [ -f "report/index.html" ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "E2E report directory is present"
+            echo "E2E report is present"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "E2E report directory missing or empty"
+            echo "E2E report missing"
           fi
 
       - name: Deploy E2E Report
@@ -146,20 +117,10 @@ jobs:
         with:
           deploy_key: ${{ secrets.DEPLOY_KEY }}
           external_repository: kolodkin/artifact-view
-          publish_dir: ./playwright-report
+          publish_dir: ./report
           destination_dir: queryview-/e2e-report/${{ github.run_number }}
           publish_branch: gh-pages
           keep_files: true
-
-      - name: Determine test outcome
-        id: test-outcome
-        if: always()
-        run: |
-          if [ "${{ needs.test-e2e.result }}" = "success" ]; then
-            echo "outcome=success" >> "$GITHUB_OUTPUT"
-          else
-            echo "outcome=failure" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Create E2E Report check
         if: always()
@@ -169,13 +130,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           name: E2E Report
-          conclusion: ${{ steps.test-outcome.outputs.outcome }}
+          conclusion: ${{ steps.e2e.outcome }}
           details_url: ${{ env.REPORT_URL }}
           output: |
-            {"title":"${{ steps.test-outcome.outputs.outcome == 'success' && 'Tests passed' || 'Tests failed' }}","summary":"**[View Full E2E Report](${{ env.REPORT_URL }})**"}
-
-      - name: Delete blob report artifacts
-        if: always()
-        uses: geekyeggo/delete-artifact@v5
-        with:
-          name: blob-report-*
+            {"title":"${{ steps.e2e.outcome == 'success' && 'Tests passed' || 'Tests failed' }}","summary":"**[View Full E2E Report](${{ env.REPORT_URL }})**"}

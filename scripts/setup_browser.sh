@@ -43,14 +43,16 @@ wait_for() { # url label
 command -v uv >/dev/null 2>&1 || die "uv not found — install from https://docs.astral.sh/uv/"
 command -v npm >/dev/null 2>&1 || die "npm not found — install Node.js from https://nodejs.org"
 
-# --- Playwright browser --------------------------------------------------
-log "installing project deps"
+# --- deps + Playwright browser -------------------------------------------
+log "installing frontend deps"
 npm ci
+log "installing backend + test deps"
+uv sync --frozen --group test
 log "installing Playwright Chromium"
 if [ "$(id -u)" = "0" ] && command -v apt-get >/dev/null 2>&1; then
-  npx playwright install --with-deps chromium
+  uv run --frozen --group test playwright install --with-deps chromium
 else
-  npx playwright install chromium
+  uv run --frozen --group test playwright install chromium
 fi
 
 # --- ClickHouse (delegated) ---------------------------------------------
@@ -59,8 +61,6 @@ CLICKHOUSE_PORT="$CLICKHOUSE_PORT" "$ROOT/scripts/setup_clickhouse.sh"
 # --- Frontend build + backend -------------------------------------------
 log "building SPA"
 npm run build -w frontend
-log "installing backend deps"
-uv sync --frozen
 log "starting backend (serving built SPA) on :$BACKEND_PORT"
 SERVE_STATIC=1 PORT="$BACKEND_PORT" DB_PATH="${DB_PATH:-$CACHE/queryview.db}" \
   uv run --frozen queryview-backend \
@@ -72,6 +72,8 @@ wait_for "http://localhost:$BACKEND_PORT/api/health" "backend"
 log "running Playwright e2e tests"
 BASE_URL="http://localhost:$BACKEND_PORT" \
 EXPECT_CLICKHOUSE_OK="$EXPECT_CLICKHOUSE_OK" \
-  npx playwright test
+  uv run --frozen --group test pytest e2e \
+    --tracing retain-on-failure \
+    --html=report/index.html --self-contained-html
 
-log "done. HTML report in playwright-report/ (open with: npx playwright show-report)"
+log "done. HTML report at report/index.html"

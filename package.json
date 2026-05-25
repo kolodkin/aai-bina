@@ -12,11 +12,9 @@
     "dev": "concurrently -n backend,frontend -c blue,magenta \"npm run backend\" \"npm run frontend\"",
     "build": "npm run build -w frontend",
     "start": "SERVE_STATIC=1 uv run queryview-backend",
-    "preview": "npm run build && npm run start",
-    "test:e2e": "playwright test"
+    "preview": "npm run build && npm run start"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
     "concurrently": "^9.2.1"
   }
 }

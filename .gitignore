@@ -11,10 +11,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# Playwright
+# Playwright (pytest)
 /test-results/
-/playwright-report/
-/blob-report/
+/report/
 
 # Local browser-e2e helper (scripts/browser_local.sh): clickhouse binary,
 # data, logs, screenshots.
