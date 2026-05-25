@@ -32,3 +32,4 @@ session / auto-connect model.
 
 - [queryview.md](./queryview.md) — the single-prompt page concept.
 - [connect.md](./connect.md) — connecting (`new <type>` / `connect <name>`), storage, sessions.
+- [query.md](./query.md) — running queries: pagination, predefined queries, CSV.

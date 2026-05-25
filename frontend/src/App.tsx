@@ -119,8 +119,7 @@ function App() {
     })
     if (res.ok) {
       setConnection({ ...connection, database })
-      // Database chosen — clear the prompt; the placeholder now invites a
-      // table view or query.
+      // Database chosen — clear the prompt; the placeholder now invites a query.
       setPrompt('')
     }
   }
@@ -153,7 +152,7 @@ function App() {
             onChange={(e) => setPrompt(e.target.value)}
             placeholder={
               connection?.database
-                ? 'table <name> / query'
+                ? 'query'
                 : 'Type a command, e.g. new clickhouse'
             }
             aria-label="Prompt"
@@ -355,6 +354,13 @@ function DatabasePicker({
   )
 }
 
+function parseTsv(text: string): { columns: string[]; rows: string[][] } {
+  // TabSeparatedWithNames: the first line is the column names, the rest are rows.
+  if (text === '') return { columns: [], rows: [] }
+  const lines = text.split('\n')
+  return { columns: lines[0].split('\t'), rows: lines.slice(1).map((l) => l.split('\t')) }
+}
+
 function QueryPanel({ connectionType }: { connectionType: string }) {
   const [sql, setSql] = useState('')
   const [limit, setLimit] = useState(100)
@@ -458,6 +464,9 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
       setBusy(false)
     }
   }
+
+  const { columns, rows: resultRows } =
+    output !== null ? parseTsv(output) : { columns: [], rows: [] }
 
   const sizes: [string, number, string][] = [
     ['S', 4, 'query-size-s'],
@@ -603,12 +612,39 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
       </div>
 
       {output !== null && (
-        <pre
+        <div
           data-testid="query-output"
-          className="overflow-auto rounded-md bg-slate-900 p-3 text-sm text-slate-100"
+          className="max-h-[70vh] overflow-auto rounded-md border border-slate-200"
         >
-          {output}
-        </pre>
+          <table className="min-w-full border-collapse text-left text-sm">
+            <thead className="sticky top-0 bg-slate-100">
+              <tr>
+                {columns.map((col, i) => (
+                  <th
+                    key={i}
+                    className="border-b border-slate-300 px-3 py-2 font-semibold text-slate-700"
+                  >
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {resultRows.map((row, i) => (
+                <tr key={i} className="odd:bg-white even:bg-slate-50">
+                  {row.map((cell, j) => (
+                    <td
+                      key={j}
+                      className="whitespace-pre border-b border-slate-100 px-3 py-1 font-mono text-slate-800"
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {error && (
         <p data-testid="query-error" className="text-sm text-red-600">

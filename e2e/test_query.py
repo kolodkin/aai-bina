@@ -37,6 +37,7 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     page.get_by_test_id("query-run").click()
     output = page.get_by_test_id("query-output")
     expect(output).to_be_visible()
+    expect(output.locator("table thead th")).to_contain_text("name")
     expect(output).to_contain_text("alpha")
     expect(output).to_contain_text("beta")
     expect(output).not_to_contain_text("gamma")

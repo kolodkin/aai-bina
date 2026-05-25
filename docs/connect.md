@@ -12,6 +12,7 @@ when a session starts.
 | ---------------- | ------ |
 | `new clickhouse` | Open the form to create a new ClickHouse connection. |
 | `connect <name>` | Open the saved connection `<name>` and show its database picker. |
+| `query`          | Once a database is selected, open the query panel (see [query.md](./query.md)). |
 
 All matching is case-insensitive and whitespace-trimmed. An unknown command
 shows a hint (`Try "new clickhouse" or "connect <name>"`); `connect <name>` for
@@ -83,12 +84,11 @@ After connecting, the prompt view shows the list of databases returned by
 - sets the session's selected database,
 - persists it on the saved connection (`POST /api/clickhouse/database`),
 - collapses the picker and shows the top-left indicator `🟢 connected - <database>`,
-- clears the prompt and switches its placeholder to `table <name> / query`,
-  inviting the next action.
+- clears the prompt and switches its placeholder to `query`, inviting a query.
 
 While the picker is open the prompt reads `connect <name>`; once a database is
-selected the prompt clears and its placeholder (`table <name> / query`) prompts
-for the next action.
+selected the prompt clears and its placeholder (`query`) invites running a query
+(see [query.md](./query.md)).
 
 ## Persistence (SQLite)
 
