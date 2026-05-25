@@ -1,10 +1,4 @@
-import os
-
 from playwright.sync_api import Page, expect
-
-# When "1", assert the ClickHouse connection actually succeeds (CI runs a real
-# ClickHouse service). Otherwise only assert the UI flow renders.
-EXPECT_CLICKHOUSE_OK = os.environ.get("EXPECT_CLICKHOUSE_OK") == "1"
 
 
 def test_queryview_e2e(page: Page) -> None:
@@ -19,18 +13,12 @@ def test_queryview_e2e(page: Page) -> None:
     for test_id in ("ch-name", "ch-host", "ch-port", "ch-username", "ch-password"):
         expect(page.get_by_test_id(test_id)).to_be_visible()
 
-    # test connection returns a result
+    # test connection succeeds against the real ClickHouse
     page.get_by_test_id("ch-test").click()
     result = page.get_by_test_id("ch-result")
     expect(result).to_be_visible()
-    expect(result).not_to_be_empty()
-    if EXPECT_CLICKHOUSE_OK:
-        expect(result).to_have_attribute("data-ok", "true")
-        expect(result).to_contain_text("Connected")
-
-    # The remaining steps need a real ClickHouse to connect to.
-    if not EXPECT_CLICKHOUSE_OK:
-        return
+    expect(result).to_have_attribute("data-ok", "true")
+    expect(result).to_contain_text("Connected")
 
     # connect opens the database picker
     page.get_by_test_id("ch-connect").click()
