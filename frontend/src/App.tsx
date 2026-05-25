@@ -140,7 +140,11 @@ function App() {
         </div>
       )}
 
-      <div className="w-full max-w-md">
+      <div
+        className={`w-full ${
+          showQuery && connection?.database ? 'max-w-[80vw]' : 'max-w-md'
+        }`}
+      >
         <h1 className="mb-6 text-center text-3xl font-bold tracking-tight">
           QueryView
         </h1>
@@ -491,7 +495,7 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
             const q = predefined.find((p) => p.query_name === e.target.value)
             if (q) setSql(q.query)
           }}
-          className={`flex-1 ${inputClass}`}
+          className={`min-w-0 flex-1 ${inputClass}`}
         >
           <option value="">Predefined queries…</option>
           {predefined.map((p) => (
@@ -507,7 +511,7 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
           placeholder="name"
           aria-label="Save query name"
           data-testid="query-save-name"
-          className={inputClass}
+          className={`w-44 ${inputClass}`}
         />
         <button
           type="button"
