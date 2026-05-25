@@ -165,7 +165,10 @@ request gets a new session that auto-connects the latest active connection.
 | POST   | `/api/clickhouse/connect`     | `{name,host,port,username,password}`   | `{ok, name, databases}` \| `{ok:false, message}`; saves + activates (`new <type>` form) |
 | POST   | `/api/clickhouse/open`        | `{name}`                               | `{ok, name, databases}` \| `{ok:false, message}`; opens a saved connection (`connect <name>`) |
 | POST   | `/api/clickhouse/database`    | `{database}`                           | `{ok}`; sets the session/connection database |
-| GET    | `/api/session`                | —                                      | `{connected, name?, databases?, database?}`; auto-connects latest active |
+| POST   | `/api/clickhouse/query`       | `{query, limit?, offset?, format?}`    | `{ok, output}` \| `{ok:false, message}`; paginated SQL against the session's selected database (`format:"csv"` for CSV) |
+| GET    | `/api/predefined-queries`     | `?type=<connType>`                     | `{queries:[{query_name, query}]}`; global predefined queries by connection type |
+| POST   | `/api/predefined-queries`     | `{query_name, type, query}`            | `{ok}`; upserts a global predefined query |
+| GET    | `/api/session`                | —                                      | `{connected, name?, type?, databases?, database?}`; auto-connects latest active |
 
 All validate `host` (non-empty) and `port` (integer `1..65535`); validation
 errors return `400`. ClickHouse queries run over the HTTP interface with HTTP
@@ -173,7 +176,7 @@ Basic auth and a 5s timeout.
 
 ## CI
 
-CI runs a real `clickhouse/clickhouse-server` service container so the e2e test
-exercises an actual connection. With `EXPECT_CLICKHOUSE_OK=1` the test asserts
-that connecting succeeds, a database can be selected, and the indicator shows
-`connected - <database>`.
+CI runs a real `clickhouse/clickhouse-server` service container so the e2e suite
+exercises an actual connection: the tests assert that connecting succeeds, a
+database can be selected, the indicator shows `connected - <database>`, and a
+query against a seeded `test` database returns its rows.
