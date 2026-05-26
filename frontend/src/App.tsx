@@ -11,6 +11,10 @@ type Connection = {
 
 type PredefinedQuery = { query_name: string; query: string }
 
+type Field = { name: string; type: string }
+
+type OrderCol = { name: string; dir: 'ASC' | 'DESC' }
+
 function App() {
   const [prompt, setPrompt] = useState('')
   const [hint, setHint] = useState<string | null>(null)
@@ -375,6 +379,9 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
   const [busy, setBusy] = useState(false)
   const [predefined, setPredefined] = useState<PredefinedQuery[]>([])
   const [saveName, setSaveName] = useState('')
+  const [fields, setFields] = useState<Field[]>([])
+  const [visibleCols, setVisibleCols] = useState<string[]>([])
+  const [orderBy, setOrderBy] = useState<OrderCol[]>([])
 
   const loadPredefined = useCallback(async () => {
     try {
@@ -394,6 +401,32 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
     void loadPredefined()
   }, [loadPredefined])
 
+  async function describe() {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/clickhouse/describe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: sql }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        const next = (data.fields ?? []) as Field[]
+        setFields(next)
+        // Default to all columns visible; drop order-by entries no longer present.
+        setVisibleCols(next.map((f) => f.name))
+        setOrderBy((prev) => prev.filter((o) => next.some((f) => f.name === o.name)))
+      } else {
+        setError(data.message ?? 'describe failed')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'request failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function run(nextOffset: number) {
     setBusy(true)
     setError(null)
@@ -401,7 +434,13 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
       const res = await fetch('/api/clickhouse/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: sql, limit, offset: nextOffset, format: 'text' }),
+        body: JSON.stringify({
+          query: sql,
+          limit,
+          offset: nextOffset,
+          format: 'text',
+          order_by: orderBy,
+        }),
       })
       const data = await res.json()
       if (data.ok) {
@@ -424,7 +463,7 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
       const res = await fetch('/api/clickhouse/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: sql, limit, offset, format: 'csv' }),
+        body: JSON.stringify({ query: sql, limit, offset, format: 'csv', order_by: orderBy }),
       })
       const data = await res.json()
       if (!data.ok) {
@@ -471,6 +510,37 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
 
   const { columns, rows: resultRows } =
     output !== null ? parseTsv(output) : { columns: [], rows: [] }
+
+  // Filter table columns by client-side visibility. Columns not among the
+  // described fields (e.g. SQL edited since the last describe) always show, so a
+  // stale field list can't blank the table.
+  const fieldNames = new Set(fields.map((f) => f.name))
+  const visible = new Set(visibleCols)
+  const shownIdx = columns
+    .map((_, i) => i)
+    .filter((i) => !fieldNames.has(columns[i]) || visible.has(columns[i]))
+
+  function toggleField(name: string) {
+    setVisibleCols((prev) =>
+      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name],
+    )
+  }
+
+  function toggleOrder(name: string) {
+    setOrderBy((prev) =>
+      prev.some((o) => o.name === name)
+        ? prev.filter((o) => o.name !== name)
+        : [...prev, { name, dir: 'ASC' }],
+    )
+  }
+
+  function flipDir(name: string) {
+    setOrderBy((prev) =>
+      prev.map((o) =>
+        o.name === name ? { ...o, dir: o.dir === 'ASC' ? 'DESC' : 'ASC' } : o,
+      ),
+    )
+  }
 
   const sizes: [string, number, string][] = [
     ['S', 4, 'query-size-s'],
@@ -562,6 +632,15 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
         >
           Execute
         </button>
+        <button
+          type="button"
+          onClick={() => void describe()}
+          disabled={busy}
+          data-testid="query-fields"
+          className="rounded-md border border-indigo-600 px-3 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
+        >
+          Fields
+        </button>
         <label className="text-sm text-slate-700">
           Limit
           <input
@@ -615,6 +694,116 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
         </button>
       </div>
 
+      {fields.length > 0 && (
+        <div
+          data-testid="field-pickers"
+          className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+        >
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-sm font-medium text-slate-700">Select fields</span>
+              <button
+                type="button"
+                data-testid="fields-select-all"
+                onClick={() => setVisibleCols(fields.map((f) => f.name))}
+                className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-white"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                data-testid="fields-clear"
+                onClick={() => setVisibleCols([])}
+                className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-white"
+              >
+                Clear all
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {fields.map((f) => {
+                const on = visibleCols.includes(f.name)
+                return (
+                  <button
+                    key={f.name}
+                    type="button"
+                    onClick={() => toggleField(f.name)}
+                    data-testid="field-toggle"
+                    data-col={f.name}
+                    data-on={on}
+                    title={f.type}
+                    className={`rounded-md border px-2.5 py-1 text-xs transition ${
+                      on
+                        ? 'border-indigo-600 bg-indigo-600 text-white'
+                        : 'border-slate-300 bg-white hover:border-indigo-400'
+                    }`}
+                  >
+                    {f.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div>
+            <span className="mb-2 block text-sm font-medium text-slate-700">Order by</span>
+            <div className="flex flex-wrap gap-2">
+              {fields.map((f) => {
+                const on = orderBy.some((o) => o.name === f.name)
+                return (
+                  <button
+                    key={f.name}
+                    type="button"
+                    onClick={() => toggleOrder(f.name)}
+                    data-testid="orderby-add"
+                    data-col={f.name}
+                    data-on={on}
+                    className={`rounded-md border px-2.5 py-1 text-xs transition ${
+                      on
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-300 bg-white hover:border-indigo-400'
+                    }`}
+                  >
+                    {f.name}
+                  </button>
+                )
+              })}
+            </div>
+            {orderBy.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {orderBy.map((o, i) => (
+                  <span
+                    key={o.name}
+                    data-testid="orderby-chip"
+                    data-col={o.name}
+                    className="flex items-center gap-1 rounded-md border border-indigo-300 bg-white px-2 py-1 text-xs"
+                  >
+                    <span className="text-slate-400">{i + 1}.</span>
+                    <span className="font-medium">{o.name}</span>
+                    <button
+                      type="button"
+                      data-testid="orderby-dir"
+                      onClick={() => flipDir(o.name)}
+                      className="rounded bg-slate-100 px-1.5 py-0.5 font-mono hover:bg-slate-200"
+                    >
+                      {o.dir}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="orderby-remove"
+                      onClick={() => toggleOrder(o.name)}
+                      aria-label={`remove ${o.name}`}
+                      className="text-slate-400 hover:text-red-600"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {output !== null && (
         <div
           data-testid="query-output"
@@ -623,12 +812,12 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
           <table className="min-w-full border-collapse text-left text-sm">
             <thead className="sticky top-0 bg-slate-100">
               <tr>
-                {columns.map((col, i) => (
+                {shownIdx.map((i) => (
                   <th
                     key={i}
                     className="border-b border-slate-300 px-3 py-2 font-semibold text-slate-700"
                   >
-                    {col}
+                    {columns[i]}
                   </th>
                 ))}
               </tr>
@@ -636,12 +825,12 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
             <tbody>
               {resultRows.map((row, i) => (
                 <tr key={i} className="odd:bg-white even:bg-slate-50">
-                  {row.map((cell, j) => (
+                  {shownIdx.map((j) => (
                     <td
                       key={j}
                       className="whitespace-pre border-b border-slate-100 px-3 py-1 font-mono text-slate-800"
                     >
-                      {cell}
+                      {row[j]}
                     </td>
                   ))}
                 </tr>

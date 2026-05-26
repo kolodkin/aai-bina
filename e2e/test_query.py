@@ -53,3 +53,68 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     page.get_by_test_id("query-next").click()
     expect(output).to_contain_text("gamma")
     expect(output).not_to_contain_text("alpha")
+
+
+def _open_query_panel(page: Page) -> None:
+    """Connect with form defaults, select the seeded `test` db, open the panel."""
+    page.goto("/", wait_until="networkidle")
+    page.get_by_test_id("prompt-input").fill("new clickhouse")
+    page.keyboard.press("Enter")
+    expect(page.get_by_test_id("clickhouse-form")).to_be_visible()
+    page.get_by_test_id("ch-connect").click()
+    expect(page.get_by_test_id("db-picker")).to_be_visible()
+    page.locator('[data-db="test"]').click()
+    expect(page.get_by_test_id("connection-status")).to_contain_text("connected - test")
+    page.get_by_test_id("prompt-input").fill("query")
+    page.keyboard.press("Enter")
+    expect(page.get_by_test_id("query-panel")).to_be_visible()
+
+
+def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> None:
+    _open_query_panel(page)
+    page.get_by_test_id("query-input").fill("SELECT id, name FROM items")
+
+    # Fields describes the query's output columns and reveals both pickers.
+    page.get_by_test_id("query-fields").click()
+    expect(page.get_by_test_id("field-pickers")).to_be_visible()
+    expect(page.locator('[data-testid="field-toggle"]')).to_have_count(2)
+    expect(page.locator('[data-testid="field-toggle"][data-col="id"]')).to_be_visible()
+    expect(page.locator('[data-testid="field-toggle"][data-col="name"]')).to_be_visible()
+
+    # Execute renders both columns.
+    page.get_by_test_id("query-run").click()
+    output = page.get_by_test_id("query-output")
+    expect(output).to_be_visible()
+    expect(output.locator("table thead th")).to_have_count(2)
+
+    # Select fields is client-side: hiding `id` drops its column without re-running.
+    page.locator('[data-testid="field-toggle"][data-col="id"]').click()
+    expect(output.locator("table thead th")).to_have_count(1)
+    expect(output.locator("table thead th")).to_contain_text("name")
+
+    # Clear all hides every column; Select all restores them.
+    page.get_by_test_id("fields-clear").click()
+    expect(output.locator("table thead th")).to_have_count(0)
+    page.get_by_test_id("fields-select-all").click()
+    expect(output.locator("table thead th")).to_have_count(2)
+
+    # CSV exports all columns regardless of visibility: hide `id`, it's still in the CSV.
+    page.locator('[data-testid="field-toggle"][data-col="id"]').click()
+    expect(output.locator("table thead th")).to_have_count(1)
+    with page.expect_download() as dl_info:
+        page.get_by_test_id("query-csv").click()
+    header = open(dl_info.value.path(), encoding="utf-8").read().splitlines()[0]
+    assert "id" in header
+    assert "name" in header
+
+    # Order by name DESC (server-side): first page of 2 is gamma, beta — not alpha.
+    page.locator('[data-testid="orderby-add"][data-col="name"]').click()
+    chip = page.locator('[data-testid="orderby-chip"][data-col="name"]')
+    expect(chip).to_be_visible()
+    chip.get_by_test_id("orderby-dir").click()  # ASC -> DESC
+    expect(chip.get_by_test_id("orderby-dir")).to_have_text("DESC")
+    page.get_by_test_id("query-limit").fill("2")
+    page.get_by_test_id("query-run").click()
+    expect(output).to_contain_text("gamma")
+    expect(output).to_contain_text("beta")
+    expect(output).not_to_contain_text("alpha")

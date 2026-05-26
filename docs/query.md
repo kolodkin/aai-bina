@@ -29,12 +29,35 @@ Typing `query` before a database is selected shows the hint
 - **SQL textarea** — the query to run. The **S / M / L / XL** toggles change its
   height.
 - **Execute** — runs the query at the current offset.
+- **Fields** — introspects the query's output columns (see
+  [Fields, selection & ordering](#fields-selection--ordering)).
 - **Limit / Offset** — page size and starting row (defaults `100` / `0`).
 - **Previous / Next** — step the offset by ±limit and re-run. Previous is
   disabled at offset `0`. There is no total-row count, so Next can page past the
   last row into an empty result.
-- **Download CSV** — downloads the **current page** as `query.csv`.
+- **Download CSV** — downloads the **current page** as `query.csv`, always with
+  **all** columns (the field selection below is view-only).
 - **Results table** — the rows for the current page, in a scrollable table.
+
+## Fields, selection & ordering
+
+**Fields** asks the backend to describe the current query's output columns —
+their names and ClickHouse types — without scanning data (ClickHouse
+`DESCRIBE (<query>)`). It populates two pickers from that one list:
+
+- **Select fields** — a toggle per column controlling which columns the results
+  table shows. This is **client-side only**: toggling doesn't re-query, and
+  **Download CSV** ignores it (CSV always exports every column). **Select all** /
+  **Clear all** flip every toggle at once. New columns from a query edited since
+  the last **Fields** call always show, so a stale list can't blank the table.
+- **Order by** — pick one or more columns, each **ASC** (default) or **DESC**.
+  This is **server-side**: the chosen columns become an `ORDER BY` on the
+  pagination wrapper, applied on the next **Execute** / **Previous** / **Next**
+  and to **Download CSV**. Column names are backtick-quoted and directions are
+  whitelisted, so the picker can't inject SQL.
+
+Editing the SQL doesn't auto-refresh the pickers — click **Fields** again to
+re-describe.
 
 ## Pagination
 
@@ -78,16 +101,18 @@ Renaming and deleting predefined queries are not yet supported — see
 Results come back from ClickHouse as `TabSeparatedWithNames` and render as an
 HTML table (first row = column names). The table scrolls within the panel; wide
 results scroll horizontally. **Download CSV** re-runs the current page asking for
-`CSVWithNames` and saves it as `query.csv` — it exports the current page, not the
-full result set.
+`CSVWithNames` and saves it as `query.csv` — it exports the current page (not the
+full result set) and always includes every column, regardless of the **Select
+fields** view.
 
 ## API
 
-| Method | Path                        | Body                                | Result |
-| ------ | --------------------------- | ----------------------------------- | ------ |
-| POST   | `/api/clickhouse/query`     | `{query, limit?, offset?, format?}` | `{ok, output}` (raw text) \| `{ok:false, message}`. `format:"csv"` returns CSV. Empty query → `400`; no session → `409`. |
-| GET    | `/api/predefined-queries`   | `?type=<connType>`                  | `{queries:[{query_name, query}]}` for that connection type. |
-| POST   | `/api/predefined-queries`   | `{query_name, type, query}`         | `{ok}`; upserts a predefined query. Missing fields → `400`. |
+| Method | Path                        | Body                                          | Result |
+| ------ | --------------------------- | --------------------------------------------- | ------ |
+| POST   | `/api/clickhouse/query`     | `{query, limit?, offset?, format?, order_by?}` | `{ok, output}` (raw text) \| `{ok:false, message}`. `format:"csv"` returns CSV. `order_by` is `[{name, dir}]` (`dir` ASC/DESC). Empty query → `400`; no session → `409`. |
+| POST   | `/api/clickhouse/describe`  | `{query}`                                     | `{ok, fields:[{name, type}]}` — the query's output columns, via `DESCRIBE`, no data scanned. \| `{ok:false, message}`. Empty query → `400`; no session / no database → `409`. |
+| GET    | `/api/predefined-queries`   | `?type=<connType>`                            | `{queries:[{query_name, query}]}` for that connection type. |
+| POST   | `/api/predefined-queries`   | `{query_name, type, query}`                   | `{ok}`; upserts a predefined query. Missing fields → `400`. |
 
 Queries run over the ClickHouse HTTP interface (HTTP Basic auth, 5s timeout),
 scoped to the session's selected database.

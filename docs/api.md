@@ -18,7 +18,8 @@ independently. Saved connections themselves are shared (SQLite).
 | POST   | `/api/clickhouse/connect`   | `{name,host,port,username,password}`   | Create: open + save + activate for this session; lists databases (`new <type>` form). `{ok, name, databases}` \| `{ok:false, message}`. |
 | POST   | `/api/clickhouse/open`      | `{name}`                               | Open a saved connection by name for this session; lists databases (`connect <name>`). `{ok, name, databases}` \| `{ok:false, message}`. |
 | POST   | `/api/clickhouse/database`  | `{database}`                           | Select this session's active connection's database. `{ok}`. |
-| POST   | `/api/clickhouse/query`     | `{query, limit?, offset?, format?}`    | Run SQL against this session's selected database, paginated by `limit`/`offset` (defaults 100/0). `format:"csv"` returns CSV. `{ok, output}` (raw text) \| `{ok:false, message}`. Empty query → `400`; no session → `409`. |
+| POST   | `/api/clickhouse/query`     | `{query, limit?, offset?, format?, order_by?}` | Run SQL against this session's selected database, paginated by `limit`/`offset` (defaults 100/0). `format:"csv"` returns CSV. `order_by` is `[{name, dir}]` (`dir` ASC/DESC, names backtick-quoted) sorting the pagination wrapper. `{ok, output}` (raw text) \| `{ok:false, message}`. Empty query → `400`; no session → `409`. |
+| POST   | `/api/clickhouse/describe`  | `{query}`                              | Describe the query's output columns via ClickHouse `DESCRIBE` (no data scanned). `{ok, fields:[{name, type}]}` \| `{ok:false, message}`. Empty query → `400`; no session / no database → `409`. |
 | GET    | `/api/predefined-queries`   | `?type=<connType>`                     | Global predefined queries for a connection type. `{queries:[{query_name, query}]}`. |
 | POST   | `/api/predefined-queries`   | `{query_name, type, query}`            | Upsert a global predefined query. `{ok}`; missing fields → `400`. |
 
