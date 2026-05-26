@@ -12,12 +12,12 @@ Typing `query` before a database is selected shows the hint
 
 ```
 ┌───────────────────────────────────────────────────────────┐
-│ [ Predefined queries… ▾ ]   [ name ] [ Save ]              │
-│                                          [S] [M] [L] [XL]  │
+│ [ query ]  [ Predefined queries… ▾ ]   [ name ] [ Save ]   │
+│                                    [Min] [S] [M] [L] [XL]  │
 │ ┌───────────────────────────────────────────────────────┐ │
 │ │ SELECT …                                              │ │  ← SQL textarea
 │ └───────────────────────────────────────────────────────┘ │
-│ [Execute]  Limit [100]  Offset [0]  [← Previous] [Next →]  │
+│ [Execute] [Fields] Limit [100] Offset [0] [← Prev] [Next →]│
 │                                          [Download CSV]    │
 │ ┌───────────────────────────────────────────────────────┐ │
 │ │ name | …                                              │ │  ← results table
@@ -26,8 +26,11 @@ Typing `query` before a database is selected shows the hint
 └───────────────────────────────────────────────────────────┘
 ```
 
-- **SQL textarea** — the query to run. The **S / M / L / XL** toggles change its
-  height.
+In query mode the command **prompt** moves onto the panel's top row, next to the
+predefined-query controls, to save vertical space.
+
+- **SQL textarea** — the query to run. The **Min / S / M / L / XL** toggles change
+  its height; **Min** collapses it to nothing to maximize room for results.
 - **Execute** — runs the query at the current offset.
 - **Fields** — introspects the query's output columns (see
   [Fields, selection & ordering](#fields-selection--ordering)).

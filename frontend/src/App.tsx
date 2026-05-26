@@ -128,6 +128,31 @@ function App() {
     }
   }
 
+  const inQueryMode = showQuery && Boolean(connection?.database)
+
+  // The command prompt. In query mode it joins the panel's top row (alongside the
+  // predefined-query controls) instead of standing on its own, to save vertical space.
+  const promptInput = (
+    <form onSubmit={submitPrompt} className={inQueryMode ? 'min-w-0 flex-1' : undefined}>
+      <input
+        type="text"
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        placeholder={
+          connection?.database ? 'query' : 'Type a command, e.g. new clickhouse'
+        }
+        aria-label="Prompt"
+        data-testid="prompt-input"
+        autoFocus
+        className={
+          inQueryMode
+            ? 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
+            : 'w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-center outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
+        }
+      />
+    </form>
+  )
+
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-900">
       {connection?.database && (
@@ -144,31 +169,12 @@ function App() {
         </div>
       )}
 
-      <div
-        className={`w-full ${
-          showQuery && connection?.database ? 'max-w-[80vw]' : 'max-w-md'
-        }`}
-      >
+      <div className={`w-full ${inQueryMode ? 'max-w-[80vw]' : 'max-w-md'}`}>
         <h1 className="mb-6 text-center text-3xl font-bold tracking-tight">
           QueryView
         </h1>
 
-        <form onSubmit={submitPrompt}>
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder={
-              connection?.database
-                ? 'query'
-                : 'Type a command, e.g. new clickhouse'
-            }
-            aria-label="Prompt"
-            data-testid="prompt-input"
-            autoFocus
-            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-center outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
-          />
-        </form>
+        {!inQueryMode && promptInput}
 
         {hint && (
           <p
@@ -186,7 +192,7 @@ function App() {
         )}
 
         {showQuery && connection?.database && (
-          <QueryPanel connectionType={connection.type} />
+          <QueryPanel connectionType={connection.type} promptSlot={promptInput} />
         )}
       </div>
     </main>
@@ -369,7 +375,13 @@ function parseTsv(text: string): { columns: string[]; rows: string[][] } {
   return { columns: lines[0].split('\t'), rows: lines.slice(1).map((l) => l.split('\t')) }
 }
 
-function QueryPanel({ connectionType }: { connectionType: string }) {
+function QueryPanel({
+  connectionType,
+  promptSlot,
+}: {
+  connectionType: string
+  promptSlot?: React.ReactNode
+}) {
   const [sql, setSql] = useState('')
   const [limit, setLimit] = useState(100)
   const [offset, setOffset] = useState(0)
@@ -543,6 +555,7 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
   }
 
   const sizes: [string, number, string][] = [
+    ['Min', 0, 'query-size-min'],
     ['S', 4, 'query-size-s'],
     ['M', 8, 'query-size-m'],
     ['L', 16, 'query-size-l'],
@@ -557,6 +570,7 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
       className="mt-6 space-y-3 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
     >
       <div className="flex items-center gap-2">
+        {promptSlot}
         <select
           data-testid="query-predefined-select"
           aria-label="Predefined queries"
@@ -617,9 +631,11 @@ function QueryPanel({ connectionType }: { connectionType: string }) {
         onChange={(e) => setSql(e.target.value)}
         aria-label="SQL query"
         data-testid="query-input"
-        rows={rows}
+        rows={rows || 1}
         placeholder="SELECT …"
-        className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+        className={`w-full rounded-md border border-slate-300 px-3 font-mono text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 ${
+          rows === 0 ? 'h-0 min-h-0 overflow-hidden border-transparent py-0' : 'py-2'
+        }`}
       />
 
       <div className="flex flex-wrap items-center gap-2">
