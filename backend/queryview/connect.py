@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import Field, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from .clickhouse import ChConfig, ch_query, list_databases
+from .clickhouse import (
+    ChConfig,
+    ch_query,
+    describe_query as ch_describe_query,
+    list_databases,
+)
 
 # --- Storage (SQLite, lazily opened) --------------------------------------
 
@@ -331,11 +336,55 @@ async def select_database(sid: str, database: str) -> dict[str, Any]:
     return {"ok": True}
 
 
+def _build_order_by(order_by: list[dict[str, Any]] | None) -> str:
+    """Build an `ORDER BY` clause from `[{"name", "dir"}]`. Names are backtick-quoted
+    (doubling any embedded backtick) and directions are whitelisted to ASC/DESC, so a
+    malformed entry can't inject SQL. Empty/absent input yields no clause."""
+    if not order_by:
+        return ""
+    parts: list[str] = []
+    for col in order_by:
+        if not isinstance(col, dict):
+            continue
+        name = col.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        raw_dir = col.get("dir")
+        direction = raw_dir.upper() if isinstance(raw_dir, str) else ""
+        if direction not in ("ASC", "DESC"):
+            direction = "ASC"
+        escaped = name.replace("`", "``")
+        parts.append(f"`{escaped}` {direction}")
+    if not parts:
+        return ""
+    return "ORDER BY " + ", ".join(parts)
+
+
+async def describe_query(sid: str, sql: str) -> dict[str, Any]:
+    """Describe a query's output columns against this session's selected database."""
+    await _ensure_session(sid)
+    s = _get_session_entry(sid)
+    if s is None:
+        return {"ok": False, "message": "not connected", "reason": "no-session"}
+    if not s.database:
+        return {"ok": False, "message": "select a database first", "reason": "no-database"}
+    ok, result = await ch_describe_query(s.config, sql, s.database)
+    if not ok:
+        return {"ok": False, "message": result}
+    return {"ok": True, "fields": result}
+
+
 async def run_query(
-    sid: str, sql: str, limit: int, offset: int, fmt: str
+    sid: str,
+    sql: str,
+    limit: int,
+    offset: int,
+    fmt: str,
+    order_by: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run a paginated SQL query against this session's selected database.
-    Pagination wraps the query in a subselect so any SELECT can be paged."""
+    Pagination wraps the query in a subselect so any SELECT can be paged; an optional
+    `order_by` sorts that wrapper server-side."""
     await _ensure_session(sid)
     s = _get_session_entry(sid)
     if s is None:
@@ -343,7 +392,12 @@ async def run_query(
     if not s.database:
         return {"ok": False, "message": "select a database first", "reason": "no-database"}
     inner = sql.rstrip().rstrip(";")
-    paginated = f"SELECT * FROM (\n{inner}\n) LIMIT {int(limit)} OFFSET {int(offset)}"
+    clauses = [f"SELECT * FROM (\n{inner}\n)"]
+    order_clause = _build_order_by(order_by)
+    if order_clause:
+        clauses.append(order_clause)
+    clauses.append(f"LIMIT {int(limit)} OFFSET {int(offset)}")
+    paginated = " ".join(clauses)
     r = await ch_query(s.config, paginated, database=s.database, fmt=fmt)
     if not r.ok:
         return {"ok": False, "message": r.value}

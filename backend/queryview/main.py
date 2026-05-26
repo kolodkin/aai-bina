@@ -12,7 +12,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from .clickhouse import parse_ch_config, test_connection
-from .connect import connect_new, get_session, open_saved, run_query, select_database
+from .connect import (
+    connect_new,
+    describe_query,
+    get_session,
+    open_saved,
+    run_query,
+    select_database,
+)
 from .queries import list_predefined_queries, save_predefined_query
 
 SERVE_STATIC = os.environ.get("SERVE_STATIC") == "1"
@@ -141,11 +148,29 @@ async def clickhouse_query(request: Request):
     offset = _parse_int(b.get("offset"), 0)
     offset = 0 if offset < 0 else offset
     fmt = "CSVWithNames" if b.get("format") == "csv" else "TabSeparatedWithNames"
-    r = await run_query(request.state.sid, sql, limit, offset, fmt)
+    raw_order = b.get("order_by")
+    order_by = raw_order if isinstance(raw_order, list) else None
+    r = await run_query(request.state.sid, sql, limit, offset, fmt, order_by)
     if not r["ok"]:
         status = 409 if r.get("reason") == "no-session" else 200
         return JSONResponse({"ok": False, "message": r["message"]}, status_code=status)
     return {"ok": True, "output": r["output"]}
+
+
+# Describe a query's output columns (name + ClickHouse type) without scanning data.
+@app.post("/api/clickhouse/describe")
+async def clickhouse_describe(request: Request):
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    raw_sql = b.get("query")
+    sql = raw_sql.strip() if isinstance(raw_sql, str) else ""
+    if not sql:
+        return JSONResponse({"ok": False, "message": "query required"}, status_code=400)
+    r = await describe_query(request.state.sid, sql)
+    if not r["ok"]:
+        status = 409 if r.get("reason") in ("no-session", "no-database") else 200
+        return JSONResponse({"ok": False, "message": r["message"]}, status_code=status)
+    return {"ok": True, "fields": r["fields"]}
 
 
 # Predefined queries: global, keyed by connection type.
