@@ -12,7 +12,7 @@ Typing `query` before a database is selected shows the hint
 
 ```
 ┌───────────────────────────────────────────────────────────┐
-│ [ query ]  [ Predefined queries… ▾ ]   [ name ] [ Save ]   │
+│ [ query ]  [ Predefined queries… ▾ ]            [ Save ]   │
 │                                    [Min] [S] [M] [L] [XL]  │
 │ ┌───────────────────────────────────────────────────────┐ │
 │ │ SELECT …                                              │ │  ← SQL textarea
@@ -92,9 +92,10 @@ CREATE TABLE predefined_queries (
 ```
 
 - The **selector** lists saved queries for the active connection's type;
-  choosing one loads its SQL into the textarea.
-- **Save** stores the textarea's SQL under the typed name and refreshes the
-  selector. Saving an existing name **upserts** (overwrites) it.
+  choosing one loads its SQL into the textarea and makes it the active name. Its
+  **+ New name…** item prompts for a fresh name (no separate name field).
+- **Save** stores the textarea's SQL under the **currently selected name** and
+  refreshes the selector. Saving an existing name **upserts** (overwrites) it.
 
 Renaming and deleting predefined queries are not yet supported — see
 [future.md](./future.md).

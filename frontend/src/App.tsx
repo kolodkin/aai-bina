@@ -15,6 +15,9 @@ type Field = { name: string; type: string }
 
 type OrderCol = { name: string; dir: 'ASC' | 'DESC' }
 
+// Sentinel value for the predefined dropdown's "new name" item.
+const NEW_NAME_OPTION = '::new::'
+
 function App() {
   const [prompt, setPrompt] = useState('')
   const [hint, setHint] = useState<string | null>(null)
@@ -390,7 +393,7 @@ function QueryPanel({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [predefined, setPredefined] = useState<PredefinedQuery[]>([])
-  const [saveName, setSaveName] = useState('')
+  const [selectedName, setSelectedName] = useState('')
   const [fields, setFields] = useState<Field[]>([])
   const [visibleCols, setVisibleCols] = useState<string[]>([])
   const [orderBy, setOrderBy] = useState<OrderCol[]>([])
@@ -496,8 +499,21 @@ function QueryPanel({
     }
   }
 
+  // Dropdown selection: a saved query loads its SQL; the "new name" item prompts
+  // for a fresh name. Either way the chosen name is what Save writes under.
+  function onSelectName(value: string) {
+    if (value === NEW_NAME_OPTION) {
+      const name = window.prompt('Save query as (name):', selectedName || '')?.trim()
+      if (name) setSelectedName(name)
+      return
+    }
+    setSelectedName(value)
+    const q = predefined.find((p) => p.query_name === value)
+    if (q) setSql(q.query)
+  }
+
   async function save() {
-    const name = saveName.trim()
+    const name = selectedName.trim()
     if (!name) return
     setBusy(true)
     setError(null)
@@ -574,33 +590,26 @@ function QueryPanel({
         <select
           data-testid="query-predefined-select"
           aria-label="Predefined queries"
-          defaultValue=""
-          onChange={(e) => {
-            const q = predefined.find((p) => p.query_name === e.target.value)
-            if (q) setSql(q.query)
-          }}
+          value={selectedName}
+          onChange={(e) => onSelectName(e.target.value)}
           className={`min-w-0 flex-1 ${inputClass}`}
         >
           <option value="">Predefined queries…</option>
+          <option value={NEW_NAME_OPTION}>+ New name…</option>
+          {selectedName !== '' &&
+            !predefined.some((p) => p.query_name === selectedName) && (
+              <option value={selectedName}>{selectedName}</option>
+            )}
           {predefined.map((p) => (
             <option key={p.query_name} value={p.query_name}>
               {p.query_name}
             </option>
           ))}
         </select>
-        <input
-          type="text"
-          value={saveName}
-          onChange={(e) => setSaveName(e.target.value)}
-          placeholder="name"
-          aria-label="Save query name"
-          data-testid="query-save-name"
-          className={`w-44 ${inputClass}`}
-        />
         <button
           type="button"
           onClick={save}
-          disabled={busy}
+          disabled={busy || !selectedName.trim()}
           data-testid="query-save"
           className="rounded-md border border-indigo-600 px-3 py-2 font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
         >

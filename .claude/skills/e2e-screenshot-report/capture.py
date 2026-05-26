@@ -93,11 +93,11 @@ def flow_query_against_seeded_db(page) -> None:
     shot(page, t, "empty query panel")
 
     page.get_by_test_id("query-input").fill("SELECT name FROM items ORDER BY id")
-    page.get_by_test_id("query-save-name").fill("all items")
+    select = page.get_by_test_id("query-predefined-select")
+    page.once("dialog", lambda d: d.accept("all items"))
+    select.select_option("::new::")  # the "+ New name…" item -> name prompt
     page.get_by_test_id("query-save").click()
-    expect(
-        page.get_by_test_id("query-predefined-select").locator('option[value="all items"]')
-    ).to_have_count(1)
+    expect(select.locator('option[value="all items"]')).to_have_count(1)
     shot(page, t, "saved predefined query")
 
     page.get_by_test_id("query-limit").fill("2")

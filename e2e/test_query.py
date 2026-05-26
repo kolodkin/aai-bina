@@ -23,11 +23,14 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     sql = "SELECT name FROM items ORDER BY id"
     page.get_by_test_id("query-input").fill(sql)
 
-    # Predefined round-trip: save it, see it in the selector, reload it.
-    page.get_by_test_id("query-save-name").fill("all items")
-    page.get_by_test_id("query-save").click()
+    # Predefined round-trip: name it via the dropdown's "New name…" item (a
+    # prompt), Save under that name, see it in the selector, reload it.
     select = page.get_by_test_id("query-predefined-select")
+    page.once("dialog", lambda d: d.accept("all items"))
+    select.select_option("::new::")
+    page.get_by_test_id("query-save").click()
     expect(select.locator('option[value="all items"]')).to_have_count(1)
+    select.select_option("")
     page.get_by_test_id("query-input").fill("")
     select.select_option("all items")
     expect(page.get_by_test_id("query-input")).to_have_value(sql)
