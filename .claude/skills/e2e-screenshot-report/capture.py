@@ -150,10 +150,10 @@ def flow_field_pickers_visibility_and_order_by(page) -> None:
     shot(page, t, "order by name DESC selected")
 
     page.get_by_test_id("query-limit").fill("2")
-    page.get_by_test_id("query-run").click()
+    page.get_by_test_id("orderby-apply").click()
     expect(output).to_contain_text("gamma")
     expect(output).not_to_contain_text("alpha")
-    shot(page, t, "server-side ordered results")
+    shot(page, t, "server-side ordered results (Apply)")
 
 
 FLOWS = (flow_query_against_seeded_db, flow_field_pickers_visibility_and_order_by)

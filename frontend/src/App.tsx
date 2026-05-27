@@ -760,7 +760,7 @@ function QueryPanel({
                     data-col={f.name}
                     data-on={on}
                     title={f.type}
-                    className={`rounded-md border px-2.5 py-1 text-xs transition ${
+                    className={`rounded-md border px-2.5 py-1 text-xs ${
                       on
                         ? 'border-indigo-600 bg-indigo-600 text-white'
                         : 'border-slate-300 bg-white hover:border-indigo-400'
@@ -774,7 +774,19 @@ function QueryPanel({
           </div>
 
           <div>
-            <span className="mb-2 block text-sm font-medium text-slate-700">Order by</span>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-sm font-medium text-slate-700">Order by</span>
+              <button
+                type="button"
+                data-testid="orderby-apply"
+                onClick={() => void run(offset)}
+                disabled={busy}
+                className="rounded border border-indigo-600 px-2 py-0.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
+              >
+                Apply
+              </button>
+              <span className="text-xs text-slate-400">(sorts on Execute / Apply)</span>
+            </div>
             <div className="flex flex-wrap gap-2">
               {fields.map((f) => {
                 const on = orderBy.some((o) => o.name === f.name)
@@ -786,7 +798,7 @@ function QueryPanel({
                     data-testid="orderby-add"
                     data-col={f.name}
                     data-on={on}
-                    className={`rounded-md border px-2.5 py-1 text-xs transition ${
+                    className={`rounded-md border px-2.5 py-1 text-xs ${
                       on
                         ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
                         : 'border-slate-300 bg-white hover:border-indigo-400'
