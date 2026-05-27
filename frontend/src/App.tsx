@@ -310,6 +310,7 @@ function App() {
             connectionType={connection.type}
             promptSlot={promptInput}
             pushed={pushed}
+            onPushConsumed={() => setPushed(null)}
           />
         )}
       </div>
@@ -497,10 +498,12 @@ function QueryPanel({
   connectionType,
   promptSlot,
   pushed,
+  onPushConsumed,
 }: {
   connectionType: string
   promptSlot?: React.ReactNode
   pushed?: PushPayload | null
+  onPushConsumed?: () => void
 }) {
   const [sql, setSql] = useState('')
   const [limit, setLimit] = useState(100)
@@ -549,6 +552,9 @@ function QueryPanel({
     setOrderBy(ord)
     /* eslint-enable react-hooks/set-state-in-effect */
     void runWith(q, lim, off, ord, fld)
+    // Consume the push so re-mounting the panel doesn't re-run a stale query.
+    onPushConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pushed])
 
   async function describe() {

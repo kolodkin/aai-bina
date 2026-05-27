@@ -23,7 +23,7 @@ def register() -> str:
     """Create a channel for a newly-armed browser session; return its public id.
     The id is random and unrelated to the qv_session cookie, so the session
     secret is never exposed to the agent."""
-    remote_id = secrets.token_hex(4)
+    remote_id = secrets.token_hex(8)
     _channels[remote_id] = _Channel()
     return remote_id
 

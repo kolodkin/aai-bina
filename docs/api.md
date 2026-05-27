@@ -26,8 +26,8 @@ independently. Saved connections themselves are shared (SQLite).
 | POST   | `/api/remote/push`          | `{session_id, query, limit?, offset?, order_by?, fields?}` | Push a query to a live session (the surface `push_query` and the e2e suite use). `{ok}` \| `{ok:false, message}` (unknown session). Empty `query`/`session_id` → `400`. |
 
 **MCP:** a FastMCP server is mounted at `/mcp` (Streamable HTTP) exposing a
-single `push_query` tool that delegates to `/api/remote/push`. See
-[remote.md](./remote.md).
+single `push_query` tool that delegates to the in-process `remote.push()` hub
+(the same hub `/api/remote/push` calls). See [remote.md](./remote.md).
 
 ## Persistence
 
