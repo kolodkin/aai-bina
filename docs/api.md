@@ -22,6 +22,12 @@ independently. Saved connections themselves are shared (SQLite).
 | POST   | `/api/clickhouse/describe`  | `{query}`                              | Describe the query's output columns via ClickHouse `DESCRIBE` (no data scanned). `{ok, fields:[{name, type}]}` \| `{ok:false, message}`. Empty query → `400`; no session / no database → `409`. |
 | GET    | `/api/predefined-queries`   | `?type=<connType>`                     | Global predefined queries for a connection type. `{queries:[{query_name, query}]}`. |
 | POST   | `/api/predefined-queries`   | `{query_name, type, query}`            | Upsert a global predefined query. `{ok}`; missing fields → `400`. |
+| GET    | `/api/remote/events`        | —                                      | SSE stream a browser opens when "remote control" is armed. Emits a `ready` event (`{id}`) then `query` events with pushed payloads. |
+| POST   | `/api/remote/push`          | `{session_id, query, limit?, offset?, order_by?, fields?}` | Push a query to a live session (the surface `push_query` and the e2e suite use). `{ok}` \| `{ok:false, message}` (unknown session). Empty `query`/`session_id` → `400`. |
+
+**MCP:** a FastMCP server is mounted at `/mcp` (Streamable HTTP) exposing a
+single `push_query` tool that delegates to `/api/remote/push`. See
+[remote.md](./remote.md).
 
 ## Persistence
 
@@ -34,3 +40,4 @@ session / auto-connect model.
 - [queryview.md](./queryview.md) — the single-prompt page concept.
 - [connect.md](./connect.md) — connecting (`new <type>` / `connect <name>`), storage, sessions.
 - [query.md](./query.md) — running queries: pagination, predefined queries, CSV.
+- [remote.md](./remote.md) — pushing queries to a live session over MCP.

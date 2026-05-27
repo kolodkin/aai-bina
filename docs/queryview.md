@@ -31,6 +31,8 @@ page reacts to it inline.
   small pill in the **top-left** corner. It is hidden until a database is
   selected on the active connection, then shows a green circle 🟢 followed by
   `connected - <database>`.
+  Next to the status pill is an **agent icon** that opens the remote-control
+  popover (opt-in "Allow remote control"); see [remote.md](./remote.md).
 
 ## Interaction model
 
