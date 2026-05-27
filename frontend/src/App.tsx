@@ -985,7 +985,7 @@ function QueryPanel({
           className="max-h-[70vh] overflow-auto rounded-xl border border-white/10"
         >
           <table className="min-w-full border-collapse text-left text-sm">
-            <thead className="sticky top-0 bg-[rgba(20,24,40,0.85)] backdrop-blur-md">
+            <thead className="sticky top-0 bg-[rgba(16,20,36,0.62)] backdrop-blur-lg">
               <tr>
                 {shownIdx.map((i) => (
                   <th
