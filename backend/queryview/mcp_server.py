@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from . import remote
 
 mcp = FastMCP("queryview", stateless_http=True)
+mcp.settings.streamable_http_path = "/"
 
 
 @mcp.tool()
