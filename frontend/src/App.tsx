@@ -15,6 +15,14 @@ type Field = { name: string; type: string }
 
 type OrderCol = { name: string; dir: 'ASC' | 'DESC' }
 
+type PushPayload = {
+  query: string
+  limit?: number
+  offset?: number
+  order_by?: OrderCol[]
+  fields?: string[]
+}
+
 // Sentinel value for the predefined dropdown's "new name" item.
 const NEW_NAME_OPTION = '::new::'
 
@@ -24,6 +32,10 @@ function App() {
   const [showForm, setShowForm] = useState(false)
   const [connection, setConnection] = useState<Connection | null>(null)
   const [showQuery, setShowQuery] = useState(false)
+  const [armed, setArmed] = useState(false)
+  const [remoteId, setRemoteId] = useState<string | null>(null)
+  const [pushed, setPushed] = useState<PushPayload | null>(null)
+  const [agentOpen, setAgentOpen] = useState(false)
 
   // On load: open a connection named explicitly via ?connection=<name>,
   // otherwise resume the session's last active connection.
@@ -49,6 +61,39 @@ function App() {
       })
       .catch(() => {})
   }, [])
+
+  // When armed, open an SSE channel: `ready` gives this session's id; each
+  // `query` event carries a pushed query for the panel to run.
+  useEffect(() => {
+    if (!armed) return
+    const es = new EventSource('/api/remote/events')
+    es.addEventListener('ready', (e) => {
+      try {
+        setRemoteId(JSON.parse((e as MessageEvent).data).id as string)
+      } catch {
+        /* ignore malformed event */
+      }
+    })
+    es.addEventListener('query', (e) => {
+      try {
+        setPushed(JSON.parse((e as MessageEvent).data) as PushPayload)
+      } catch {
+        /* ignore malformed event */
+      }
+    })
+    return () => {
+      es.close()
+      setRemoteId(null)
+    }
+  }, [armed])
+
+  function toggleArm(e: React.ChangeEvent<HTMLInputElement>) {
+    const next = e.target.checked
+    setArmed(next)
+    if (next) setShowQuery(true) // ensure the query panel is mounted to receive pushes
+  }
+
+  const agentCommand = `Use the queryview MCP to push queries to QueryView session "${remoteId ?? ''}".`
 
   async function openSaved(name: string) {
     try {
@@ -159,16 +204,82 @@ function App() {
   return (
     <main className="relative flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-900">
       {connection?.database && (
-        <div
-          className="absolute left-4 top-4 flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium shadow-sm"
-          data-testid="connection-status"
-        >
-          <span
-            className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500"
-            data-testid="connection-indicator"
-            aria-label="connected"
-          />
-          connected - {connection.database}
+        <div className="absolute left-4 top-4 flex items-center gap-2">
+          <div
+            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium shadow-sm"
+            data-testid="connection-status"
+          >
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500"
+              data-testid="connection-indicator"
+              aria-label="connected"
+            />
+            connected - {connection.database}
+          </div>
+          <div className="relative">
+            <button
+              type="button"
+              data-testid="agent-toggle"
+              onClick={() => setAgentOpen((o) => !o)}
+              aria-label="Remote control"
+              className={`flex h-8 w-8 items-center justify-center rounded-full border shadow-sm transition ${
+                armed
+                  ? 'border-indigo-600 bg-indigo-600 text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-400'
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="4" y="8" width="16" height="11" rx="2" />
+                <path d="M12 8V4M9 3h6" />
+                <circle cx="9" cy="13" r="1" />
+                <circle cx="15" cy="13" r="1" />
+              </svg>
+            </button>
+            {agentOpen && (
+              <div
+                data-testid="agent-panel"
+                className="absolute left-0 top-full z-10 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-lg"
+              >
+                <label className="flex items-center gap-2 font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    data-testid="remote-arm"
+                    checked={armed}
+                    onChange={toggleArm}
+                  />
+                  Allow remote control
+                </label>
+                {armed && remoteId && (
+                  <div className="mt-3 space-y-2">
+                    <div className="text-xs text-slate-500">Session id</div>
+                    <code
+                      data-testid="remote-session-id"
+                      className="block rounded bg-slate-100 px-2 py-1 font-mono text-slate-800"
+                    >
+                      {remoteId}
+                    </code>
+                    <button
+                      type="button"
+                      data-testid="remote-copy"
+                      onClick={() => void navigator.clipboard?.writeText(agentCommand)}
+                      className="rounded-md border border-indigo-600 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                    >
+                      Copy agent command
+                    </button>
+                    <p className="text-xs text-slate-500">{agentCommand}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -195,7 +306,12 @@ function App() {
         )}
 
         {showQuery && connection?.database && (
-          <QueryPanel connectionType={connection.type} promptSlot={promptInput} />
+          <QueryPanel
+            connectionType={connection.type}
+            promptSlot={promptInput}
+            pushed={pushed}
+            onPushConsumed={() => setPushed(null)}
+          />
         )}
       </div>
     </main>
@@ -381,9 +497,13 @@ function parseTsv(text: string): { columns: string[]; rows: string[][] } {
 function QueryPanel({
   connectionType,
   promptSlot,
+  pushed,
+  onPushConsumed,
 }: {
   connectionType: string
   promptSlot?: React.ReactNode
+  pushed?: PushPayload | null
+  onPushConsumed?: () => void
 }) {
   const [sql, setSql] = useState('')
   const [limit, setLimit] = useState(100)
@@ -416,6 +536,27 @@ function QueryPanel({
     void loadPredefined()
   }, [loadPredefined])
 
+  // Apply a pushed query: reflect it in the controls and run it with the pushed
+  // values directly (not state, which hasn't settled yet).
+  useEffect(() => {
+    if (!pushed) return
+    const q = pushed.query
+    const lim = pushed.limit ?? 100
+    const off = pushed.offset ?? 0
+    const ord = pushed.order_by ?? []
+    const fld = pushed.fields ?? []
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setSql(q)
+    setLimit(lim)
+    setOffset(off)
+    setOrderBy(ord)
+    /* eslint-enable react-hooks/set-state-in-effect */
+    void runWith(q, lim, off, ord, fld)
+    // Consume the push so re-mounting the panel doesn't re-run a stale query.
+    onPushConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pushed])
+
   async function describe() {
     setBusy(true)
     setError(null)
@@ -442,25 +583,36 @@ function QueryPanel({
     }
   }
 
-  async function run(nextOffset: number) {
+  async function runWith(
+    q: string,
+    lim: number,
+    off: number,
+    ord: OrderCol[],
+    selectFields?: string[],
+  ) {
     setBusy(true)
     setError(null)
     try {
       const res = await fetch('/api/clickhouse/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: sql,
-          limit,
-          offset: nextOffset,
-          format: 'text',
-          order_by: orderBy,
-        }),
+        body: JSON.stringify({ query: q, limit: lim, offset: off, format: 'text', order_by: ord }),
       })
       const data = await res.json()
       if (data.ok) {
-        setOutput(data.output as string)
-        setOffset(nextOffset)
+        const text = data.output as string
+        setOutput(text)
+        setOffset(off)
+        // A pushed selection is authoritative: synthesize the field list from
+        // the actual result columns so the existing visibility filter restricts
+        // the table to exactly the pushed columns (empty/absent => show all).
+        if (selectFields !== undefined) {
+          const cols = parseTsv(text).columns
+          setFields(cols.map((name) => ({ name, type: '' })))
+          setVisibleCols(
+            selectFields.length ? selectFields.filter((f) => cols.includes(f)) : cols,
+          )
+        }
       } else {
         setError(data.message ?? 'query failed')
       }
@@ -469,6 +621,10 @@ function QueryPanel({
     } finally {
       setBusy(false)
     }
+  }
+
+  function run(nextOffset: number) {
+    void runWith(sql, limit, nextOffset, orderBy)
   }
 
   async function downloadCsv() {

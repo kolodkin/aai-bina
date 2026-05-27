@@ -8,8 +8,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+
+from . import remote
+from .mcp_server import mcp
 
 from .clickhouse import parse_ch_config, test_connection
 from .connect import (
@@ -52,7 +57,17 @@ def _parse_int(value: Any, default: int) -> int:
     return default
 
 
-app = FastAPI(title="queryview-backend")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # A mounted Starlette sub-app's lifespan is not run by the parent, so run
+    # the MCP session manager here. streamable_http_app() (called at mount,
+    # below) initializes mcp.session_manager before this runs at startup.
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="queryview-backend", lifespan=lifespan)
+app.mount("/mcp", mcp.streamable_http_app())
 
 
 @app.middleware("http")
@@ -197,6 +212,88 @@ async def predefined_queries_save(request: Request):
         )
     await save_predefined_query(name, conn_type, query)
     return {"ok": True}
+
+
+# --- Remote control (MCP push -> live browser session) --------------------
+
+_SSE_POLL_SECONDS = 1.0
+_SSE_HEARTBEAT_SECONDS = 15.0
+
+
+def _sse(event: str, data: dict[str, Any]) -> bytes:
+    import json
+
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode("utf-8")
+
+
+async def _event_stream(remote_id: str, request: Request):
+    """Yield SSE: a `ready` event with the id, then `query` events as they are
+    pushed, plus a heartbeat. Polls disconnect every second so disarming (the
+    browser closing the EventSource) unregisters the channel promptly."""
+    try:
+        yield _sse("ready", {"id": remote_id})
+        elapsed = 0.0
+        while True:
+            if await request.is_disconnected():
+                break
+            msg = await remote.next_message(remote_id, _SSE_POLL_SECONDS)
+            if msg is None:
+                elapsed += _SSE_POLL_SECONDS
+                if elapsed >= _SSE_HEARTBEAT_SECONDS:
+                    elapsed = 0.0
+                    yield b": ping\n\n"
+                continue
+            yield _sse("query", msg)
+    finally:
+        remote.unregister(remote_id)
+
+
+# Open an SSE channel for this browser; the browser does this when the user
+# arms "remote control". Closing the EventSource unregisters the channel.
+@app.get("/api/remote/events")
+async def remote_events(request: Request):
+    remote_id = remote.register()
+    return StreamingResponse(
+        _event_stream(remote_id, request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# Push a query to a live session (used by the MCP tool and, in tests, directly).
+@app.post("/api/remote/push")
+async def remote_push(request: Request):
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    raw_sid = b.get("session_id")
+    session_id = raw_sid.strip() if isinstance(raw_sid, str) else ""
+    raw_sql = b.get("query")
+    query = raw_sql.strip() if isinstance(raw_sql, str) else ""
+    if not session_id or not query:
+        return JSONResponse(
+            {"ok": False, "message": "session_id and query are required"},
+            status_code=400,
+        )
+    limit = _parse_int(b.get("limit"), 100)
+    offset = _parse_int(b.get("offset"), 0)
+    raw_order = b.get("order_by")
+    order_by = raw_order if isinstance(raw_order, list) else None
+    raw_fields = b.get("fields")
+    fields = (
+        [f for f in raw_fields if isinstance(f, str)]
+        if isinstance(raw_fields, list)
+        else None
+    )
+    payload = {
+        "type": "query",
+        "query": query,
+        "limit": limit,
+        "offset": offset,
+        "order_by": order_by,
+        "fields": fields,
+    }
+    ok, message = remote.push(session_id, payload)
+    return {"ok": ok, "message": message}
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
