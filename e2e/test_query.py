@@ -90,10 +90,13 @@ def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> No
     expect(output).to_be_visible()
     expect(output.locator("table thead th")).to_have_count(2)
 
-    # Select fields is client-side: hiding `id` drops its column without re-running.
-    page.locator('[data-testid="field-toggle"][data-col="id"]').click()
+    # Select fields is client-side: hiding `id` drops its column without re-running,
+    # and the toggle immediately reflects the unselected state.
+    id_toggle = page.locator('[data-testid="field-toggle"][data-col="id"]')
+    id_toggle.click()
     expect(output.locator("table thead th")).to_have_count(1)
     expect(output.locator("table thead th")).to_contain_text("name")
+    expect(id_toggle).to_have_attribute("data-on", "false")
 
     # Clear all hides every column; Select all restores them.
     page.get_by_test_id("fields-clear").click()
@@ -110,14 +113,16 @@ def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> No
     assert "id" in header
     assert "name" in header
 
-    # Order by name DESC (server-side): first page of 2 is gamma, beta — not alpha.
+    # Order by name DESC (server-side): selecting it does NOT change results until
+    # the query re-runs. The order-by Run button re-runs the query (like Execute),
+    # so it also applies the current limit.
     page.locator('[data-testid="orderby-add"][data-col="name"]').click()
     chip = page.locator('[data-testid="orderby-chip"][data-col="name"]')
     expect(chip).to_be_visible()
     chip.get_by_test_id("orderby-dir").click()  # ASC -> DESC
     expect(chip.get_by_test_id("orderby-dir")).to_have_text("DESC")
     page.get_by_test_id("query-limit").fill("2")
-    page.get_by_test_id("query-run").click()
+    page.get_by_test_id("orderby-run").click()
     expect(output).to_contain_text("gamma")
     expect(output).to_contain_text("beta")
     expect(output).not_to_contain_text("alpha")

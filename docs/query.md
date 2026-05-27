@@ -49,15 +49,18 @@ their names and ClickHouse types — without scanning data (ClickHouse
 `DESCRIBE (<query>)`). It populates two pickers from that one list:
 
 - **Select fields** — a toggle per column controlling which columns the results
-  table shows. This is **client-side only**: toggling doesn't re-query, and
-  **Download CSV** ignores it (CSV always exports every column). **Select all** /
-  **Clear all** flip every toggle at once. New columns from a query edited since
-  the last **Fields** call always show, so a stale list can't blank the table.
+  table shows. This is **client-side and immediate**: toggling shows/hides the
+  column on button press with no re-query, and **Download CSV** ignores it (CSV
+  always exports every column). **Select all** / **Clear all** flip every toggle
+  at once. New columns from a query edited since the last **Fields** call always
+  show, so a stale list can't blank the table.
 - **Order by** — pick one or more columns, each **ASC** (default) or **DESC**.
-  This is **server-side**: the chosen columns become an `ORDER BY` on the
-  pagination wrapper, applied on the next **Execute** / **Previous** / **Next**
-  and to **Download CSV**. Column names are backtick-quoted and directions are
-  whitelisted, so the picker can't inject SQL.
+  This is **server-side**, so it only takes effect when the query re-runs: on
+  **Execute** / **Previous** / **Next**, on **Download CSV**, or via the **Run**
+  button in the order-by section. **Run** re-runs the whole query (same as
+  Execute), so it applies the current limit/offset too — not just the ordering.
+  Column names are backtick-quoted and directions are whitelisted, so the picker
+  can't inject SQL.
 
 Editing the SQL doesn't auto-refresh the pickers — click **Fields** again to
 re-describe.
