@@ -1,16 +1,19 @@
 from playwright.sync_api import Page, expect
 
 
-def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
+def test_query_against_seeded_db(seeded_test_db, page: Page, shot) -> None:
     # Connect using the form defaults (host=localhost, port=8123, user=default).
     page.goto("/", wait_until="networkidle")
+    shot("landing prompt")
     page.get_by_test_id("prompt-input").fill("new clickhouse")
     page.keyboard.press("Enter")
     expect(page.get_by_test_id("clickhouse-form")).to_be_visible()
+    shot("new connection form")
     page.get_by_test_id("ch-connect").click()
 
     # Pick the seeded `test` database.
     expect(page.get_by_test_id("db-picker")).to_be_visible()
+    shot("database picker")
     page.locator('[data-db="test"]').click()
     expect(page.get_by_test_id("connection-status")).to_contain_text("connected - test")
 
@@ -18,6 +21,7 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     page.get_by_test_id("prompt-input").fill("query")
     page.keyboard.press("Enter")
     expect(page.get_by_test_id("query-panel")).to_be_visible()
+    shot("empty query panel")
 
     # Write a query.
     sql = "SELECT name FROM items ORDER BY id"
@@ -30,6 +34,7 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     select.select_option("::new::")
     page.get_by_test_id("query-save").click()
     expect(select.locator('option[value="all items"]')).to_have_count(1)
+    shot("saved predefined query")
     select.select_option("")
     page.get_by_test_id("query-input").fill("")
     select.select_option("all items")
@@ -44,6 +49,7 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     expect(output).to_contain_text("alpha")
     expect(output).to_contain_text("beta")
     expect(output).not_to_contain_text("gamma")
+    shot("results page 1 (limit 2)")
 
     # Download CSV of the current page.
     with page.expect_download() as dl_info:
@@ -56,6 +62,7 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     page.get_by_test_id("query-next").click()
     expect(output).to_contain_text("gamma")
     expect(output).not_to_contain_text("alpha")
+    shot("results page 2 (next)")
 
 
 def _open_query_panel(page: Page) -> None:
@@ -73,7 +80,7 @@ def _open_query_panel(page: Page) -> None:
     expect(page.get_by_test_id("query-panel")).to_be_visible()
 
 
-def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page) -> None:
+def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page, shot) -> None:
     """Saving a predefined query with a cell_view YAML map renders cells per
     the map: `link` becomes an <a href> using {cell}, `custom` injects the
     template with {cell} HTML-escaped. Both wrappers carry an automatic
@@ -82,6 +89,7 @@ def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page) -> N
     _open_query_panel(page)
 
     page.get_by_test_id("query-input").fill("SELECT id, name FROM items ORDER BY id LIMIT 2")
+    shot("panel - cell view toggle in toolbar (before Min)")
 
     # Name the query first — the modal Save is disabled without a name.
     page.once("dialog", lambda d: d.accept("with-views"))
@@ -96,8 +104,10 @@ def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page) -> N
         "  value: https://example.com/{cell}\n"
         "id:\n"
         "  type: custom\n"
-        "  value: <strong>{cell}</strong>\n"
+        "  value: <strong style=\"color:#a5b4fc\">{cell}</strong>\n"
     )
+    shot("cell view modal - YAML authored")
+
     # Save persists cell_view + sql under the selected name and closes the modal.
     page.get_by_test_id("cell-view-save").click()
     expect(page.get_by_test_id("cell-view-modal")).not_to_be_visible()
@@ -106,6 +116,7 @@ def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page) -> N
             'option[value="with-views"]'
         )
     ).to_have_count(1)
+    shot("saved - modal closed")
 
     page.get_by_test_id("query-run").click()
     output = page.get_by_test_id("query-output")
@@ -126,9 +137,10 @@ def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page) -> N
     expect(custom).to_be_visible()
     expect(custom).to_have_text("1")
     expect(custom.locator("strong")).to_have_text("1")
+    shot("results: name as link, id as custom HTML")
 
 
-def test_cell_view_cancel_discards_edits(seeded_test_db, page: Page) -> None:
+def test_cell_view_cancel_discards_edits(seeded_test_db, page: Page, shot) -> None:
     """Cancel in the cell-view modal closes without saving, so rendering still
     uses the saved cell_view (or none) — author-time edits never leak through."""
     _open_query_panel(page)
@@ -139,6 +151,7 @@ def test_cell_view_cancel_discards_edits(seeded_test_db, page: Page) -> None:
     page.get_by_test_id("cell-view-input").fill(
         "name:\n  type: link\n  value: https://example.com/{cell}\n"
     )
+    shot("cell view modal - draft YAML before Cancel")
     page.get_by_test_id("cell-view-cancel").click()
     expect(page.get_by_test_id("cell-view-modal")).not_to_be_visible()
 
@@ -154,7 +167,7 @@ def test_cell_view_cancel_discards_edits(seeded_test_db, page: Page) -> None:
     expect(page.get_by_test_id("cell-view-input")).to_have_value("")
 
 
-def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> None:
+def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page, shot) -> None:
     _open_query_panel(page)
     page.get_by_test_id("query-input").fill("SELECT id, name FROM items")
 
@@ -164,12 +177,14 @@ def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> No
     expect(page.locator('[data-testid="field-toggle"]')).to_have_count(2)
     expect(page.locator('[data-testid="field-toggle"][data-col="id"]')).to_be_visible()
     expect(page.locator('[data-testid="field-toggle"][data-col="name"]')).to_be_visible()
+    shot("fields described - both pickers")
 
     # Execute renders both columns.
     page.get_by_test_id("query-run").click()
     output = page.get_by_test_id("query-output")
     expect(output).to_be_visible()
     expect(output.locator("table thead th")).to_have_count(2)
+    shot("results with all columns")
 
     # Select fields is client-side: hiding `id` drops its column without re-running,
     # and the toggle immediately reflects the unselected state.
@@ -178,12 +193,15 @@ def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> No
     expect(output.locator("table thead th")).to_have_count(1)
     expect(output.locator("table thead th")).to_contain_text("name")
     expect(id_toggle).to_have_attribute("data-on", "false")
+    shot("id column hidden (client-side)")
 
     # Clear all hides every column; Select all restores them.
     page.get_by_test_id("fields-clear").click()
     expect(output.locator("table thead th")).to_have_count(0)
+    shot("clear all - no columns")
     page.get_by_test_id("fields-select-all").click()
     expect(output.locator("table thead th")).to_have_count(2)
+    shot("select all - columns restored")
 
     # CSV exports all columns regardless of visibility: hide `id`, it's still in the CSV.
     page.locator('[data-testid="field-toggle"][data-col="id"]').click()
@@ -202,8 +220,10 @@ def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> No
     expect(chip).to_be_visible()
     chip.get_by_test_id("orderby-dir").click()  # ASC -> DESC
     expect(chip.get_by_test_id("orderby-dir")).to_have_text("DESC")
+    shot("order by name DESC selected")
     page.get_by_test_id("query-limit").fill("2")
     page.get_by_test_id("orderby-run").click()
     expect(output).to_contain_text("gamma")
     expect(output).to_contain_text("beta")
     expect(output).not_to_contain_text("alpha")
+    shot("ordered + limited results (order-by Run)")
