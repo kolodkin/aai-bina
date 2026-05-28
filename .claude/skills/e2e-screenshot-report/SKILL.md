@@ -7,12 +7,20 @@ description: Use when you want a shareable visual record of QueryView's e2e UI f
 
 ## Overview
 
-Drives QueryView's e2e UI flows in a headless browser, captures labeled
-screenshots, and bundles them into a single **self-contained `index.html`**
-(images embedded as base64, so the file stands alone — no sidecar folder needed
-to view or share it).
+Runs QueryView's real pytest-playwright suite with screenshots enabled, then
+bundles the captured PNGs into a single **self-contained `index.html`** (images
+embedded as base64, so the file stands alone — no sidecar folder needed to view
+or share it).
 
-`capture.py` lives next to this file. Its flows mirror `e2e/test_query.py`.
+Two sources of screenshots get picked up automatically:
+
+- **`shot(label)` fixture** (in `e2e/conftest.py`) — call this inside any test
+  at points worth picturing. Files land in pytest-playwright's per-test
+  `output_path` numbered in call order.
+- **`--screenshot=on`** — pytest-playwright's auto end-of-test shot.
+
+`report.py` just walks the `--output` directory; the tests are the source of
+truth, so the report can't drift from what's actually tested.
 
 ## When to use
 
@@ -20,15 +28,16 @@ to view or share it).
 - You're reviewing a UI change and want before/after visuals.
 - You want screenshots to attach to a PR or design review.
 
-Not for: asserting correctness (that's the Playwright suite — `pytest e2e`).
+Not for: asserting correctness (that's the assertions in the e2e suite).
 
 ## Runbook
 
-Run every step from the repo root. The app must be built and served, and a
-ClickHouse server must be reachable (the script seeds a `test` database itself).
+Run from the repo root. The app must be built and served, and a ClickHouse
+server must be reachable (the `seeded_test_db` fixture creates a `test`
+database itself).
 
 ```bash
-# 1. Build the SPA (the script screenshots the *built* app served by the backend)
+# 1. Build the SPA (the suite drives the *built* app served by the backend)
 npm ci && npm run build -w frontend
 
 # 2. Ensure ClickHouse is up (downloads a standalone binary the first time)
@@ -41,36 +50,51 @@ uv run --frozen --group test playwright install chromium
 # 4. Start the backend serving the built SPA (background)
 SERVE_STATIC=1 PORT=8000 DB_PATH=/tmp/qv-shots.db uv run --frozen queryview-backend &
 
-# 5. Capture + build the report
-uv run --frozen --group test python .claude/skills/e2e-screenshot-report/capture.py
+# 5. Run the e2e suite with screenshots into a known output dir
+BASE_URL=http://localhost:8000 uv run --frozen --group test \
+    pytest e2e --screenshot=on --output=/tmp/qv-test-results
+
+# 6. Bundle the PNGs into one self-contained HTML
+uv run --frozen python .claude/skills/e2e-screenshot-report/report.py \
+    --in /tmp/qv-test-results --out /tmp/qv-e2e-report/index.html
 ```
 
 Output: `/tmp/qv-e2e-report/index.html` (open it, or send it to the user).
 
-Flags: `--base-url` (default `http://localhost:8000`) and `--out` (default
-`/tmp/qv-e2e-report`). ClickHouse coords come from `CLICKHOUSE_HOST/PORT/USER/
-PASSWORD` (defaults match the connection-form defaults). Run `capture.py --help`.
+Flags: `--in` (pytest-playwright `--output` dir, required) and `--out` (default
+`/tmp/qv-e2e-report/index.html`). Run `report.py --help`.
 
-If serving the Vite dev server instead, point `--base-url http://localhost:5173`.
+If serving the Vite dev server instead, point `BASE_URL=http://localhost:5173`.
 
 ## Output shape
 
-One self-contained HTML: a sticky **Contents** nav grouped by flow, then one
-full-height "page" per screenshot, each labeled with the flow (test) name, the
-screenshot name, and its sequence number.
+One self-contained HTML: a **Contents** nav grouped by test, then one
+full-height "page" per screenshot, each labeled with the test name, the
+screenshot label, and its sequence number. Screenshots from the `shot(label)`
+fixture come first (in call order); the `--screenshot=on` auto-shot lands last.
 
-## Keeping it current
+## Adding new screenshots
 
-The capture flows duplicate the steps in `e2e/test_query.py`. When you add or
-change a `data-testid` or a flow there, update `capture.py` to match — otherwise
-the report drifts from the real suite. Add a `shot(page, t, "label")` call at any
-new step worth picturing.
+Inside any e2e test, request the `shot` fixture and call it:
+
+```python
+def test_my_flow(page, shot):
+    page.goto("/")
+    shot("landing")
+    page.get_by_test_id("prompt-input").fill("query")
+    page.keyboard.press("Enter")
+    shot("query panel open")
+```
+
+That's it — `report.py` picks up the new PNGs on the next run.
 
 ## Common mistakes
 
-- **`app not reachable`** — the backend/dev server isn't up at `--base-url`, or
+- **`app not reachable`** — the backend/dev server isn't up at `BASE_URL`, or
   the SPA wasn't rebuilt after a change (you'll screenshot stale UI).
-- **`unknown database` / empty results** — ClickHouse isn't running, so seeding
-  failed. Run `scripts/setup_clickhouse.sh` first.
-- **Browser launch fails** — `playwright install chromium` wasn't run in the uv
-  test group.
+- **`unknown database` / empty results** — ClickHouse isn't running, so the
+  `seeded_test_db` fixture fails. Run `scripts/setup_clickhouse.sh` first.
+- **`no PNGs found`** — pytest ran but neither `shot(...)` nor
+  `--screenshot=on` produced anything. Check that `--output` matches `--in`.
+- **Browser launch fails** — `playwright install chromium` wasn't run in the
+  uv test group.
