@@ -541,7 +541,7 @@ function renderCell(colName: string, raw: string, views: CellViewMap): React.Rea
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-indigo-600 underline hover:text-indigo-800"
+        className="text-indigo-300 underline hover:text-indigo-200"
       >
         {raw}
       </a>
@@ -879,8 +879,8 @@ function QueryPanel({
         }`}
       />
 
-      <details open className="rounded-md border border-slate-200 bg-slate-50">
-        <summary className="cursor-pointer select-none px-3 py-1.5 text-xs font-medium text-slate-600">
+      <details open className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <summary className="cursor-pointer select-none text-xs font-medium text-slate-300">
           Cell view (YAML) — applied after Save
         </summary>
         <textarea
@@ -890,7 +890,7 @@ function QueryPanel({
           data-testid="cell-view-input"
           rows={4}
           placeholder={'cve_id:\n  type: link\n  value: https://nvd.nist.gov/vuln/detail/{cell}'}
-          className="w-full rounded-b-md border-0 border-t border-slate-200 px-3 py-2 font-mono text-xs outline-none focus:ring-2 focus:ring-indigo-200"
+          className="glass-input mt-2 w-full px-3 py-2 font-mono text-xs"
         />
       </details>
 
