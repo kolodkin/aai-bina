@@ -73,6 +73,68 @@ def _open_query_panel(page: Page) -> None:
     expect(page.get_by_test_id("query-panel")).to_be_visible()
 
 
+def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page) -> None:
+    """Saving a predefined query with a cell_view YAML map renders cells per
+    the map: `link` becomes an <a href> using {cell}, `custom` injects the
+    template with {cell} HTML-escaped."""
+    _open_query_panel(page)
+
+    page.get_by_test_id("query-input").fill("SELECT id, name FROM items ORDER BY id LIMIT 2")
+    page.get_by_test_id("cell-view-input").fill(
+        "name:\n"
+        "  type: link\n"
+        "  value: https://example.com/{cell}\n"
+        "id:\n"
+        "  type: custom\n"
+        "  value: <strong data-testid=\"id-strong\">{cell}</strong>\n"
+    )
+
+    # Name the query and Save (Save persists cell_view; loadPredefined refreshes
+    # the saved value into state so rendering can pick it up).
+    page.once("dialog", lambda d: d.accept("with-views"))
+    page.get_by_test_id("query-predefined-select").select_option("::new::")
+    page.get_by_test_id("query-save").click()
+    expect(
+        page.get_by_test_id("query-predefined-select").locator(
+            'option[value="with-views"]'
+        )
+    ).to_have_count(1)
+
+    page.get_by_test_id("query-run").click()
+    output = page.get_by_test_id("query-output")
+    expect(output).to_be_visible()
+
+    # The `name` column renders as an <a href> built from the template.
+    link = output.locator('a[href="https://example.com/alpha"]')
+    expect(link).to_be_visible()
+    expect(link).to_have_text("alpha")
+    expect(link).to_have_attribute("target", "_blank")
+    expect(link).to_have_attribute("rel", "noopener noreferrer")
+
+    # The `id` column renders the custom template tag with the cell substituted.
+    strong = output.get_by_test_id("id-strong").first
+    expect(strong).to_be_visible()
+    expect(strong).to_have_text("1")
+
+
+def test_cell_view_only_applies_after_save(seeded_test_db, page: Page) -> None:
+    """Edits to the cell_view editor must NOT affect rendering until Save —
+    rendering uses the saved cell_view of the active predefined query."""
+    _open_query_panel(page)
+
+    page.get_by_test_id("query-input").fill("SELECT name FROM items ORDER BY id LIMIT 1")
+    # Set views in the editor but DO NOT save.
+    page.get_by_test_id("cell-view-input").fill(
+        "name:\n  type: link\n  value: https://example.com/{cell}\n"
+    )
+    page.get_by_test_id("query-run").click()
+    output = page.get_by_test_id("query-output")
+    expect(output).to_be_visible()
+    # No predefined query selected => no saved cell_view applies => plain text.
+    expect(output.locator("a")).to_have_count(0)
+    expect(output).to_contain_text("alpha")
+
+
 def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> None:
     _open_query_panel(page)
     page.get_by_test_id("query-input").fill("SELECT id, name FROM items")

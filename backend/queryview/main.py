@@ -210,7 +210,10 @@ async def predefined_queries_save(request: Request):
             {"ok": False, "message": "query_name, type and query are required"},
             status_code=400,
         )
-    await save_predefined_query(name, conn_type, query)
+    raw_cv = b.get("cell_view")
+    # Store the raw YAML text verbatim; empty string => NULL (no custom views).
+    cell_view = raw_cv if isinstance(raw_cv, str) and raw_cv.strip() else None
+    await save_predefined_query(name, conn_type, query, cell_view)
     return {"ok": True}
 
 
