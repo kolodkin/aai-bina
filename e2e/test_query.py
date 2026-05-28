@@ -1,16 +1,19 @@
 from playwright.sync_api import Page, expect
 
 
-def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
+def test_query_against_seeded_db(seeded_test_db, page: Page, shot) -> None:
     # Connect using the form defaults (host=localhost, port=8123, user=default).
     page.goto("/", wait_until="networkidle")
+    shot("landing prompt")
     page.get_by_test_id("prompt-input").fill("new clickhouse")
     page.keyboard.press("Enter")
     expect(page.get_by_test_id("clickhouse-form")).to_be_visible()
+    shot("new connection form")
     page.get_by_test_id("ch-connect").click()
 
     # Pick the seeded `test` database.
     expect(page.get_by_test_id("db-picker")).to_be_visible()
+    shot("database picker")
     page.locator('[data-db="test"]').click()
     expect(page.get_by_test_id("connection-status")).to_contain_text("connected - test")
 
@@ -18,6 +21,7 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     page.get_by_test_id("prompt-input").fill("query")
     page.keyboard.press("Enter")
     expect(page.get_by_test_id("query-panel")).to_be_visible()
+    shot("empty query panel")
 
     # Write a query.
     sql = "SELECT name FROM items ORDER BY id"
@@ -30,6 +34,7 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     select.select_option("::new::")
     page.get_by_test_id("query-save").click()
     expect(select.locator('option[value="all items"]')).to_have_count(1)
+    shot("saved predefined query")
     select.select_option("")
     page.get_by_test_id("query-input").fill("")
     select.select_option("all items")
@@ -44,6 +49,7 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     expect(output).to_contain_text("alpha")
     expect(output).to_contain_text("beta")
     expect(output).not_to_contain_text("gamma")
+    shot("results page 1 (limit 2)")
 
     # Download CSV of the current page.
     with page.expect_download() as dl_info:
@@ -56,6 +62,7 @@ def test_query_against_seeded_db(seeded_test_db, page: Page) -> None:
     page.get_by_test_id("query-next").click()
     expect(output).to_contain_text("gamma")
     expect(output).not_to_contain_text("alpha")
+    shot("results page 2 (next)")
 
 
 def _open_query_panel(page: Page) -> None:
@@ -73,7 +80,7 @@ def _open_query_panel(page: Page) -> None:
     expect(page.get_by_test_id("query-panel")).to_be_visible()
 
 
-def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> None:
+def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page, shot) -> None:
     _open_query_panel(page)
     page.get_by_test_id("query-input").fill("SELECT id, name FROM items")
 
@@ -83,12 +90,14 @@ def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> No
     expect(page.locator('[data-testid="field-toggle"]')).to_have_count(2)
     expect(page.locator('[data-testid="field-toggle"][data-col="id"]')).to_be_visible()
     expect(page.locator('[data-testid="field-toggle"][data-col="name"]')).to_be_visible()
+    shot("fields described - both pickers")
 
     # Execute renders both columns.
     page.get_by_test_id("query-run").click()
     output = page.get_by_test_id("query-output")
     expect(output).to_be_visible()
     expect(output.locator("table thead th")).to_have_count(2)
+    shot("results with all columns")
 
     # Select fields is client-side: hiding `id` drops its column without re-running,
     # and the toggle immediately reflects the unselected state.
@@ -97,12 +106,15 @@ def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> No
     expect(output.locator("table thead th")).to_have_count(1)
     expect(output.locator("table thead th")).to_contain_text("name")
     expect(id_toggle).to_have_attribute("data-on", "false")
+    shot("id column hidden (client-side)")
 
     # Clear all hides every column; Select all restores them.
     page.get_by_test_id("fields-clear").click()
     expect(output.locator("table thead th")).to_have_count(0)
+    shot("clear all - no columns")
     page.get_by_test_id("fields-select-all").click()
     expect(output.locator("table thead th")).to_have_count(2)
+    shot("select all - columns restored")
 
     # CSV exports all columns regardless of visibility: hide `id`, it's still in the CSV.
     page.locator('[data-testid="field-toggle"][data-col="id"]').click()
@@ -121,8 +133,10 @@ def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page) -> No
     expect(chip).to_be_visible()
     chip.get_by_test_id("orderby-dir").click()  # ASC -> DESC
     expect(chip.get_by_test_id("orderby-dir")).to_have_text("DESC")
+    shot("order by name DESC selected")
     page.get_by_test_id("query-limit").fill("2")
     page.get_by_test_id("orderby-run").click()
     expect(output).to_contain_text("gamma")
     expect(output).to_contain_text("beta")
     expect(output).not_to_contain_text("alpha")
+    shot("ordered + limited results (order-by Run)")
