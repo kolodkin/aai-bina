@@ -198,19 +198,19 @@ function App() {
         autoFocus
         className={
           inQueryMode
-            ? 'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
-            : 'w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-center outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
+            ? 'glass-input w-full px-3 py-2 text-sm'
+            : 'glass-input w-full px-4 py-3 text-center'
         }
       />
     </form>
   )
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-900">
+    <main className="relative flex min-h-screen items-center justify-center px-6 py-10 text-slate-100">
       {connection?.database && (
         <div className="absolute left-4 top-4 flex items-center gap-2">
           <div
-            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium shadow-sm"
+            className="glass-chip flex items-center gap-2 px-3 py-1.5 text-sm font-medium"
             data-testid="connection-status"
           >
             <span
@@ -226,10 +226,8 @@ function App() {
               data-testid="agent-toggle"
               onClick={() => setAgentOpen((o) => !o)}
               aria-label="Remote control"
-              className={`flex h-8 w-8 items-center justify-center rounded-full border shadow-sm transition ${
-                armed
-                  ? 'border-indigo-600 bg-indigo-600 text-white'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-400'
+              className={`flex h-8 w-8 items-center justify-center rounded-full transition ${
+                armed ? 'glass-btn-primary' : 'glass-btn text-slate-300'
               }`}
             >
               <svg
@@ -250,9 +248,9 @@ function App() {
             {agentOpen && (
               <div
                 data-testid="agent-panel"
-                className="absolute left-0 top-full z-10 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-lg"
+                className="glass-popover absolute left-0 top-full z-10 mt-2 w-72 p-3 text-sm"
               >
-                <label className="flex items-center gap-2 font-medium text-slate-700">
+                <label className="flex items-center gap-2 font-medium text-slate-200">
                   <input
                     type="checkbox"
                     data-testid="remote-arm"
@@ -263,10 +261,10 @@ function App() {
                 </label>
                 {armed && remoteId && (
                   <div className="mt-3 space-y-2">
-                    <div className="text-xs text-slate-500">Session id</div>
+                    <div className="text-xs text-slate-400">Session id</div>
                     <code
                       data-testid="remote-session-id"
-                      className="block rounded bg-slate-100 px-2 py-1 font-mono text-slate-800"
+                      className="block rounded bg-white/10 px-2 py-1 font-mono text-slate-100"
                     >
                       {remoteId}
                     </code>
@@ -274,11 +272,11 @@ function App() {
                       type="button"
                       data-testid="remote-copy"
                       onClick={() => void navigator.clipboard?.writeText(agentCommand)}
-                      className="rounded-md border border-indigo-600 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                      className="glass-btn px-2 py-1 text-xs font-medium text-indigo-200"
                     >
                       Copy agent command
                     </button>
-                    <p className="text-xs text-slate-500">{agentCommand}</p>
+                    <p className="text-xs text-slate-400">{agentCommand}</p>
                   </div>
                 )}
               </div>
@@ -288,7 +286,7 @@ function App() {
       )}
 
       <div className={`w-full ${inQueryMode ? 'max-w-[80vw]' : 'max-w-md'}`}>
-        <h1 className="mb-6 text-center text-3xl font-bold tracking-tight">
+        <h1 className="mb-6 text-center text-3xl font-bold tracking-tight text-white [text-shadow:0_2px_30px_rgba(129,140,248,0.45)]">
           QueryView
         </h1>
 
@@ -296,7 +294,7 @@ function App() {
 
         {hint && (
           <p
-            className="mt-3 text-center text-sm text-slate-500"
+            className="mt-3 text-center text-sm text-slate-400"
             data-testid="prompt-hint"
           >
             {hint}
@@ -382,8 +380,7 @@ function ClickHouseForm({
     }
   }
 
-  const fieldClass =
-    'w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
+  const fieldClass = 'glass-input w-full px-3 py-2'
 
   return (
     <form
@@ -392,7 +389,7 @@ function ClickHouseForm({
         connect()
       }}
       data-testid="clickhouse-form"
-      className="mt-6 space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+      className="glass-panel mt-6 space-y-4 p-6"
     >
       <h2 className="text-lg font-semibold">New ClickHouse connection</h2>
 
@@ -405,7 +402,7 @@ function ClickHouseForm({
           ['Password', password, setPassword, 'ch-password', 'password'],
         ] as const
       ).map(([label, value, setter, testid, type]) => (
-        <label key={testid} className="block text-sm font-medium text-slate-700">
+        <label key={testid} className="block text-sm font-medium text-slate-300">
           {label}
           <input
             type={type}
@@ -424,7 +421,7 @@ function ClickHouseForm({
           onClick={testConnection}
           data-testid="ch-test"
           disabled={busy}
-          className="flex-1 rounded-md border border-indigo-600 px-4 py-2 font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
+          className="glass-btn flex-1 px-4 py-2 font-medium"
         >
           Test connection
         </button>
@@ -432,7 +429,7 @@ function ClickHouseForm({
           type="submit"
           data-testid="ch-connect"
           disabled={busy}
-          className="flex-1 rounded-md bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+          className="glass-btn-primary flex-1 px-4 py-2 font-medium"
         >
           Connect
         </button>
@@ -442,7 +439,7 @@ function ClickHouseForm({
         <p
           data-testid="ch-result"
           data-ok={result.ok}
-          className={`text-sm ${result.ok ? 'text-emerald-700' : 'text-red-600'}`}
+          className={`text-sm ${result.ok ? 'text-emerald-300' : 'text-red-300'}`}
         >
           {result.message}
         </p>
@@ -461,9 +458,9 @@ function DatabasePicker({
   return (
     <section
       data-testid="db-picker"
-      className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+      className="glass-panel mt-6 p-6"
     >
-      <h2 className="text-sm font-medium text-slate-700">
+      <h2 className="text-sm font-medium text-slate-200">
         Connected to {connection.name}. Select a database:
       </h2>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -476,11 +473,7 @@ function DatabasePicker({
               onClick={() => onSelect(db)}
               data-testid="db-option"
               data-db={db}
-              className={`rounded-md border px-3 py-1.5 text-sm transition ${
-                selected
-                  ? 'border-indigo-600 bg-indigo-600 text-white'
-                  : 'border-slate-300 hover:border-indigo-400 hover:bg-indigo-50'
-              }`}
+              className={`glass-toggle px-3 py-1.5 text-sm ${selected ? 'is-active' : ''}`}
             >
               {db}
             </button>
@@ -821,13 +814,12 @@ function QueryPanel({
     ['L', 16, 'query-size-l'],
     ['XL', 28, 'query-size-xl'],
   ]
-  const inputClass =
-    'rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
+  const inputClass = 'glass-input px-3 py-2'
 
   return (
     <section
       data-testid="query-panel"
-      className="mt-6 space-y-3 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+      className="glass-panel mt-6 space-y-3 p-6"
     >
       <div className="flex items-center gap-2">
         {promptSlot}
@@ -855,7 +847,7 @@ function QueryPanel({
           onClick={save}
           disabled={busy || !selectedName.trim()}
           data-testid="query-save"
-          className="rounded-md border border-indigo-600 px-3 py-2 font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
+          className="glass-btn px-3 py-2 font-medium"
         >
           Save
         </button>
@@ -868,11 +860,7 @@ function QueryPanel({
             type="button"
             onClick={() => setRows(n)}
             data-testid={testid}
-            className={`rounded-md border px-2 py-1 text-xs ${
-              rows === n
-                ? 'border-indigo-600 bg-indigo-600 text-white'
-                : 'border-slate-300 hover:bg-slate-50'
-            }`}
+            className={`glass-toggle px-2 py-1 text-xs ${rows === n ? 'is-active' : ''}`}
           >
             {label}
           </button>
@@ -886,7 +874,7 @@ function QueryPanel({
         data-testid="query-input"
         rows={rows || 1}
         placeholder="SELECT …"
-        className={`w-full rounded-md border border-slate-300 px-3 font-mono text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 ${
+        className={`glass-input w-full px-3 font-mono text-sm ${
           rows === 0 ? 'h-0 min-h-0 overflow-hidden border-transparent py-0' : 'py-2'
         }`}
       />
@@ -912,7 +900,7 @@ function QueryPanel({
           onClick={() => void run(offset)}
           disabled={busy}
           data-testid="query-run"
-          className="rounded-md bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+          className="glass-btn-primary px-4 py-2 font-medium"
         >
           Execute
         </button>
@@ -921,15 +909,13 @@ function QueryPanel({
           onClick={() => void describe()}
           disabled={busy}
           data-testid="query-fields"
-          className={`rounded-md border border-indigo-600 px-3 py-2 text-sm font-medium transition disabled:opacity-50 ${
-            fields.length > 0
-              ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-              : 'text-indigo-700 hover:bg-indigo-50'
+          className={`px-3 py-2 text-sm font-medium ${
+            fields.length > 0 ? 'glass-btn-primary' : 'glass-btn'
           }`}
         >
           Fields
         </button>
-        <label className="text-sm text-slate-700">
+        <label className="text-sm text-slate-300">
           Limit
           <input
             type="number"
@@ -941,7 +927,7 @@ function QueryPanel({
             className={`ml-1 w-20 ${inputClass}`}
           />
         </label>
-        <label className="text-sm text-slate-700">
+        <label className="text-sm text-slate-300">
           Offset
           <input
             type="number"
@@ -958,7 +944,7 @@ function QueryPanel({
           onClick={() => void run(Math.max(0, offset - limit))}
           disabled={busy || offset === 0}
           data-testid="query-prev"
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm transition hover:bg-slate-50 disabled:opacity-50"
+          className="glass-btn px-3 py-2 text-sm"
         >
           ← Previous
         </button>
@@ -967,7 +953,7 @@ function QueryPanel({
           onClick={() => void run(offset + limit)}
           disabled={busy}
           data-testid="query-next"
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm transition hover:bg-slate-50 disabled:opacity-50"
+          className="glass-btn px-3 py-2 text-sm"
         >
           Next →
         </button>
@@ -976,7 +962,7 @@ function QueryPanel({
           onClick={downloadCsv}
           disabled={busy}
           data-testid="query-csv"
-          className="rounded-md border border-emerald-600 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
+          className="glass-btn px-3 py-2 text-sm font-medium text-emerald-300"
         >
           Download CSV
         </button>
@@ -985,16 +971,16 @@ function QueryPanel({
       {fields.length > 0 && (
         <div
           data-testid="field-pickers"
-          className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+          className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3"
         >
           <div>
             <div className="mb-2 flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-700">Select fields</span>
+              <span className="text-sm font-medium text-slate-200">Select fields</span>
               <button
                 type="button"
                 data-testid="fields-select-all"
                 onClick={() => setVisibleCols(fields.map((f) => f.name))}
-                className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-white"
+                className="glass-btn px-2 py-0.5 text-xs"
               >
                 Select all
               </button>
@@ -1002,7 +988,7 @@ function QueryPanel({
                 type="button"
                 data-testid="fields-clear"
                 onClick={() => setVisibleCols([])}
-                className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-white"
+                className="glass-btn px-2 py-0.5 text-xs"
               >
                 Clear all
               </button>
@@ -1019,11 +1005,7 @@ function QueryPanel({
                     data-col={f.name}
                     data-on={on}
                     title={f.type}
-                    className={`rounded-md border px-2.5 py-1 text-xs ${
-                      on
-                        ? 'border-indigo-600 bg-indigo-600 text-white'
-                        : 'border-slate-300 bg-white hover:border-indigo-400'
-                    }`}
+                    className={`glass-toggle px-2.5 py-1 text-xs ${on ? 'is-active' : ''}`}
                   >
                     {f.name}
                   </button>
@@ -1034,13 +1016,13 @@ function QueryPanel({
 
           <div>
             <div className="mb-2 flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-700">Order by</span>
+              <span className="text-sm font-medium text-slate-200">Order by</span>
               <button
                 type="button"
                 data-testid="orderby-run"
                 onClick={() => void run(offset)}
                 disabled={busy}
-                className="rounded border border-indigo-600 px-2 py-0.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
+                className="glass-btn px-2 py-0.5 text-xs font-medium text-indigo-200"
               >
                 Run
               </button>
@@ -1057,11 +1039,7 @@ function QueryPanel({
                     data-testid="orderby-add"
                     data-col={f.name}
                     data-on={on}
-                    className={`rounded-md border px-2.5 py-1 text-xs ${
-                      on
-                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                        : 'border-slate-300 bg-white hover:border-indigo-400'
-                    }`}
+                    className={`glass-toggle px-2.5 py-1 text-xs ${on ? 'is-active-soft' : ''}`}
                   >
                     {f.name}
                   </button>
@@ -1075,7 +1053,7 @@ function QueryPanel({
                     key={o.name}
                     data-testid="orderby-chip"
                     data-col={o.name}
-                    className="flex items-center gap-1 rounded-md border border-indigo-300 bg-white px-2 py-1 text-xs"
+                    className="flex items-center gap-1 rounded-md border border-indigo-400/40 bg-white/[0.06] px-2 py-1 text-xs"
                   >
                     <span className="text-slate-400">{i + 1}.</span>
                     <span className="font-medium">{o.name}</span>
@@ -1083,7 +1061,7 @@ function QueryPanel({
                       type="button"
                       data-testid="orderby-dir"
                       onClick={() => flipDir(o.name)}
-                      className="rounded bg-slate-100 px-1.5 py-0.5 font-mono hover:bg-slate-200"
+                      className="rounded bg-white/10 px-1.5 py-0.5 font-mono hover:bg-white/20"
                     >
                       {o.dir}
                     </button>
@@ -1092,7 +1070,7 @@ function QueryPanel({
                       data-testid="orderby-remove"
                       onClick={() => toggleOrder(o.name)}
                       aria-label={`remove ${o.name}`}
-                      className="text-slate-400 hover:text-red-600"
+                      className="text-slate-400 hover:text-red-400"
                     >
                       ×
                     </button>
@@ -1107,15 +1085,15 @@ function QueryPanel({
       {output !== null && (
         <div
           data-testid="query-output"
-          className="max-h-[70vh] overflow-auto rounded-md border border-slate-200"
+          className="max-h-[70vh] overflow-auto rounded-xl border border-white/10"
         >
           <table className="min-w-full border-collapse text-left text-sm">
-            <thead className="sticky top-0 bg-slate-100">
+            <thead className="sticky top-0 bg-[rgba(16,20,36,0.62)] backdrop-blur-lg">
               <tr>
                 {shownIdx.map((i) => (
                   <th
                     key={i}
-                    className="border-b border-slate-300 px-3 py-2 font-semibold text-slate-700"
+                    className="border-b border-white/10 px-3 py-2 font-semibold text-slate-200"
                   >
                     {columns[i]}
                   </th>
@@ -1124,11 +1102,11 @@ function QueryPanel({
             </thead>
             <tbody>
               {resultRows.map((row, i) => (
-                <tr key={i} className="odd:bg-white even:bg-slate-50">
+                <tr key={i} className="odd:bg-transparent even:bg-white/[0.03]">
                   {shownIdx.map((j) => (
                     <td
                       key={j}
-                      className="whitespace-pre border-b border-slate-100 px-3 py-1 font-mono text-slate-800"
+                      className="whitespace-pre border-b border-white/5 px-3 py-1 font-mono text-slate-200"
                     >
                       {renderCell(columns[j], row[j], appliedViews)}
                     </td>
@@ -1140,7 +1118,7 @@ function QueryPanel({
         </div>
       )}
       {error && (
-        <p data-testid="query-error" className="text-sm text-red-600">
+        <p data-testid="query-error" className="text-sm text-red-300">
           {error}
         </p>
       )}
