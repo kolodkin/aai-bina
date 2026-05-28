@@ -82,6 +82,7 @@ def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page) -> N
     _open_query_panel(page)
 
     page.get_by_test_id("query-input").fill("SELECT id, name FROM items ORDER BY id LIMIT 2")
+    page.get_by_test_id("cell-view-toggle").click()
     page.get_by_test_id("cell-view-input").fill(
         "name:\n"
         "  type: link\n"
@@ -130,6 +131,7 @@ def test_cell_view_only_applies_after_save(seeded_test_db, page: Page) -> None:
 
     page.get_by_test_id("query-input").fill("SELECT name FROM items ORDER BY id LIMIT 1")
     # Set views in the editor but DO NOT save.
+    page.get_by_test_id("cell-view-toggle").click()
     page.get_by_test_id("cell-view-input").fill(
         "name:\n  type: link\n  value: https://example.com/{cell}\n"
     )

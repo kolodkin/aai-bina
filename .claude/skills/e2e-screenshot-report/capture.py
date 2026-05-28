@@ -161,6 +161,8 @@ def flow_cell_view_link_and_custom(page) -> None:
     open_panel(page)
 
     page.get_by_test_id("query-input").fill("SELECT id, name FROM items ORDER BY id LIMIT 2")
+    shot(page, t, "panel with cell view collapsed (default)")
+    page.get_by_test_id("cell-view-toggle").click()
     page.get_by_test_id("cell-view-input").fill(
         "name:\n"
         "  type: link\n"

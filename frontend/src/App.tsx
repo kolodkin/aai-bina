@@ -881,8 +881,11 @@ function QueryPanel({
         }`}
       />
 
-      <details open className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <summary className="cursor-pointer select-none text-xs font-medium text-slate-300">
+      <details className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+        <summary
+          data-testid="cell-view-toggle"
+          className="cursor-pointer select-none text-xs font-medium text-slate-300"
+        >
           Cell view (YAML) — applied after Save
         </summary>
         <textarea
