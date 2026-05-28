@@ -156,7 +156,43 @@ def flow_field_pickers_visibility_and_order_by(page) -> None:
     shot(page, t, "ordered + limited results (order-by Run)")
 
 
-FLOWS = (flow_query_against_seeded_db, flow_field_pickers_visibility_and_order_by)
+def flow_cell_view_link_and_custom(page) -> None:
+    t = "test_cell_view_renders_link_and_custom_html"
+    open_panel(page)
+
+    page.get_by_test_id("query-input").fill("SELECT id, name FROM items ORDER BY id LIMIT 2")
+    page.get_by_test_id("cell-view-input").fill(
+        "name:\n"
+        "  type: link\n"
+        "  value: https://example.com/{cell}\n"
+        "id:\n"
+        "  type: custom\n"
+        "  value: <strong style=\"color:#4f46e5\">{cell}</strong>\n"
+    )
+    shot(page, t, "cell view YAML in editor")
+
+    page.once("dialog", lambda d: d.accept("with-views"))
+    page.get_by_test_id("query-predefined-select").select_option("::new::")
+    page.get_by_test_id("query-save").click()
+    expect(
+        page.get_by_test_id("query-predefined-select").locator(
+            'option[value="with-views"]'
+        )
+    ).to_have_count(1)
+    shot(page, t, "saved with cell_view")
+
+    page.get_by_test_id("query-run").click()
+    output = page.get_by_test_id("query-output")
+    expect(output).to_be_visible()
+    expect(output.locator('a[href="https://example.com/alpha"]')).to_be_visible()
+    shot(page, t, "results: name as link, id as custom HTML")
+
+
+FLOWS = (
+    flow_query_against_seeded_db,
+    flow_field_pickers_visibility_and_order_by,
+    flow_cell_view_link_and_custom,
+)
 
 CSS = """
 :root{color-scheme:light}*{box-sizing:border-box}
