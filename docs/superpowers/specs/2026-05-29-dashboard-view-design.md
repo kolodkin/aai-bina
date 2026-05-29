@@ -35,16 +35,20 @@ Settled during brainstorming:
    global. External chart libraries from a CDN are allowed (no restrictive CSP).
 4. **Result shape = column-oriented dict.** Each query result is a dict of
    `{column_name: [values, …]}` (insertion-ordered, so column order is
-   preserved). This is what dashboard HTML reads from `window.queries`, e.g.
-   `window.queries.sales.revenue` is the list of values in the `revenue` column.
-   `/api/runqueries` wraps each result as `{"columns": {col: [list]}}` on
-   success or `{"error": "…"}` on failure, so a failed query is unambiguous and
-   does not sink the dashboard; the frontend flattens the `columns` dict into
-   `window.queries`.
-5. **`/runqueries` takes an explicit connection name**, not the session's active
+   preserved). This is exactly what dashboard HTML reads from `window.queries`,
+   e.g. `window.queries.sales.revenue` is the list of values in the `revenue`
+   column. No per-result wrapper.
+5. **Error handling = fail-fast HTTP code.** `/api/runqueries` runs all the
+   queries; if any one fails (or the connection/body is bad) the **whole request**
+   returns an HTTP error (`400` for a bad body or a failing query, `404` for an
+   unknown connection) with a message. On full success it returns `200` with
+   `{ok:true, results:{name:{col:[…]}}}`. So the success value is always clean
+   column dicts; `DashboardView` shows a dashboard-level error state if the
+   request fails, rather than rendering partial panels.
+6. **`/runqueries` takes an explicit connection name**, not the session's active
    connection — a dashboard is self-contained and portable. The dashboard stores
    its `connection`; `upsert_dashboard` takes it as a required parameter.
-6. **`session_id` vs `connection` are distinct**: `session_id` is the live
+7. **`session_id` vs `connection` are distinct**: `session_id` is the live
    browser to push the preview to; `connection` is the data source the queries
    run against.
 
@@ -59,8 +63,8 @@ Test/e2e ──(REST POST /api/dashboards)────────────�
                                                                                   DashboardView (React, trusted origin)
                                                                                     │ POST /api/runqueries {connection, queries}
                                                                                     ▼
-                                                              run_queries_for_connection → ClickHouse → {name:{columns:{col:[…]}}}
-                                                                                    │ flatten columns → inject as window.queries
+                                                              run_queries_for_connection → ClickHouse → {name:{col:[…]}}  (or HTTP error)
+                                                                                    │ inject as window.queries
                                                                                     ▼
                                                               <iframe sandbox="allow-scripts" srcdoc=html> renders
 ```
@@ -98,19 +102,22 @@ Functions:
 ### New connection-scoped query runner (`backend/queryview/connect.py`)
 
 `run_queries_for_connection(name, queries: dict[str, str]) -> dict` — decoupled
-from session/cookie state:
+from session/cookie state. **Fail-fast**: any problem aborts the whole call.
 - Looks up the saved connection by name (`_connection_by_name`); if absent,
-  returns `{"ok": False, "message": 'no connection named "<name>"'}`.
-- Uses the connection's **stored database**; if none is set, every query result
-  is an error advising that the connection has no selected database (queries may
-  still fully-qualify `db.table` — but no default database is supplied).
+  returns `{"ok": False, "reason": "no-connection", "message": 'no connection
+  named "<name>"'}`.
+- Uses the connection's **stored database**; if none is set, returns
+  `{"ok": False, "reason": "no-database", "message": …}` advising to select one
+  (queries may still fully-qualify `db.table`, but no default database is
+  supplied).
 - Runs each query through the existing `ch_query` path (wrapped in a paginated
-  subselect with a dashboard result cap; no `order_by`), parses the
+  subselect with a dashboard result cap; no `order_by`), parsing the
   `TabSeparatedWithNames` output (first line = column names) into a
-  column-oriented dict `{col: [values, …]}`, preserving column order.
-- Returns `{"ok": True, "results": {name: {"columns": {col: […]}} | {"error":
-  message}}}`. A failing query is captured as `{name: {"error": message}}`; the
-  call as a whole still succeeds.
+  column-oriented dict `{col: [values, …]}`, preserving column order. The
+  **first** query that fails aborts the run and returns
+  `{"ok": False, "reason": "query", "message": "<name>: <error>"}` (the failing
+  panel's name is included so the agent can fix it).
+- On full success returns `{"ok": True, "results": {name: {col: […]}}}`.
 
 Result cap: a module constant (e.g. `DASHBOARD_ROW_CAP = 1000`) applied as the
 `LIMIT` of the paginating subselect, matching the existing 1000-row ceiling on
@@ -122,9 +129,11 @@ Declared **before** the SPA catch-all so they are not shadowed.
 
 - `POST /api/runqueries` — body `{connection: str, queries: {name: SQL}}`.
   Validates `connection` is a non-empty string and `queries` is a non-empty
-  mapping of string→string (others ignored). Calls
-  `run_queries_for_connection`. Returns `{ok: true, results}` or
-  `{ok: false, message}` (400 on missing/empty `connection` or `queries`).
+  mapping of string→string (others ignored), else `400`. Calls
+  `run_queries_for_connection` and maps its result to an HTTP status:
+  `200 {ok:true, results:{name:{col:[…]}}}` on success; on failure a body
+  `{ok:false, message}` with status by `reason` — `404` for `no-connection`,
+  `400` for `no-database` or a failing `query`.
 - `POST /api/dashboards` — REST mirror of the MCP tool. Body
   `{name, connection, html, queries, session_id?}`. Validates `name`,
   `connection`, `html` non-empty and `queries` a string→string mapping. Calls
@@ -232,32 +241,32 @@ selected dashboard name comes from the `?name=` query param (via
   otherwise `GET /api/dashboards/{name}`. A push also updates `?name=` so the
   dropdown reflects it.
 - On the resolved dashboard: `POST /api/runqueries` with
-  `{connection, queries}`; store `results`. Flatten each successful result's
-  `columns` into the `window.queries` object (`window.queries[name] = columns`),
-  and collect failures into a companion `window.queryErrors[name] = message`.
-- Build the iframe `srcdoc`: a
-  `<script>window.queries = <safe-json>; window.queryErrors = <safe-json></script>`
+  `{connection, queries}`. On `200`, store `results` (the
+  `{name:{col:[…]}}` map). On a non-2xx response, show a dashboard-level error
+  banner (with the returned `message`) instead of rendering the iframe.
+- Build the iframe `srcdoc`: a `<script>window.queries = <safe-json></script>`
   prologue followed by the dashboard's `html`. The JSON is produced with
   `JSON.stringify` and `<` escaped (`<`) so an embedded `</script>` cannot
   break out.
 - Render `<iframe sandbox="allow-scripts" srcdoc={srcdoc}
   data-testid="dashboard-frame" />` at full width. Loading and error states
-  (missing dashboard, connection error). `data-testid="dashboard-view"`.
+  (missing dashboard, runqueries error). `data-testid="dashboard-view"`.
 
 `window.queries` is the documented contract for dashboard authors — a
 column-oriented map: `{query_name: {column_name: unknown[]}}`. So
 `window.queries.sales.revenue` is the `revenue` column's values as a list.
-Queries that failed are absent from `window.queries` and present in
-`window.queryErrors` as `{query_name: message}`.
+(If any query fails, the request fails as a whole and the iframe is not
+rendered, so `window.queries` always holds a complete set of results — every
+named query is present.)
 
 ## Result / payload shapes
 
 - Push payload (SSE `dashboard` event):
   `{type:"dashboard", name, connection, html, queries:{name:SQL}}`.
-- `/api/runqueries` response:
-  `{ok:true, results:{name:{columns:{col:[…]}} | {error:"…"}}}`.
-- Injected into the iframe: `window.queries = {name:{col:[…]}}` (successful
-  queries) and `window.queryErrors = {name: message}` (failed ones).
+- `/api/runqueries` — success `200 {ok:true, results:{name:{col:[…]}}}`;
+  failure `4xx {ok:false, message}` (404 unknown connection, 400 bad body /
+  no database / failing query).
+- Injected into the iframe: `window.queries = results = {name:{col:[…]}}`.
 
 ## Routing & static serving
 
@@ -271,13 +280,13 @@ beyond the new `/api/*` endpoints.
 - **Push to unknown/disarmed session_id** — `remote.push` returns
   `(False, "unknown or inactive session")`; the tool reports `pushed:false`
   while `persisted:true`. The dashboard is still saved and openable by name.
-- **Unknown connection in `/runqueries`** — top-level
-  `{ok:false, message:'no connection named "<name>"'}`.
-- **Connection has no selected database** — each query result is an `{error}`
-  advising to select a database (or fully-qualify table names); the dashboard
-  still renders its layout with per-panel errors.
-- **One failing query among many** — captured as `{name:{error}}`; other panels
-  render normally.
+- **Unknown connection in `/runqueries`** — `404 {ok:false, message:'no
+  connection named "<name>"'}`; `DashboardView` shows an error banner.
+- **Connection has no selected database** — `400` with a message advising to
+  select a database (or fully-qualify table names); no iframe rendered.
+- **One failing query among many** — fail-fast: the whole request returns
+  `400` with `"<panel>: <error>"`; the dashboard shows the error banner and no
+  panels render (so `window.queries` is never partial).
 - **`</script>` / `<` in result data** — escaped in the injected JSON so it
   cannot break out of the prologue script.
 - **Iframe isolation** — `sandbox="allow-scripts"` without `allow-same-origin`
@@ -304,11 +313,13 @@ the session cookie.
 - **Backend unit (`backend/tests/`)**
   - `dashboards.py`: upsert creates then updates by name; `get_dashboard`
     round-trips the queries dict; `list_dashboards` ordering and omitted payload.
-  - `run_queries_for_connection`: unknown connection → top-level error; a good
-    query → `{columns: {col: […]}}`; a bad query → `{error}` while siblings succeed
-    (against CI's real ClickHouse, like the existing query tests).
-  - `/api/runqueries` route: 400 on missing `connection`/`queries`; success
-    shape.
+  - `run_queries_for_connection`: unknown connection → `reason="no-connection"`;
+    a good query → `{name: {col: […]}}` (column-oriented); a bad query →
+    `ok=False, reason="query"` with the panel name in the message (against CI's
+    real ClickHouse, like the existing query tests).
+  - `/api/runqueries` route: `400` on missing `connection`/`queries`; `404` on
+    unknown connection; `400` on a failing query; `200` success shape
+    `{ok, results:{name:{col:[…]}}}`.
   - `/api/dashboards` route: upsert persists and (with an armed `session_id`)
     pushes; `GET` list and by-name.
 - **e2e (Playwright + httpx, CI's real ClickHouse)**
