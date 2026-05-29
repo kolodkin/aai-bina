@@ -1,23 +1,14 @@
-import React from 'react'
+import { useState } from 'react'
 
 type Props = {
-  open: boolean
-  value: string
-  onChange: (value: string) => void
+  initial: string
   onCancel: () => void
-  onSave: () => void
+  onSave: (value: string) => void
   saveDisabled: boolean
 }
 
-export function CellViewModal({
-  open,
-  value,
-  onChange,
-  onCancel,
-  onSave,
-  saveDisabled,
-}: Props): React.ReactElement | null {
-  if (!open) return null
+export function CellViewModal({ initial, onCancel, onSave, saveDisabled }: Props) {
+  const [value, setValue] = useState(initial)
   return (
     <div
       role="dialog"
@@ -38,7 +29,7 @@ export function CellViewModal({
         </div>
         <textarea
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => setValue(e.target.value)}
           aria-label="Cell view YAML"
           data-testid="cell-view-input"
           rows={10}
@@ -57,7 +48,7 @@ export function CellViewModal({
           </button>
           <button
             type="button"
-            onClick={onSave}
+            onClick={() => onSave(value)}
             disabled={saveDisabled}
             data-testid="cell-view-save"
             className="glass-btn-primary px-4 py-1.5 text-sm"

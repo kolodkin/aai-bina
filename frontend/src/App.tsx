@@ -584,16 +584,21 @@ function QueryPanel({
   const [fields, setFields] = useState<Field[]>([])
   const [visibleCols, setVisibleCols] = useState<string[]>([])
   const [orderBy, setOrderBy] = useState<OrderCol[]>([])
-  const [cellView, setCellView] = useState('')
   const [cellViewModalOpen, setCellViewModalOpen] = useState(false)
 
-  // Applied views come from the *saved* cell_view of the currently selected
-  // predefined query — editor edits don't take effect until Save (which
-  // refreshes `predefined`).
-  const appliedViews = useMemo<CellViewMap>(() => {
-    const saved = predefined.find((p) => p.query_name === selectedName)?.cell_view
-    return parseCellViewYaml(saved)
-  }, [predefined, selectedName])
+  // The saved cell_view of the currently selected predefined query, or '' when
+  // nothing is selected. Single source of truth for rendering, modal seeding,
+  // and re-saves of SQL through the top "Save" button.
+  const savedCellView = useMemo(
+    () => predefined.find((p) => p.query_name === selectedName)?.cell_view ?? '',
+    [predefined, selectedName],
+  )
+
+  // Editor edits don't take effect until Save (which refreshes `predefined`).
+  const appliedViews = useMemo<CellViewMap>(
+    () => parseCellViewYaml(savedCellView),
+    [savedCellView],
+  )
 
   const loadPredefined = useCallback(async () => {
     try {
@@ -743,13 +748,13 @@ function QueryPanel({
     }
     setSelectedName(value)
     const q = predefined.find((p) => p.query_name === value)
-    if (q) {
-      setSql(q.query)
-      setCellView(q.cell_view ?? '')
-    }
+    if (q) setSql(q.query)
   }
 
-  async function save(): Promise<boolean> {
+  // SQL-only saves (the top button) re-persist the existing cell_view as-is;
+  // the modal passes its draft. Returns success so the modal can close only on
+  // a clean persist.
+  async function save(cellViewValue: string = savedCellView): Promise<boolean> {
     const name = selectedName.trim()
     if (!name) return false
     setBusy(true)
@@ -762,7 +767,7 @@ function QueryPanel({
           query_name: name,
           type: connectionType,
           query: sql,
-          cell_view: cellView,
+          cell_view: cellViewValue,
         }),
       })
       const data = await res.json()
@@ -780,20 +785,10 @@ function QueryPanel({
     }
   }
 
-  // Cell-view modal: opening re-seeds the editor from the selected query's
-  // saved value so Cancel reverts cleanly; Save persists + closes.
-  function openCellViewModal() {
-    const saved = predefined.find((p) => p.query_name === selectedName)?.cell_view ?? ''
-    setCellView(saved)
-    setCellViewModalOpen(true)
-  }
-  function cancelCellView() {
-    const saved = predefined.find((p) => p.query_name === selectedName)?.cell_view ?? ''
-    setCellView(saved)
-    setCellViewModalOpen(false)
-  }
-  async function saveCellView() {
-    if (await save()) setCellViewModalOpen(false)
+  // Modal owns its draft state (seeded from savedCellView on mount); App just
+  // toggles visibility and forwards the saved value to the backend.
+  async function onCellViewSave(value: string) {
+    if (await save(value)) setCellViewModalOpen(false)
   }
 
   const { columns, rows: resultRows } =
@@ -867,7 +862,7 @@ function QueryPanel({
         </select>
         <button
           type="button"
-          onClick={save}
+          onClick={() => void save()}
           disabled={busy || !selectedName.trim()}
           data-testid="query-save"
           className="glass-btn px-3 py-2 font-medium"
@@ -879,7 +874,7 @@ function QueryPanel({
       <div className="flex justify-end gap-1">
         <button
           type="button"
-          onClick={openCellViewModal}
+          onClick={() => setCellViewModalOpen(true)}
           data-testid="cell-view-toggle"
           className="glass-toggle mr-2 px-2 py-1 text-xs"
         >
@@ -910,14 +905,14 @@ function QueryPanel({
         }`}
       />
 
-      <CellViewModal
-        open={cellViewModalOpen}
-        value={cellView}
-        onChange={setCellView}
-        onCancel={cancelCellView}
-        onSave={() => void saveCellView()}
-        saveDisabled={busy || !selectedName.trim()}
-      />
+      {cellViewModalOpen && (
+        <CellViewModal
+          initial={savedCellView}
+          onCancel={() => setCellViewModalOpen(false)}
+          onSave={(value) => void onCellViewSave(value)}
+          saveDisabled={busy || !selectedName.trim()}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <button
