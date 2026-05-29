@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a second top-level page, `/dashboards`, alongside the existing query
+Add a second top-level page, `/dashboard`, alongside the existing query
 workflow. An AI agent (e.g. Claude Code) authors a dashboard — an HTML layout
 plus a set of named SQL queries — and pushes it into a live, armed QueryView
 browser session via a new MCP tool. The dashboard is also persisted so it can
@@ -22,12 +22,13 @@ the `predefined_queries` persistence pattern.
 Settled during brainstorming:
 
 1. **Two top-level pages, client-side routed** (`react-router-dom`):
-   `/queries` (today's workflow) and `/dashboards` (new). `App` becomes a thin
+   `/queries` (today's workflow) and `/dashboard` (new). `App` becomes a thin
    shell; today's `App` body is renamed `QueryView`.
 2. **Lifecycle = persist + reopen.** `upsert_dashboard` saves
    `{name, connection, html, queries}` to SQLite (upsert by `name`) **and**
-   pushes it live to the armed session. `/dashboards` lists saved dashboards;
-   `/dashboards/:name` reopens one after a reload.
+   pushes it live to the armed session. The `/dashboard` page has a **dropdown
+   of saved dashboards**; selecting one (or arriving with `?name=x`) renders it.
+   There is no separate index-list page.
 3. **HTML rendering = sandboxed iframe + CDN.** Agent-authored HTML renders in
    `<iframe sandbox="allow-scripts" srcdoc=…>` (no `allow-same-origin`), isolated
    from the app's cookies/DOM. Results are injected as a `window.queries` JS
@@ -49,7 +50,7 @@ Settled during brainstorming:
 Agent ──(MCP /mcp)── upsert_dashboard(session_id, name, connection, html, queries) ─┐
                                                                                     ├─▶ dashboards store (SQLite, upsert by name)
 Test/e2e ──(REST POST /api/dashboards)──────────────────────────────────────────────┘   └─▶ remote.py hub ──(SSE)──▶ browser shell
-                                                                                                                          │ navigate /dashboards/:name
+                                                                                                                          │ navigate /dashboard?name=x
                                                                                                                           ▼
                                                                                   DashboardView (React, trusted origin)
                                                                                     │ POST /api/runqueries {connection, queries}
@@ -192,38 +193,39 @@ shared spot. Chosen home: `dashboards.py` already owns persistence; it imports
 - Owns the **armed / SSE remote-control** state (`armed`, `remoteId`,
   `agentOpen`). The SSE listener handles both events:
   - `query` event → store payload, navigate to `/queries`.
-  - `dashboard` event → store payload, navigate to `/dashboards/:name`.
-- A small **nav** (links: Queries / Dashboards).
+  - `dashboard` event → store payload, navigate to `/dashboard?name=<name>`.
+- A small **nav** (links: Queries / Dashboard).
 - Routes:
   | Path | Element |
   |------|---------|
   | `/queries` | `<QueryView … pushed={queryPush} />` |
-  | `/dashboards` | `<Dashboards />` (index list) |
-  | `/dashboards/:name` | `<DashboardView pushed={dashboardPush} />` |
+  | `/dashboard` | `<DashboardView pushed={dashboardPush} />` (reads `?name=`) |
   | `/` | `<Navigate to="/queries" replace />` |
 
 Navigation on push uses `useNavigate`. A pushed dashboard payload is passed to
 `DashboardView` so a freshly-pushed dashboard renders without a refetch; opening
-`/dashboards/:name` directly (or after reload) fetches it via the API.
+`/dashboard?name=x` directly (or after reload) fetches it via the API.
 
 ### `QueryView.tsx` — renamed from today's `App` body
 
 The existing prompt/query workflow, minus the connection pill + agent popover
 (now in the shell). It keeps the prompt, command parsing, `DatabasePicker`,
 `ClickHouseForm`, and `QueryPanel`, and still consumes `pushed` query payloads.
-The `dashboard <name>` command navigates to `/dashboards/:name`.
+The `dashboard <name>` command navigates to `/dashboard?name=<name>`.
 
-### `Dashboards.tsx` — index page (`/dashboards`)
+### `DashboardView.tsx` — the dashboard page (`/dashboard?name=x`)
 
-Fetches `GET /api/dashboards` and lists saved dashboards (name, connection,
-updated time) as links to `/dashboards/:name`. Empty state when none exist.
-`data-testid="dashboards-index"`.
+Props: optional `pushed` payload (`{name, connection, html, queries}`). The
+selected dashboard name comes from the `?name=` query param (via
+`useSearchParams`).
 
-### `DashboardView.tsx` — single dashboard (`/dashboards/:name`)
-
-Props: optional `pushed` payload (`{name, connection, html, queries}`).
-- Resolve the dashboard: use `pushed` if its `name` matches the route param,
-  otherwise `GET /api/dashboards/{name}`.
+- **Dropdown selector** at the top: fetches `GET /api/dashboards` and lists all
+  saved dashboards by name. Changing the selection sets `?name=<name>` (so the
+  URL is shareable and the back button works). Empty state when none exist.
+  `data-testid="dashboard-select"`.
+- Resolve the active dashboard: use `pushed` if its `name` matches `?name=`,
+  otherwise `GET /api/dashboards/{name}`. A push also updates `?name=` so the
+  dropdown reflects it.
 - On the resolved dashboard: `POST /api/runqueries` with
   `{connection, queries}`; store `results`.
 - Build the iframe `srcdoc`: a `<script>window.queries = <safe-json></script>`
@@ -247,7 +249,7 @@ Props: optional `pushed` payload (`{name, connection, html, queries}`).
 ## Routing & static serving
 
 `main.py`'s `SERVE_STATIC` SPA fallback already returns `index.html` for any
-unknown path, so `/queries` and `/dashboards/*` deep-links work in production;
+unknown path, so `/queries` and `/dashboard` deep-links work in production;
 Vite's dev server provides the same fallback. No backend routing change needed
 beyond the new `/api/*` endpoints.
 
@@ -269,8 +271,10 @@ beyond the new `/api/*` endpoints.
   gives the agent HTML an opaque origin: it can run JS and load CDN assets but
   cannot read the app's cookies, `localStorage`, or reach `/api/*` with
   credentials. All data reaches it only via the injected `window.queries`.
-- **Reopen after reload** — `/dashboards/:name` with no `pushed` payload fetches
-  from the store and re-runs queries.
+- **Reopen after reload** — `/dashboard?name=x` with no `pushed` payload fetches
+  from the store and re-runs queries; the dropdown preselects `x`.
+- **`/dashboard` with no `?name=`** — render the dropdown with no iframe (prompt
+  to pick one); if dashboards exist, optionally default to the first.
 - **Backend restart** — in-memory hub drops as today; persisted dashboards
   survive (SQLite). A stale `session_id` push returns not-delivered.
 
@@ -298,9 +302,9 @@ the session cookie.
   - connect → select a database → arm remote control → read the session id →
     `httpx POST /api/dashboards` with `{session_id, name, connection, html, queries}`
     where `html` reads `window.queries` and writes a value into the DOM →
-    assert the browser navigated to `/dashboards/:name` and the iframe renders
-    the expected value → reload / navigate directly to `/dashboards/:name` and
-    assert it re-renders from the store → check `/dashboards` index lists it.
+    assert the browser navigated to `/dashboard?name=x` and the iframe renders
+    the expected value → reload / navigate directly to `/dashboard?name=x` and
+    assert it re-renders from the store → check the dropdown lists it.
 - **MCP** — light check that the tool is registered / `/mcp` still responds;
   the REST mirror exercises the same `_upsert_and_push` path.
 
@@ -312,8 +316,8 @@ the session cookie.
 - `docs/api.md` — rows for `POST /api/runqueries`, `POST /api/dashboards`,
   `GET /api/dashboards`, `GET /api/dashboards/{name}`; note the `upsert_dashboard`
   MCP tool and the `dashboard` SSE event.
-- `docs/queryview.md` — note the two pages / nav and the `dashboard <name>`
-  command; cross-link `dashboard.md`.
+- `docs/queryview.md` — note the two pages (`/queries`, `/dashboard`) / nav and
+  the `dashboard <name>` command; cross-link `dashboard.md`.
 
 ## Out of scope
 
