@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import yaml from 'js-yaml'
+
+import { CellViewModal } from './CellViewModal'
 
 type TestResult = { ok: boolean; message: string }
 
@@ -9,7 +12,10 @@ type Connection = {
   database: string | null
 }
 
-type PredefinedQuery = { query_name: string; query: string }
+type PredefinedQuery = { query_name: string; query: string; cell_view: string | null }
+
+type CellView = { type: string; value: string }
+type CellViewMap = Record<string, CellView>
 
 type Field = { name: string; type: string }
 
@@ -487,6 +493,74 @@ function parseTsv(text: string): { columns: string[]; rows: string[][] } {
   return { columns: lines[0].split('\t'), rows: lines.slice(1).map((l) => l.split('\t')) }
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// Parse the saved cell_view YAML into a map. A parse error, a non-mapping
+// root, or any entry without a string {type, value} is dropped — a broken
+// config never blanks the table; it just falls through to plain text.
+function parseCellViewYaml(text: string | null | undefined): CellViewMap {
+  if (!text) return {}
+  let doc: unknown
+  try {
+    doc = yaml.load(text)
+  } catch {
+    return {}
+  }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return {}
+  const out: CellViewMap = {}
+  for (const [k, v] of Object.entries(doc as Record<string, unknown>)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const o = v as Record<string, unknown>
+      if (typeof o.type === 'string' && typeof o.value === 'string') {
+        out[k] = { type: o.type, value: o.value }
+      }
+    }
+  }
+  return out
+}
+
+function renderCell(colName: string, raw: string, views: CellViewMap): React.ReactNode {
+  const view = views[colName]
+  if (!view) return raw
+  const testid = `cell-${colName}`
+  if (view.type === 'link') {
+    const href = view.value.replaceAll('{cell}', encodeURIComponent(raw))
+    let scheme: string
+    try {
+      scheme = new URL(href).protocol
+    } catch {
+      return raw
+    }
+    if (scheme !== 'http:' && scheme !== 'https:') return raw
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid={testid}
+        className="text-indigo-300 underline hover:text-indigo-200"
+      >
+        {raw}
+      </a>
+    )
+  }
+  if (view.type === 'custom') {
+    const html = view.value.replaceAll('{cell}', escapeHtml(raw))
+    // Cell value is HTML-escaped above so DB content is inert; the template
+    // HTML is trusted (anyone who can save a predefined query can inject markup
+    // for all viewers — documented in docs/query.md).
+    return <span data-testid={testid} dangerouslySetInnerHTML={{ __html: html }} />
+  }
+  return raw
+}
+
 function QueryPanel({
   connectionType,
   promptSlot,
@@ -510,6 +584,21 @@ function QueryPanel({
   const [fields, setFields] = useState<Field[]>([])
   const [visibleCols, setVisibleCols] = useState<string[]>([])
   const [orderBy, setOrderBy] = useState<OrderCol[]>([])
+  const [cellViewModalOpen, setCellViewModalOpen] = useState(false)
+
+  // The saved cell_view of the currently selected predefined query, or '' when
+  // nothing is selected. Single source of truth for rendering, modal seeding,
+  // and re-saves of SQL through the top "Save" button.
+  const savedCellView = useMemo(
+    () => predefined.find((p) => p.query_name === selectedName)?.cell_view ?? '',
+    [predefined, selectedName],
+  )
+
+  // Editor edits don't take effect until Save (which refreshes `predefined`).
+  const appliedViews = useMemo<CellViewMap>(
+    () => parseCellViewYaml(savedCellView),
+    [savedCellView],
+  )
 
   const loadPredefined = useCallback(async () => {
     try {
@@ -648,8 +737,9 @@ function QueryPanel({
     }
   }
 
-  // Dropdown selection: a saved query loads its SQL; the "new name" item prompts
-  // for a fresh name. Either way the chosen name is what Save writes under.
+  // Dropdown selection: a saved query loads its SQL and cell_view; the
+  // "new name" item prompts for a fresh name. Either way the chosen name is
+  // what Save writes under.
   function onSelectName(value: string) {
     if (value === NEW_NAME_OPTION) {
       const name = window.prompt('Save query as (name):', selectedName || '')?.trim()
@@ -661,28 +751,44 @@ function QueryPanel({
     if (q) setSql(q.query)
   }
 
-  async function save() {
+  // SQL-only saves (the top button) re-persist the existing cell_view as-is;
+  // the modal passes its draft. Returns success so the modal can close only on
+  // a clean persist.
+  async function save(cellViewValue: string = savedCellView): Promise<boolean> {
     const name = selectedName.trim()
-    if (!name) return
+    if (!name) return false
     setBusy(true)
     setError(null)
     try {
       const res = await fetch('/api/predefined-queries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query_name: name, type: connectionType, query: sql }),
+        body: JSON.stringify({
+          query_name: name,
+          type: connectionType,
+          query: sql,
+          cell_view: cellViewValue,
+        }),
       })
       const data = await res.json()
       if (data.ok) {
         await loadPredefined()
-      } else {
-        setError(data.message ?? 'save failed')
+        return true
       }
+      setError(data.message ?? 'save failed')
+      return false
     } catch (err) {
       setError(err instanceof Error ? err.message : 'request failed')
+      return false
     } finally {
       setBusy(false)
     }
+  }
+
+  // Modal owns its draft state (seeded from savedCellView on mount); App just
+  // toggles visibility and forwards the saved value to the backend.
+  async function onCellViewSave(value: string) {
+    if (await save(value)) setCellViewModalOpen(false)
   }
 
   const { columns, rows: resultRows } =
@@ -756,7 +862,7 @@ function QueryPanel({
         </select>
         <button
           type="button"
-          onClick={save}
+          onClick={() => void save()}
           disabled={busy || !selectedName.trim()}
           data-testid="query-save"
           className="glass-btn px-3 py-2 font-medium"
@@ -766,6 +872,14 @@ function QueryPanel({
       </div>
 
       <div className="flex justify-end gap-1">
+        <button
+          type="button"
+          onClick={() => setCellViewModalOpen(true)}
+          data-testid="cell-view-toggle"
+          className="glass-toggle mr-2 px-2 py-1 text-xs"
+        >
+          Cell view
+        </button>
         {sizes.map(([label, n, testid]) => (
           <button
             key={testid}
@@ -790,6 +904,15 @@ function QueryPanel({
           rows === 0 ? 'h-0 min-h-0 overflow-hidden border-transparent py-0' : 'py-2'
         }`}
       />
+
+      {cellViewModalOpen && (
+        <CellViewModal
+          initial={savedCellView}
+          onCancel={() => setCellViewModalOpen(false)}
+          onSave={(value) => void onCellViewSave(value)}
+          saveDisabled={busy || !selectedName.trim()}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -1005,7 +1128,7 @@ function QueryPanel({
                       key={j}
                       className="whitespace-pre border-b border-white/5 px-3 py-1 font-mono text-slate-200"
                     >
-                      {row[j]}
+                      {renderCell(columns[j], row[j], appliedViews)}
                     </td>
                   ))}
                 </tr>

@@ -90,6 +90,7 @@ CREATE TABLE predefined_queries (
   query_name TEXT NOT NULL,
   type       TEXT NOT NULL,   -- connection type (clickhouse, …)
   query      TEXT NOT NULL,
+  cell_view  TEXT,            -- raw YAML; per-column render config (see below)
   UNIQUE (type, query_name)
 );
 ```
@@ -97,11 +98,48 @@ CREATE TABLE predefined_queries (
 - The **selector** lists saved queries for the active connection's type;
   choosing one loads its SQL into the textarea and makes it the active name. Its
   **+ New name…** item prompts for a fresh name (no separate name field).
-- **Save** stores the textarea's SQL under the **currently selected name** and
-  refreshes the selector. Saving an existing name **upserts** (overwrites) it.
+- **Save** stores the textarea's SQL (and the `cell_view` YAML, see below)
+  under the **currently selected name** and refreshes the selector. Saving an
+  existing name **upserts** (overwrites) it.
 
 Renaming and deleting predefined queries are not yet supported — see
 [future.md](./future.md).
+
+### Cell views
+
+Each predefined query can carry a **`cell_view`** map controlling how result
+cells render. It's authored as YAML in a **"Cell view"** modal — opened from
+the toolbar button just before the **Min** size toggle — and stored as raw
+text on the predefined query. The modal has **Save** (persists + closes) and
+**Cancel** (discards edits + closes); clicking the backdrop also cancels. The
+map keys are column names; each entry has a `type` and a `value` template, and
+`{cell}` is replaced with the cell's raw value:
+
+```yaml
+cve_id:
+  type: link
+  value: https://nvd.nist.gov/vuln/detail/{cell}
+severity:
+  type: custom
+  value: <strong>{cell}</strong>
+```
+
+Supported types:
+
+- **`link`** — render the cell as `<a href target="_blank" rel="noopener noreferrer">{cell}</a>`. `{cell}` is URL-encoded into the href; the resolved scheme must be `http`/`https` (anything else falls back to plain text).
+- **`custom`** — render the `value` HTML verbatim with `{cell}` substituted in. The cell value is HTML-escaped before substitution (so DB content can't break out), but the template HTML is **trusted** and is not sanitized. **Anyone who can save a predefined query can inject markup/script that runs in every viewer's browser**, because predefined queries are shared globally with no auth.
+
+Both wrappers (the `<a>` for `link`, the `<span>` for `custom`) automatically
+carry `data-testid="cell-<columnName>"`, so e2e tests can target rendered cells
+without baking testids into the YAML.
+
+Apply timing: rendering uses the **saved** `cell_view` of the **currently
+selected** predefined query — edits to the editor only take effect after
+**Save** (which re-fetches the list). Ad-hoc SQL with no selected predefined
+query renders plain.
+
+A broken (unparseable or unrecognized-shape) `cell_view` is ignored: the table
+falls back to plain rendering rather than failing.
 
 ## Results & CSV
 
@@ -118,8 +156,8 @@ fields** view.
 | ------ | --------------------------- | --------------------------------------------- | ------ |
 | POST   | `/api/clickhouse/query`     | `{query, limit?, offset?, format?, order_by?}` | `{ok, output}` (raw text) \| `{ok:false, message}`. `format:"csv"` returns CSV. `order_by` is `[{name, dir}]` (`dir` ASC/DESC). Empty query → `400`; no session → `409`. |
 | POST   | `/api/clickhouse/describe`  | `{query}`                                     | `{ok, fields:[{name, type}]}` — the query's output columns, via `DESCRIBE`, no data scanned. \| `{ok:false, message}`. Empty query → `400`; no session / no database → `409`. |
-| GET    | `/api/predefined-queries`   | `?type=<connType>`                            | `{queries:[{query_name, query}]}` for that connection type. |
-| POST   | `/api/predefined-queries`   | `{query_name, type, query}`                   | `{ok}`; upserts a predefined query. Missing fields → `400`. |
+| GET    | `/api/predefined-queries`   | `?type=<connType>`                            | `{queries:[{query_name, query, cell_view}]}` for that connection type. `cell_view` is raw YAML text or `null`. |
+| POST   | `/api/predefined-queries`   | `{query_name, type, query, cell_view?}`       | `{ok}`; upserts a predefined query. `cell_view` is optional raw YAML; empty/missing clears it. Missing required fields → `400`. |
 
 Queries run over the ClickHouse HTTP interface (HTTP Basic auth, 5s timeout),
 scoped to the session's selected database.

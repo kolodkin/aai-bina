@@ -80,6 +80,93 @@ def _open_query_panel(page: Page) -> None:
     expect(page.get_by_test_id("query-panel")).to_be_visible()
 
 
+def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page, shot) -> None:
+    """Saving a predefined query with a cell_view YAML map renders cells per
+    the map: `link` becomes an <a href> using {cell}, `custom` injects the
+    template with {cell} HTML-escaped. Both wrappers carry an automatic
+    data-testid="cell-<col>" so tests can target them without baking testids
+    into the YAML. The YAML is authored in a modal opened from the toolbar."""
+    _open_query_panel(page)
+
+    page.get_by_test_id("query-input").fill("SELECT id, name FROM items ORDER BY id LIMIT 2")
+    shot("panel - cell view toggle in toolbar (before Min)")
+
+    # Name the query first — the modal Save is disabled without a name.
+    page.once("dialog", lambda d: d.accept("with-views"))
+    page.get_by_test_id("query-predefined-select").select_option("::new::")
+
+    # Open the cell-view modal and author the YAML.
+    page.get_by_test_id("cell-view-toggle").click()
+    expect(page.get_by_test_id("cell-view-modal")).to_be_visible()
+    page.get_by_test_id("cell-view-input").fill(
+        "name:\n"
+        "  type: link\n"
+        "  value: https://example.com/{cell}\n"
+        "id:\n"
+        "  type: custom\n"
+        "  value: <strong style=\"color:#a5b4fc\">{cell}</strong>\n"
+    )
+    shot("cell view modal - YAML authored")
+
+    # Save persists cell_view + sql under the selected name and closes the modal.
+    page.get_by_test_id("cell-view-save").click()
+    expect(page.get_by_test_id("cell-view-modal")).not_to_be_visible()
+    expect(
+        page.get_by_test_id("query-predefined-select").locator(
+            'option[value="with-views"]'
+        )
+    ).to_have_count(1)
+    shot("saved - modal closed")
+
+    page.get_by_test_id("query-run").click()
+    output = page.get_by_test_id("query-output")
+    expect(output).to_be_visible()
+
+    # The `name` column renders as an <a href> built from the template and
+    # carries an auto data-testid="cell-name" on the link itself.
+    link = output.get_by_test_id("cell-name").first
+    expect(link).to_be_visible()
+    expect(link).to_have_text("alpha")
+    expect(link).to_have_attribute("href", "https://example.com/alpha")
+    expect(link).to_have_attribute("target", "_blank")
+    expect(link).to_have_attribute("rel", "noopener noreferrer")
+
+    # The `id` column renders the custom template wrapped in a span whose
+    # auto data-testid="cell-id" exposes it without test markup in the YAML.
+    custom = output.get_by_test_id("cell-id").first
+    expect(custom).to_be_visible()
+    expect(custom).to_have_text("1")
+    expect(custom.locator("strong")).to_have_text("1")
+    shot("results: name as link, id as custom HTML")
+
+
+def test_cell_view_cancel_discards_edits(seeded_test_db, page: Page, shot) -> None:
+    """Cancel in the cell-view modal closes without saving, so rendering still
+    uses the saved cell_view (or none) — author-time edits never leak through."""
+    _open_query_panel(page)
+
+    page.get_by_test_id("query-input").fill("SELECT name FROM items ORDER BY id LIMIT 1")
+    page.get_by_test_id("cell-view-toggle").click()
+    expect(page.get_by_test_id("cell-view-modal")).to_be_visible()
+    page.get_by_test_id("cell-view-input").fill(
+        "name:\n  type: link\n  value: https://example.com/{cell}\n"
+    )
+    shot("cell view modal - draft YAML before Cancel")
+    page.get_by_test_id("cell-view-cancel").click()
+    expect(page.get_by_test_id("cell-view-modal")).not_to_be_visible()
+
+    page.get_by_test_id("query-run").click()
+    output = page.get_by_test_id("query-output")
+    expect(output).to_be_visible()
+    # Nothing saved => no cell_view applied => plain text, no <a>.
+    expect(output.locator("a")).to_have_count(0)
+    expect(output).to_contain_text("alpha")
+
+    # Re-opening the modal shows the saved value (empty) — Cancel reverted the edit.
+    page.get_by_test_id("cell-view-toggle").click()
+    expect(page.get_by_test_id("cell-view-input")).to_have_value("")
+
+
 def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page, shot) -> None:
     _open_query_panel(page)
     page.get_by_test_id("query-input").fill("SELECT id, name FROM items")
