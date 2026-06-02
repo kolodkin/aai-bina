@@ -22,10 +22,10 @@ from .connect import (
     describe_query,
     get_session,
     open_saved,
-    run_queries_for_connection,
     run_query,
     select_database,
 )
+from .dashboard_queries import run_queries_for_connection
 from .dashboards import _upsert_and_push, get_dashboard, list_dashboards
 from .queries import list_predefined_queries, save_predefined_query
 
