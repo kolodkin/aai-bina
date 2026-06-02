@@ -25,6 +25,8 @@ from .connect import (
     run_query,
     select_database,
 )
+from .dashboard_queries import run_queries_for_connection
+from .dashboards import _upsert_and_push, get_dashboard, list_dashboards
 from .queries import list_predefined_queries, save_predefined_query
 
 SERVE_STATIC = os.environ.get("SERVE_STATIC") == "1"
@@ -42,6 +44,22 @@ async def _read_json(request: Request) -> Any:
         return await request.json()
     except Exception:
         return None
+
+
+def _clean_str(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _clean_queries(raw: Any) -> dict[str, str]:
+    """Keep only string→string entries with a non-empty name and SQL; ignore
+    anything else so a malformed `queries` map can't reach the runner."""
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        k: v
+        for k, v in raw.items()
+        if isinstance(k, str) and k and isinstance(v, str) and v.strip()
+    }
 
 
 def _parse_int(value: Any, default: int) -> int:
@@ -230,9 +248,11 @@ def _sse(event: str, data: dict[str, Any]) -> bytes:
 
 
 async def _event_stream(remote_id: str, request: Request):
-    """Yield SSE: a `ready` event with the id, then `query` events as they are
-    pushed, plus a heartbeat. Polls disconnect every second so disarming (the
-    browser closing the EventSource) unregisters the channel promptly."""
+    """Yield SSE: a `ready` event with the id, then `query`/`dashboard` events as
+    they are pushed, plus a heartbeat. Each pushed payload is emitted under the
+    SSE event named by its `type` field. Polls disconnect every second so
+    disarming (the browser closing the EventSource) unregisters the channel
+    promptly."""
     try:
         yield _sse("ready", {"id": remote_id})
         elapsed = 0.0
@@ -246,7 +266,7 @@ async def _event_stream(remote_id: str, request: Request):
                     elapsed = 0.0
                     yield b": ping\n\n"
                 continue
-            yield _sse("query", msg)
+            yield _sse(msg.get("type", "query"), msg)
     finally:
         remote.unregister(remote_id)
 
@@ -297,6 +317,64 @@ async def remote_push(request: Request):
     }
     ok, message = remote.push(session_id, payload)
     return {"ok": ok, "message": message}
+
+
+# --- Dashboards (persist + reopen + run-against-a-named-connection) --------
+
+
+# Run a dashboard's named queries against a named connection. Fail-fast: any
+# failure returns an HTTP error and no partial results.
+@app.post("/api/runqueries")
+async def run_queries(request: Request):
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    connection = _clean_str(b.get("connection"))
+    queries = _clean_queries(b.get("queries"))
+    if not connection or not queries:
+        return JSONResponse(
+            {"ok": False, "message": "connection and queries are required"},
+            status_code=400,
+        )
+    r = await run_queries_for_connection(connection, queries)
+    if not r["ok"]:
+        status = 404 if r.get("reason") == "no-connection" else 400
+        return JSONResponse({"ok": False, "message": r["message"]}, status_code=status)
+    return {"ok": True, "results": r["results"]}
+
+
+# Upsert a dashboard and (with a session_id) push it to a live browser session.
+# REST mirror of the upsert_dashboard MCP tool.
+@app.post("/api/dashboards")
+async def dashboards_upsert(request: Request):
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    name = _clean_str(b.get("name"))
+    connection = _clean_str(b.get("connection"))
+    html = b.get("html") if isinstance(b.get("html"), str) else ""
+    queries = _clean_queries(b.get("queries"))
+    if not name or not connection or not html.strip():
+        return JSONResponse(
+            {"ok": False, "message": "name, connection and html are required"},
+            status_code=400,
+        )
+    session_id = _clean_str(b.get("session_id"))
+    persisted, pushed, message = await _upsert_and_push(
+        name, connection, html, queries, session_id or None
+    )
+    return {"ok": persisted, "persisted": persisted, "pushed": pushed, "message": message}
+
+
+@app.get("/api/dashboards")
+async def dashboards_list():
+    return {"dashboards": await list_dashboards()}
+
+
+@app.get("/api/dashboards/{name}")
+async def dashboards_get(name: str):
+    d = await get_dashboard(name)
+    if d is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return d
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

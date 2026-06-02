@@ -18,13 +18,16 @@ the session immediately — pushes to its id are then reported as not delivered.
 
 ## The MCP tool
 
-The backend mounts a FastMCP server (Streamable HTTP) at `/mcp` exposing one
-tool:
+The backend mounts a FastMCP server (Streamable HTTP) at `/mcp` exposing two
+tools:
 
 - `push_query(session_id, query, limit?=100, offset?=0, order_by?, fields?)` —
   push a query to the session. `order_by` is `[{name, dir}]`; `fields` is the
   list of column names to display (omit to show all). Returns
   `{ok, message}`; an unknown/disarmed id returns `{ok: false}`.
+- `upsert_dashboard(session_id, name, connection, html, queries)` — persist a
+  dashboard and push it to the session, which navigates to it and renders it.
+  Returns `{ok, persisted, pushed, message}`. See [dashboard.md](./dashboard.md).
 
 The pushed query runs through the normal `POST /api/clickhouse/query`, so all of
 that path's pagination and order-by safety applies; the push layer never talks

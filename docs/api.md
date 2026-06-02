@@ -22,12 +22,18 @@ independently. Saved connections themselves are shared (SQLite).
 | POST   | `/api/clickhouse/describe`  | `{query}`                              | Describe the query's output columns via ClickHouse `DESCRIBE` (no data scanned). `{ok, fields:[{name, type}]}` \| `{ok:false, message}`. Empty query → `400`; no session / no database → `409`. |
 | GET    | `/api/predefined-queries`   | `?type=<connType>`                     | Global predefined queries for a connection type. `{queries:[{query_name, query, cell_view}]}`. `cell_view` is raw YAML text (or `null`) — see [query.md](./query.md#cell-views). |
 | POST   | `/api/predefined-queries`   | `{query_name, type, query, cell_view?}` | Upsert a global predefined query. `cell_view` is optional raw YAML text; empty/missing clears it. `{ok}`; missing required fields → `400`. |
-| GET    | `/api/remote/events`        | —                                      | SSE stream a browser opens when "remote control" is armed. Emits a `ready` event (`{id}`) then `query` events with pushed payloads. |
+| GET    | `/api/remote/events`        | —                                      | SSE stream a browser opens when "remote control" is armed. Emits a `ready` event (`{id}`) then `query` and `dashboard` events with pushed payloads (each emitted under the SSE event named by the payload's `type`). |
 | POST   | `/api/remote/push`          | `{session_id, query, limit?, offset?, order_by?, fields?}` | Push a query to a live session (the surface `push_query` and the e2e suite use). `{ok}` \| `{ok:false, message}` (unknown session). Empty `query`/`session_id` → `400`. |
+| POST   | `/api/runqueries`           | `{connection, queries:{name:SQL}}`     | Run a dashboard's named queries against a saved connection (by name), using its stored database. Fail-fast: `{ok, results:{name:{col:[…]}}}` (column-oriented) on full success; on any failure an HTTP error with `{ok:false, message}` — `404` unknown connection, `400` bad body / no selected database / a failing query (message prefixed with the panel name). See [dashboard.md](./dashboard.md). |
+| POST   | `/api/dashboards`           | `{name, connection, html, queries, session_id?}` | Upsert a dashboard by name (REST mirror of the `upsert_dashboard` MCP tool); with `session_id`, also pushes it to that live session. `{ok, persisted, pushed, message}`. Missing `name`/`connection`/`html` → `400`. |
+| GET    | `/api/dashboards`           | —                                      | List saved dashboards (no payload): `{dashboards:[{name, connection, updated_at}]}`, ordered by name. |
+| GET    | `/api/dashboards/{name}`    | —                                      | A saved dashboard `{name, connection, html, queries}` (`queries` parsed to a dict), or `404 {error:"not found"}`. |
 
-**MCP:** a FastMCP server is mounted at `/mcp` (Streamable HTTP) exposing a
-single `push_query` tool that delegates to the in-process `remote.push()` hub
-(the same hub `/api/remote/push` calls). See [remote.md](./remote.md).
+**MCP:** a FastMCP server is mounted at `/mcp` (Streamable HTTP) exposing
+`push_query` (push SQL to a session's query panel) and `upsert_dashboard`
+(persist a dashboard and push it to a session). Both delegate to the in-process
+hubs the matching REST endpoints call. See [remote.md](./remote.md) and
+[dashboard.md](./dashboard.md).
 
 ## Persistence
 
@@ -41,3 +47,4 @@ session / auto-connect model.
 - [connect.md](./connect.md) — connecting (`new <type>` / `connect <name>`), storage, sessions.
 - [query.md](./query.md) — running queries: pagination, predefined queries, CSV.
 - [remote.md](./remote.md) — pushing queries to a live session over MCP.
+- [dashboard.md](./dashboard.md) — the dashboard page, `upsert_dashboard`, and the `window.queries` contract.

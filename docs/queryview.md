@@ -1,8 +1,11 @@
 # QueryView — single-prompt page concept
 
-QueryView is a single page. There is no navigation, no sidebar, no dashboard.
-The whole surface is one centered prompt — the user types a command and the
-page reacts to it inline.
+QueryView's main page (`/queries`) is one centered prompt — the user types a
+command and the page reacts to it inline; no sidebar, no toolbars. A second
+top-level page, `/dashboard`, renders agent-authored dashboards (see
+[dashboard.md](./dashboard.md)); a small nav in the corner switches between the
+two, and the connection status pill persists across both. The rest of this doc
+describes the prompt page.
 
 ## Layout
 
@@ -62,8 +65,10 @@ If neither yields a connection it opens at the empty prompt.
 | `new clickhouse` | Reveals the form to create a new ClickHouse connection. |
 | `connect <name>` | Opens the saved connection `<name>` and shows its database picker. |
 | `query`          | Once a database is selected, opens the query panel — run SQL with pagination, save/load predefined queries, download CSV (see [query.md](./query.md)). |
+| `dashboard`           | Opens the dashboard page (`/dashboard`) — pick a saved dashboard from the dropdown. |
+| `dashboard <name>`    | Opens the dashboard page at that dashboard (`/dashboard?name=<name>`). See [dashboard.md](./dashboard.md). |
 
-Anything else shows a hint: `Try “new clickhouse” or “connect <name>”`.
+Anything else shows a hint: `Try “new clickhouse”, “connect <name>” or “dashboard <name>”`.
 
 Command matching is case-insensitive and trims surrounding whitespace. See
 [connect.md](./connect.md) for the full connection flow.
