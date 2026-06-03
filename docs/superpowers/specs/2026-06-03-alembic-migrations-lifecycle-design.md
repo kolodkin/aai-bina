@@ -112,8 +112,11 @@ buys nothing here.
 - `backend/queryview/migrations/env.py`
 - `backend/queryview/migrations/script.py.mako` (standard template)
 - `backend/queryview/migrations/versions/<rev>_initial_schema.py` —
-  hand-verified initial revision matching the current 3-table schema so
-  existing `queryview.db` files and fresh installs both land on it cleanly.
+  hand-verified initial revision matching the current 3-table schema so fresh
+  installs land on it cleanly. Pre-Alembic DBs (created by the old `create_all`,
+  with no `alembic_version` table) are **not** supported — `upgrade head` would
+  fail trying to re-create existing tables; such a DB must be deleted and
+  recreated. This is acceptable: there are no deployments to carry forward.
 - `backend/alembic.ini` — **dev-only**, for authoring revisions
   (`alembic revision --autogenerate`). Not read at runtime.
 
