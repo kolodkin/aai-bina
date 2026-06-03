@@ -10,12 +10,15 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import Field, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+
+if TYPE_CHECKING:
+    from alembic.config import Config
 
 from .clickhouse import (
     ChConfig,
@@ -61,7 +64,7 @@ def _engine_for_db():
     return _engine
 
 
-def _alembic_config():
+def _alembic_config() -> Config:
     """Alembic Config built in code (not from a cwd alembic.ini) so migrations
     run from any working directory and from the packaged wheel. Points at the
     migrations dir shipped inside this package and injects a *sync* SQLite URL
