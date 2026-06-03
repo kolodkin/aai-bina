@@ -6,6 +6,29 @@ once with `new <type>`, then open it by name with `connect <name>`. Connections
 are persisted in SQLite and the latest active one is re-connected automatically
 when a session starts.
 
+## Storage & migrations
+
+State lives in a single SQLite file (`queryview.db`, overridable via `DB_PATH`).
+The backend is **single-process** — SQLite is single-writer, so there is one
+process owning the file. The schema is owned by **Alembic**: on startup the
+FastAPI lifespan runs `alembic upgrade head` (via `connect._ensure_schema()`)
+before serving any request, so an Alembic-managed DB is migrated forward in
+place rather than rebuilt. Migrations ship inside the package
+(`backend/queryview/migrations/`). To author a new revision after changing a
+model, from `backend/`:
+
+```
+DB_PATH=/tmp/qv-dev.db uv run alembic revision --autogenerate -m "describe change"
+```
+
+Review the generated script (column changes use batch mode for SQLite) and
+commit it; the app applies it on next start. Because the app is single-process,
+no cross-process migration lock is needed.
+
+> A DB predating Alembic (created by the old `create_all`, so it has no
+> `alembic_version` table) is not upgraded automatically — delete it and let the
+> app recreate it on next start.
+
 ## Commands
 
 | Command          | Effect |

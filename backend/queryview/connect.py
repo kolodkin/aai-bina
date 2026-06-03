@@ -10,12 +10,15 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import Field, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+
+if TYPE_CHECKING:
+    from alembic.config import Config
 
 from .clickhouse import (
     ChConfig,
@@ -61,13 +64,32 @@ def _engine_for_db():
     return _engine
 
 
+def _alembic_config() -> Config:
+    """Alembic Config built in code (not from a cwd alembic.ini) so migrations
+    run from any working directory and from the packaged wheel. Points at the
+    migrations dir shipped inside this package and injects a *sync* SQLite URL
+    for the current DB_PATH."""
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option(
+        "script_location", str(Path(__file__).resolve().parent / "migrations")
+    )
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{_db_path()}")
+    return cfg
+
+
 async def _ensure_schema() -> None:
-    """Create the tables on first DB use (idempotent)."""
+    """Migrate the DB to head on first use (idempotent). The app is
+    single-process (SQLite is single-writer), so running migrations here — and
+    once more at lifecycle start — needs no cross-process locking. Runs the sync
+    Alembic upgrade inline: this is a startup step, so blocking is intended."""
     global _schema_ready
     if _schema_ready:
         return
-    async with _engine_for_db().begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+    from alembic import command
+
+    command.upgrade(_alembic_config(), "head")
     _schema_ready = True
 
 

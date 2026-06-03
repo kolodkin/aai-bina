@@ -18,6 +18,7 @@ from .mcp_server import mcp
 
 from .clickhouse import parse_ch_config, test_connection
 from .connect import (
+    _ensure_schema,
     connect_new,
     describe_query,
     get_session,
@@ -77,6 +78,9 @@ def _parse_int(value: Any, default: int) -> int:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Bring the schema to head before serving any request. Single-process by
+    # design (SQLite is single-writer), so no cross-process migration lock.
+    await _ensure_schema()
     # A mounted Starlette sub-app's lifespan is not run by the parent, so run
     # the MCP session manager here. streamable_http_app() (called at mount,
     # below) initializes mcp.session_manager before this runs at startup.
