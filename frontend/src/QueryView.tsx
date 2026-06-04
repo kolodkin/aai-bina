@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import yaml from 'js-yaml'
 
 import { CellViewModal } from './CellViewModal'
-import { applyParams, parseQueryParams, type ParamDef } from './queryParams'
+import {
+  applyParams,
+  parseQueryParams,
+  parseYamlObject,
+  type ParamDef,
+} from './queryParams'
 
 type TestResult = { ok: boolean; message: string }
 
@@ -395,16 +399,10 @@ function escapeHtml(s: string): string {
 // root, or any entry without a string {type, value} is dropped — a broken
 // config never blanks the table; it just falls through to plain text.
 function parseCellViewYaml(text: string | null | undefined): CellViewMap {
-  if (!text) return {}
-  let doc: unknown
-  try {
-    doc = yaml.load(text)
-  } catch {
-    return {}
-  }
-  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return {}
+  const doc = parseYamlObject(text)
+  if (!doc) return {}
   const out: CellViewMap = {}
-  for (const [k, v] of Object.entries(doc as Record<string, unknown>)) {
+  for (const [k, v] of Object.entries(doc)) {
     // `params` is reserved for query-parameter dropdowns (see queryParams.ts),
     // never a column-render rule.
     if (k === 'params') continue
@@ -812,8 +810,8 @@ function QueryPanel({
                 onChange={(e) => {
                   const next = { ...paramValues, [def.name]: e.target.value }
                   setParamValues(next)
-                  setOffset(0)
                   // Pass the new values directly: setParamValues hasn't committed.
+                  // runWith resets the offset (to 0) when the query succeeds.
                   void runWith(sql, limit, 0, orderBy, undefined, next)
                 }}
                 className={inputClass}
