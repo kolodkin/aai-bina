@@ -30,8 +30,8 @@ def browser_context_args(browser_context_args: dict) -> dict:
 @pytest.fixture
 def shot(page: Page, output_path: str):
     """Save labeled, ordered screenshots into pytest-playwright's per-test
-    output directory. The e2e-screenshot-report skill bundles them into a
-    self-contained HTML; files are numbered so the report preserves call order.
+    output directory; files are numbered so an e2e screenshot report can
+    preserve call order when bundling them into a self-contained HTML.
     """
     out = Path(output_path)
     counter = {"n": 0}
