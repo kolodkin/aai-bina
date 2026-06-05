@@ -90,7 +90,7 @@ CREATE TABLE predefined_queries (
   query_name TEXT NOT NULL,
   type       TEXT NOT NULL,   -- connection type (clickhouse, …)
   query      TEXT NOT NULL,
-  cell_view  TEXT,            -- raw YAML; per-column render config (see below)
+  cell_view  TEXT,            -- raw YAML; per-column render config + params (see below)
   UNIQUE (type, query_name)
 );
 ```
@@ -140,6 +140,42 @@ query renders plain.
 
 A broken (unparseable or unrecognized-shape) `cell_view` is ignored: the table
 falls back to plain rendering rather than failing.
+
+### Query parameters
+
+A predefined query can declare **dropdown selectors** whose chosen value is
+substituted into the SQL. They live in a reserved **`params:`** key inside the
+same `cell_view` YAML (so `params` is never treated as a column-render rule).
+Each entry has a `name` and a list of `options`:
+
+```yaml
+params:
+  - name: source
+    options: [a, b, c]
+```
+
+With the query:
+
+```sql
+select * from events where source = {source}
+```
+
+a labelled dropdown appears above the SQL textarea, one per param, populated
+with the declared options. The placeholder **`{source}`** is replaced with the
+selected value as a **quoted SQL string** (`source = 'b'`), with embedded single
+quotes doubled. Write the placeholder where a value goes — no surrounding quotes
+of your own. A `{name}` with no matching param is left untouched; a param whose
+`{name}` never appears in the query is harmless.
+
+**Changing a dropdown re-runs the query immediately** (resetting to offset 0).
+Substitution applies everywhere the query runs — **Execute**, **Previous** /
+**Next**, **Fields** (`DESCRIBE`), and **Download CSV** — so all of them see the
+currently selected values. The first option is the default.
+
+Because values are constrained to the declared `options` and quoted/escaped on
+substitution, params stay within the existing trust model (the SQL textarea is
+already sent to the backend as-is). A broken or absent `params:` block simply
+renders no dropdowns.
 
 ## Results & CSV
 

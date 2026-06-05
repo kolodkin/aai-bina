@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import yaml from 'js-yaml'
 
 import { CellViewModal } from './CellViewModal'
+import {
+  applyParams,
+  parseQueryParams,
+  parseYamlObject,
+  type ParamDef,
+} from './queryParams'
 
 type TestResult = { ok: boolean; message: string }
 
@@ -394,16 +399,13 @@ function escapeHtml(s: string): string {
 // root, or any entry without a string {type, value} is dropped — a broken
 // config never blanks the table; it just falls through to plain text.
 function parseCellViewYaml(text: string | null | undefined): CellViewMap {
-  if (!text) return {}
-  let doc: unknown
-  try {
-    doc = yaml.load(text)
-  } catch {
-    return {}
-  }
-  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return {}
+  const doc = parseYamlObject(text)
+  if (!doc) return {}
   const out: CellViewMap = {}
-  for (const [k, v] of Object.entries(doc as Record<string, unknown>)) {
+  for (const [k, v] of Object.entries(doc)) {
+    // `params` is reserved for query-parameter dropdowns (see queryParams.ts),
+    // never a column-render rule.
+    if (k === 'params') continue
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       const o = v as Record<string, unknown>
       if (typeof o.type === 'string' && typeof o.value === 'string') {
@@ -488,6 +490,28 @@ function QueryPanel({
     [savedCellView],
   )
 
+  // Dropdown selectors declared in the saved cell_view YAML's `params:` section.
+  // Each renders a <select> whose value is substituted into the SQL via {name}.
+  const paramDefs = useMemo<ParamDef[]>(
+    () => parseQueryParams(savedCellView),
+    [savedCellView],
+  )
+  const [paramValues, setParamValues] = useState<Record<string, string>>({})
+
+  // Seed each param to its first option, preserving a current selection that is
+  // still valid. Re-runs when the definitions change (different saved query or a
+  // Save), so a config change re-seeds defaults without clobbering live picks.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setParamValues((prev) => {
+      const next: Record<string, string> = {}
+      for (const d of paramDefs) {
+        next[d.name] = d.options.includes(prev[d.name]) ? prev[d.name] : d.options[0]
+      }
+      return next
+    })
+  }, [paramDefs])
+
   const loadPredefined = useCallback(async () => {
     try {
       const res = await fetch(
@@ -534,7 +558,7 @@ function QueryPanel({
       const res = await fetch('/api/clickhouse/describe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: sql }),
+        body: JSON.stringify({ query: applyParams(sql, paramDefs, paramValues) }),
       })
       const data = await res.json()
       if (data.ok) {
@@ -559,14 +583,19 @@ function QueryPanel({
     off: number,
     ord: OrderCol[],
     selectFields?: string[],
+    paramOverride?: Record<string, string>,
   ) {
     setBusy(true)
     setError(null)
     try {
+      // Substitute {name} placeholders from the param dropdowns. An override is
+      // passed when a dropdown change triggers the run, since its setState
+      // hasn't committed yet.
+      const query = applyParams(q, paramDefs, paramOverride ?? paramValues)
       const res = await fetch('/api/clickhouse/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, limit: lim, offset: off, format: 'text', order_by: ord }),
+        body: JSON.stringify({ query, limit: lim, offset: off, format: 'text', order_by: ord }),
       })
       const data = await res.json()
       if (data.ok) {
@@ -604,7 +633,13 @@ function QueryPanel({
       const res = await fetch('/api/clickhouse/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: sql, limit, offset, format: 'csv', order_by: orderBy }),
+        body: JSON.stringify({
+          query: applyParams(sql, paramDefs, paramValues),
+          limit,
+          offset,
+          format: 'csv',
+          order_by: orderBy,
+        }),
       })
       const data = await res.json()
       if (!data.ok) {
@@ -755,6 +790,42 @@ function QueryPanel({
           Save
         </button>
       </div>
+
+      {paramDefs.length > 0 && (
+        <div
+          data-testid="query-params"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2"
+        >
+          {paramDefs.map((def) => (
+            <label
+              key={def.name}
+              className="flex items-center gap-1.5 text-sm text-slate-300"
+            >
+              {def.name}
+              <select
+                data-testid="param-select"
+                data-param={def.name}
+                aria-label={`Parameter ${def.name}`}
+                value={paramValues[def.name] ?? def.options[0]}
+                onChange={(e) => {
+                  const next = { ...paramValues, [def.name]: e.target.value }
+                  setParamValues(next)
+                  // Pass the new values directly: setParamValues hasn't committed.
+                  // runWith resets the offset (to 0) when the query succeeds.
+                  void runWith(sql, limit, 0, orderBy, undefined, next)
+                }}
+                className={inputClass}
+              >
+                {def.options.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      )}
 
       <div className="flex justify-end gap-1">
         <button
