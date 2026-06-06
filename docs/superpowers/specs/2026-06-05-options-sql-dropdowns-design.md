@@ -96,26 +96,28 @@ An unresolved `options_sql` **blocks** the main query rather than degrading sile
 - Once options resolve, defaults seed to the first option and the panel behaves exactly as
   today.
 
-## Testing (TDD)
+## Testing
 
-Match the style of the existing `queryParams` unit tests and `QueryView` component tests.
+Frontend behavior — including the parsing branches — is covered end-to-end, not at a
+separate unit layer. e2e is the single source of truth so the same logic is never asserted
+twice. Add cases to `e2e/test_query.py` using the existing `seeded_test_db` fixture
+(`test.items` with rows `alpha`, `beta`, `gamma`). No new Vitest cases, and no backend
+changes (so no Python backend-test changes).
 
-queryParams:
+Each case saves a predefined query whose `cell_view` declares the param under test, loads it
+in the browser, and asserts the observable result:
 
-- `options_sql` parses to `{ name, optionsSql }`.
-- Both `options` and `options_sql` present → entry dropped.
-- `options_sql` empty / non-string → entry dropped.
-- Static `options` behavior unchanged.
-
-QueryView (mocked `fetch`):
-
-- Options query fires on load and populates the `<select>`.
-- First row becomes the default and is substituted into the main query.
-- An erroring options query blocks the run and shows the banner.
-- A zero-row options result blocks with the "no rows" message.
-- A static-`options` param still works with no extra fetch.
-
-No backend changes, so no Python test changes.
+- **Happy path** — `options_sql: SELECT DISTINCT name FROM test.items ORDER BY name`
+  populates the `<select>` with `alpha`, `beta`, `gamma`; the first value seeds as the
+  default, substitutes into `{name}`, and the main query runs and returns its row.
+- **Selecting a value** — choosing `gamma` re-runs the main query with `gamma` substituted.
+- **Mutually exclusive** — a param declaring both `options` and `options_sql` renders no
+  dropdown (entry dropped during parse).
+- **Empty / invalid `options_sql`** — an `options_sql` that returns zero rows, and one that
+  is malformed SQL, each block the main query and surface the prefixed banner
+  (`options for "…": query returned no rows` / the error message).
+- **Static `options` unchanged** — a static-`options` param still renders and runs with no
+  options query issued.
 
 ## Out of scope (YAGNI)
 
