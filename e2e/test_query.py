@@ -274,3 +274,112 @@ def test_query_param_dropdown_substitutes_value(seeded_test_db, page: Page, shot
     expect(output).to_contain_text("gamma")
     expect(output).not_to_contain_text("beta")
     shot("query re-run with sel=gamma")
+
+
+def _author_params_yaml(page: Page, name: str, sql: str, params_yaml: str) -> None:
+    """Fill the SQL, name the query, and author a `params:` block via the
+    cell-view modal, then Save. Shared by the options_sql tests below."""
+    page.get_by_test_id("query-input").fill(sql)
+    page.once("dialog", lambda d: d.accept(name))
+    page.get_by_test_id("query-predefined-select").select_option("::new::")
+    page.get_by_test_id("cell-view-toggle").click()
+    expect(page.get_by_test_id("cell-view-modal")).to_be_visible()
+    page.get_by_test_id("cell-view-input").fill(params_yaml)
+    page.get_by_test_id("cell-view-save").click()
+    expect(page.get_by_test_id("cell-view-modal")).not_to_be_visible()
+
+
+def test_query_param_options_sql_populates_dropdown(seeded_test_db, page: Page, shot) -> None:
+    """`options_sql` resolves the dropdown choices from a query: the first column
+    of every row becomes an option, in the query's own order. The first row is
+    the default; substituting it and running returns that row, and switching the
+    selection re-runs with the new value."""
+    _open_query_panel(page)
+    _author_params_yaml(
+        page,
+        "by-options-sql",
+        "SELECT name FROM items WHERE name = {sel} ORDER BY id",
+        "params:\n"
+        "  - name: sel\n"
+        "    options_sql: SELECT DISTINCT name FROM items ORDER BY name\n",
+    )
+
+    # The dropdown is populated from the query result: alpha, beta, gamma.
+    sel = page.locator('[data-testid="param-select"][data-param="sel"]')
+    expect(sel).to_be_visible()
+    expect(sel.locator("option")).to_have_count(3)
+    expect(sel.locator("option").first).to_have_text("alpha")
+    shot("options_sql dropdown populated")
+
+    # Default is the first option (alpha); running substitutes and returns it.
+    page.get_by_test_id("query-run").click()
+    output = page.get_by_test_id("query-output")
+    expect(output).to_be_visible()
+    expect(output).to_contain_text("alpha")
+    expect(output).not_to_contain_text("beta")
+    shot("options_sql default (alpha) run")
+
+    # Switching re-runs with the new substitution.
+    sel.select_option("gamma")
+    expect(output).to_contain_text("gamma")
+    expect(output).not_to_contain_text("alpha")
+    shot("options_sql re-run with sel=gamma")
+
+
+def test_query_param_options_and_options_sql_are_mutually_exclusive(
+    seeded_test_db, page: Page, shot
+) -> None:
+    """A param declaring both `options` and `options_sql` is a config error: the
+    entry is dropped during parse, so no dropdown renders for it."""
+    _open_query_panel(page)
+    _author_params_yaml(
+        page,
+        "both-keys",
+        "SELECT name FROM items WHERE name = {sel} ORDER BY id",
+        "params:\n"
+        "  - name: sel\n"
+        "    options: [alpha, beta]\n"
+        "    options_sql: SELECT name FROM items\n",
+    )
+    expect(page.locator('[data-testid="param-select"][data-param="sel"]')).to_have_count(0)
+    shot("both options + options_sql -> no dropdown")
+
+
+def test_query_param_options_sql_no_rows_blocks_run(seeded_test_db, page: Page, shot) -> None:
+    """An `options_sql` that returns zero rows has nothing to choose from: the
+    main query is blocked (Execute disabled) and the error banner names the
+    param and the empty result."""
+    _open_query_panel(page)
+    _author_params_yaml(
+        page,
+        "empty-options",
+        "SELECT name FROM items WHERE name = {sel}",
+        "params:\n"
+        "  - name: sel\n"
+        "    options_sql: SELECT name FROM items WHERE 1 = 0\n",
+    )
+    error = page.get_by_test_id("query-error")
+    expect(error).to_be_visible()
+    expect(error).to_contain_text('options for "sel"')
+    expect(error).to_contain_text("no rows")
+    expect(page.get_by_test_id("query-run")).to_be_disabled()
+    shot("options_sql empty -> blocked")
+
+
+def test_query_param_options_sql_error_blocks_run(seeded_test_db, page: Page, shot) -> None:
+    """An `options_sql` that errors blocks the main query (Execute disabled) and
+    surfaces the failure through the banner, prefixed with the param name."""
+    _open_query_panel(page)
+    _author_params_yaml(
+        page,
+        "bad-options",
+        "SELECT name FROM items WHERE name = {sel}",
+        "params:\n"
+        "  - name: sel\n"
+        "    options_sql: SELECT name FROM no_such_table\n",
+    )
+    error = page.get_by_test_id("query-error")
+    expect(error).to_be_visible()
+    expect(error).to_contain_text('options for "sel"')
+    expect(page.get_by_test_id("query-run")).to_be_disabled()
+    shot("options_sql error -> blocked")
