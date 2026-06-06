@@ -7,6 +7,7 @@ import {
   parseQueryParams,
   parseYamlObject,
   type ParamDef,
+  type ParamSpec,
 } from './queryParams'
 
 type TestResult = { ok: boolean; message: string }
@@ -386,6 +387,15 @@ function parseTsv(text: string): { columns: string[]; rows: string[][] } {
   return { columns: lines[0].split('\t'), rows: lines.slice(1).map((l) => l.split('\t')) }
 }
 
+// First column of every data row from a TabSeparatedWithNames result — the
+// dropdown options for an `options_sql` param. The header line is dropped, as is
+// the trailing empty line ClickHouse appends, so an empty result yields [].
+function firstColumn(text: string): string[] {
+  const lines = text.split('\n')
+  if (lines[lines.length - 1] === '') lines.pop()
+  return lines.slice(1).map((l) => l.split('\t')[0])
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -491,16 +501,91 @@ function QueryPanel({
   )
 
   // Dropdown selectors declared in the saved cell_view YAML's `params:` section.
-  // Each renders a <select> whose value is substituted into the SQL via {name}.
-  const paramDefs = useMemo<ParamDef[]>(
+  // Each renders a <select> whose value is substituted into the SQL via {name};
+  // an `options_sql` param's choices are resolved by querying (see below).
+  const paramSpecs = useMemo<ParamSpec[]>(
     () => parseQueryParams(savedCellView),
     [savedCellView],
   )
   const [paramValues, setParamValues] = useState<Record<string, string>>({})
+  // Resolved choices for `options_sql` params, keyed by param name. An error
+  // message (already prefixed with the param name) blocks the main query.
+  const [sqlOptions, setSqlOptions] = useState<Record<string, string[]>>({})
+  const [optionsError, setOptionsError] = useState<string | null>(null)
+
+  // Resolve every `options_sql` param's choices once the saved query (and thus
+  // its specs) loads. Runs against the current connection via the same query
+  // endpoint the panel uses; results are cached until the specs change. A failed
+  // or empty result records an error, which blocks the main query.
+  useEffect(() => {
+    const sqlSpecs = paramSpecs.filter((s) => s.optionsSql)
+    if (sqlSpecs.length === 0) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setSqlOptions({})
+      setOptionsError(null)
+      /* eslint-enable react-hooks/set-state-in-effect */
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const resolved: Record<string, string[]> = {}
+      let err: string | null = null
+      for (const s of sqlSpecs) {
+        try {
+          const res = await fetch('/api/clickhouse/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: s.optionsSql, format: 'text' }),
+          })
+          const data = await res.json()
+          if (!data.ok) {
+            err = `options for "${s.name}": ${data.message ?? 'query failed'}`
+            break
+          }
+          const values = firstColumn(data.output as string)
+          if (values.length === 0) {
+            err = `options for "${s.name}": query returned no rows`
+            break
+          }
+          resolved[s.name] = values
+        } catch (e) {
+          err = `options for "${s.name}": ${
+            e instanceof Error ? e.message : 'request failed'
+          }`
+          break
+        }
+      }
+      if (cancelled) return
+      setSqlOptions(resolved)
+      setOptionsError(err)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [paramSpecs])
+
+  // Specs with their choices resolved to a concrete list: static `options` pass
+  // through; `options_sql` params take their fetched values (empty until ready).
+  // The <select> render, defaults seeding, and applyParams all consume this.
+  const paramDefs = useMemo<ParamDef[]>(
+    () =>
+      paramSpecs.map((s) => ({
+        name: s.name,
+        options: s.optionsSql ? (sqlOptions[s.name] ?? []) : (s.options ?? []),
+      })),
+    [paramSpecs, sqlOptions],
+  )
+
+  // Block the main query until every `options_sql` param has resolved to a
+  // non-empty list with no error. With no such params this is vacuously true.
+  const optionsReady =
+    optionsError === null &&
+    paramSpecs.every((s) => !s.optionsSql || (sqlOptions[s.name]?.length ?? 0) > 0)
 
   // Seed each param to its first option, preserving a current selection that is
-  // still valid. Re-runs when the definitions change (different saved query or a
-  // Save), so a config change re-seeds defaults without clobbering live picks.
+  // still valid. Re-runs when the resolved defs change (different saved query, a
+  // Save, or options_sql results arriving), re-seeding defaults without
+  // clobbering live picks.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setParamValues((prev) => {
@@ -534,6 +619,9 @@ function QueryPanel({
   // values directly (not state, which hasn't settled yet).
   useEffect(() => {
     if (!pushed) return
+    // Don't fire while a param's options_sql is unresolved — the substitution
+    // would be wrong; the push is dropped rather than run against bad params.
+    if (!optionsReady) return
     const q = pushed.query
     const lim = pushed.limit ?? 100
     const off = pushed.offset ?? 0
@@ -812,7 +900,7 @@ function QueryPanel({
                   setParamValues(next)
                   // Pass the new values directly: setParamValues hasn't committed.
                   // runWith resets the offset (to 0) when the query succeeds.
-                  void runWith(sql, limit, 0, orderBy, undefined, next)
+                  if (optionsReady) void runWith(sql, limit, 0, orderBy, undefined, next)
                 }}
                 className={inputClass}
               >
@@ -874,7 +962,7 @@ function QueryPanel({
         <button
           type="button"
           onClick={() => void run(offset)}
-          disabled={busy}
+          disabled={busy || !optionsReady}
           data-testid="query-run"
           className="glass-btn-primary px-4 py-2 font-medium"
         >
@@ -883,7 +971,7 @@ function QueryPanel({
         <button
           type="button"
           onClick={() => void describe()}
-          disabled={busy}
+          disabled={busy || !optionsReady}
           data-testid="query-fields"
           className={`px-3 py-2 text-sm font-medium ${
             fields.length > 0 ? 'glass-btn-primary' : 'glass-btn'
@@ -918,7 +1006,7 @@ function QueryPanel({
         <button
           type="button"
           onClick={() => void run(Math.max(0, offset - limit))}
-          disabled={busy || offset === 0}
+          disabled={busy || !optionsReady || offset === 0}
           data-testid="query-prev"
           className="glass-btn px-3 py-2 text-sm"
         >
@@ -927,7 +1015,7 @@ function QueryPanel({
         <button
           type="button"
           onClick={() => void run(offset + limit)}
-          disabled={busy}
+          disabled={busy || !optionsReady}
           data-testid="query-next"
           className="glass-btn px-3 py-2 text-sm"
         >
@@ -936,7 +1024,7 @@ function QueryPanel({
         <button
           type="button"
           onClick={downloadCsv}
-          disabled={busy}
+          disabled={busy || !optionsReady}
           data-testid="query-csv"
           className="glass-btn px-3 py-2 text-sm font-medium text-emerald-300"
         >
@@ -1093,9 +1181,9 @@ function QueryPanel({
           </table>
         </div>
       )}
-      {error && (
+      {(optionsError ?? error) && (
         <p data-testid="query-error" className="text-sm text-red-300">
-          {error}
+          {optionsError ?? error}
         </p>
       )}
     </section>

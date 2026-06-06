@@ -1,9 +1,19 @@
 import yaml from 'js-yaml'
 
-// A dropdown selector declared in a predefined query's cell_view YAML under the
-// reserved `params:` key. The chosen value is substituted into the SQL via a
-// `{name}` placeholder. See docs/query.md.
+// A dropdown selector with its choices resolved to a concrete list. The chosen
+// value is substituted into the SQL via a `{name}` placeholder. This is what the
+// `<select>` render and applyParams consume — for an `options_sql` param the
+// list is filled in once the query resolves. See docs/query.md.
 export type ParamDef = { name: string; options: string[] }
+
+// A dropdown selector as declared in a predefined query's cell_view YAML under
+// the reserved `params:` key. Either `options` (a static list) or `optionsSql`
+// (a query whose first column supplies the list) is set, never both.
+export type ParamSpec = {
+  name: string
+  options?: string[]
+  optionsSql?: string
+}
 
 // Parse YAML text into a plain object, or null on a parse error or a
 // non-object/array root. Shared guard for the cell_view YAML, which carries
@@ -22,26 +32,40 @@ export function parseYamlObject(
   return doc as Record<string, unknown>
 }
 
-// Parse the `params:` section of the cell_view YAML into selector definitions.
+// Parse the `params:` section of the cell_view YAML into selector specs.
 // Mirrors parseCellViewYaml's defensive contract: a parse error, a missing or
 // non-list `params`, or any malformed entry is dropped — a broken config never
-// breaks the panel, it just yields no dropdowns.
-export function parseQueryParams(text: string | null | undefined): ParamDef[] {
+// breaks the panel, it just yields no dropdowns. A param may declare a static
+// `options` list or an `options_sql` query, but declaring both is a config
+// error and drops the entry.
+export function parseQueryParams(text: string | null | undefined): ParamSpec[] {
   const doc = parseYamlObject(text)
   if (!doc) return []
   const raw = doc.params
   if (!Array.isArray(raw)) return []
-  const out: ParamDef[] = []
+  const out: ParamSpec[] = []
   for (const entry of raw) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
     const o = entry as Record<string, unknown>
     if (typeof o.name !== 'string' || o.name === '') continue
-    if (!Array.isArray(o.options)) continue
-    // Keep scalars only; null and nested objects/arrays (all typeof 'object')
-    // are not valid option values.
-    const options = o.options.filter((v) => typeof v !== 'object').map(String)
-    if (options.length === 0) continue
-    out.push({ name: o.name, options })
+    const hasOptions = Array.isArray(o.options)
+    const sql = typeof o.options_sql === 'string' ? o.options_sql.trim() : ''
+    // Mutually exclusive: declaring both keys is ambiguous, so drop the entry.
+    if (hasOptions && sql) continue
+    if (sql) {
+      out.push({ name: o.name, optionsSql: sql })
+      continue
+    }
+    if (hasOptions) {
+      // Keep scalars only; null and nested objects/arrays (all typeof 'object')
+      // are not valid option values.
+      const options = (o.options as unknown[])
+        .filter((v) => typeof v !== 'object')
+        .map(String)
+      if (options.length === 0) continue
+      out.push({ name: o.name, options })
+    }
+    // Neither a usable options list nor an options_sql query: drop.
   }
   return out
 }

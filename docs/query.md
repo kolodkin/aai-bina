@@ -172,10 +172,31 @@ Substitution applies everywhere the query runs — **Execute**, **Previous** /
 **Next**, **Fields** (`DESCRIBE`), and **Download CSV** — so all of them see the
 currently selected values. The first option is the default.
 
-Because values are constrained to the declared `options` and quoted/escaped on
-substitution, params stay within the existing trust model (the SQL textarea is
-already sent to the backend as-is). A broken or absent `params:` block simply
-renders no dropdowns.
+#### Options from a query
+
+Instead of a static `options` list, a param can derive its choices from a query
+with **`options_sql`**:
+
+```yaml
+params:
+  - name: host
+    options_sql: SELECT DISTINCT host FROM system.clusters ORDER BY host
+```
+
+The **first column of every row** becomes an option, in the query's own order
+(use `DISTINCT` / `ORDER BY` yourself — results are not de-duplicated or sorted).
+The query runs once against the current connection when the predefined query
+loads, and its results are cached for the session. The first row is the default.
+
+`options` and `options_sql` are **mutually exclusive** — declaring both drops the
+param. If the `options_sql` query **fails or returns no rows**, the param has
+nothing to choose from, so the main query is **blocked** (Execute and the other
+run controls are disabled) and the error banner names the param.
+
+Because values are constrained to the declared `options` (or the rows
+`options_sql` returns) and quoted/escaped on substitution, params stay within the
+existing trust model (the SQL textarea is already sent to the backend as-is). A
+broken or absent `params:` block simply renders no dropdowns.
 
 ## Results & CSV
 
