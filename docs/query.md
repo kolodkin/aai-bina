@@ -105,8 +105,13 @@ Each predefined query can carry a **`cell_view`** map controlling how result
 cells render. Author it as YAML in the **"Cell view"** modal (toolbar button just
 before the **Min** toggle), stored as raw text on the query. The modal's **Save**
 persists and closes; **Cancel** or the backdrop discards. Map keys are column
-names; each entry has a `type` and a `value` template, with `{cell}` replaced by
-the cell's raw value:
+names; each entry has a `type` and a `value` template. Two placeholders are
+substituted from the row being rendered:
+
+- **`{cell}`** — this column's own raw value.
+- **`{row.<column>}`** — the value of another column in the **same row** (e.g.
+  `{row.name}` yields that row's `name` value). An unknown column name is left
+  in place untouched.
 
 ```yaml
 cve_id:
@@ -115,12 +120,19 @@ cve_id:
 severity:
   type: custom
   value: <strong>{cell}</strong>
+name:
+  type: link
+  value: https://example.com/items/{row.id}
 ```
 
 Supported types:
 
-- **`link`** — render the cell as `<a href target="_blank" rel="noopener noreferrer">{cell}</a>`. `{cell}` is URL-encoded into the href; the resolved scheme must be `http`/`https` (anything else falls back to plain text).
-- **`custom`** — render the `value` HTML verbatim with `{cell}` substituted in. The cell value is HTML-escaped before substitution (so DB content can't break out), but the template HTML is **trusted** and is not sanitized. **Anyone who can save a predefined query can inject markup/script that runs in every viewer's browser**, because predefined queries are shared globally with no auth.
+- **`link`** — render the cell as `<a href target="_blank" rel="noopener noreferrer">{cell}</a>`. `{cell}` and any `{row.<column>}` are URL-encoded into the href; the resolved scheme must be `http`/`https` (anything else falls back to plain text).
+- **`custom`** — render the `value` HTML verbatim with `{cell}` and any `{row.<column>}` substituted in. Substituted values are HTML-escaped (so DB content can't break out), but the template HTML is **trusted** and is not sanitized. **Anyone who can save a predefined query can inject markup/script that runs in every viewer's browser**, because predefined queries are shared globally with no auth.
+
+Substitution is a single pass, so a cell value that itself looks like a
+placeholder is rendered as literal (escaped) text rather than re-resolved
+against the row.
 
 Both wrappers (the `<a>` for `link`, the `<span>` for `custom`) carry
 `data-testid="cell-<columnName>"`, so e2e tests can target rendered cells without
