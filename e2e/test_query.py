@@ -89,7 +89,7 @@ def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page, shot
     _open_query_panel(page)
 
     page.get_by_test_id("query-input").fill("SELECT id, name FROM items ORDER BY id LIMIT 2")
-    shot("panel - cell view toggle in toolbar (before Min)")
+    shot("cell view toggle in toolbar")
 
     # Name the query first — the modal Save is disabled without a name.
     page.once("dialog", lambda d: d.accept("with-views"))
