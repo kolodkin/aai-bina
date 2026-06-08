@@ -140,6 +140,48 @@ def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page, shot
     shot("results: name as link, id as custom HTML")
 
 
+def test_cell_view_row_placeholder_references_other_columns(
+    seeded_test_db, page: Page, shot
+) -> None:
+    """A cell_view template can reference other columns of the same row via
+    `{row.<col>}`. Here the `name` column renders as a link whose href is built
+    from a sibling column (`{row.id}`), and a `custom` cell combines `{cell}`
+    with `{row.name}` — each row resolves against its own values."""
+    _open_query_panel(page)
+
+    page.get_by_test_id("query-input").fill("SELECT id, name FROM items ORDER BY id LIMIT 2")
+    page.once("dialog", lambda d: d.accept("with-row-refs"))
+    page.get_by_test_id("query-predefined-select").select_option("::new::")
+
+    page.get_by_test_id("cell-view-toggle").click()
+    expect(page.get_by_test_id("cell-view-modal")).to_be_visible()
+    page.get_by_test_id("cell-view-input").fill(
+        "name:\n"
+        "  type: link\n"
+        "  value: https://example.com/items/{row.id}\n"
+        "id:\n"
+        "  type: custom\n"
+        "  value: <em>{cell}:{row.name}</em>\n"
+    )
+    shot("cell view modal - row.* placeholders authored")
+    page.get_by_test_id("cell-view-save").click()
+    expect(page.get_by_test_id("cell-view-modal")).not_to_be_visible()
+
+    page.get_by_test_id("query-run").click()
+    output = page.get_by_test_id("query-output")
+    expect(output).to_be_visible()
+
+    # First row (id=1, name=alpha): the `name` link's href uses {row.id}.
+    link = output.get_by_test_id("cell-name").first
+    expect(link).to_have_text("alpha")
+    expect(link).to_have_attribute("href", "https://example.com/items/1")
+
+    # The `id` custom cell combines {cell} (=1) with {row.name} (=alpha).
+    custom = output.get_by_test_id("cell-id").first
+    expect(custom.locator("em")).to_have_text("1:alpha")
+    shot("results: row.* placeholders resolved per row")
+
+
 def test_cell_view_cancel_discards_edits(seeded_test_db, page: Page, shot) -> None:
     """Cancel in the cell-view modal closes without saving, so rendering still
     uses the saved cell_view (or none) — author-time edits never leak through."""

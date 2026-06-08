@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { CellViewModal } from './CellViewModal'
+import { escapeHtml, substituteCellTemplate } from './cellView'
 import {
   applyParams,
   parseQueryParams,
@@ -393,15 +394,6 @@ function firstColumn(text: string): string[] {
   return lines.slice(1).map((l) => l.split('\t')[0])
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
 // Parse the saved cell_view YAML into a map. A parse error or entry without
 // string {type, value} is dropped — broken config falls through to plain text
 // rather than blanking the table.
@@ -422,12 +414,24 @@ function parseCellViewYaml(text: string | null | undefined): CellViewMap {
   return out
 }
 
-function renderCell(colName: string, raw: string, views: CellViewMap): React.ReactNode {
+function renderCell(
+  colName: string,
+  raw: string,
+  views: CellViewMap,
+  row: string[],
+  columns: string[],
+): React.ReactNode {
   const view = views[colName]
   if (!view) return raw
   const testid = `cell-${colName}`
   if (view.type === 'link') {
-    const href = view.value.replaceAll('{cell}', encodeURIComponent(raw))
+    const href = substituteCellTemplate(
+      view.value,
+      raw,
+      row,
+      columns,
+      encodeURIComponent,
+    )
     let scheme: string
     try {
       scheme = new URL(href).protocol
@@ -448,7 +452,7 @@ function renderCell(colName: string, raw: string, views: CellViewMap): React.Rea
     )
   }
   if (view.type === 'custom') {
-    const html = view.value.replaceAll('{cell}', escapeHtml(raw))
+    const html = substituteCellTemplate(view.value, raw, row, columns, escapeHtml)
     // Cell value is HTML-escaped above so DB content is inert; template HTML is
     // trusted (whoever saves a predefined query can inject markup — see docs/query.md).
     return <span data-testid={testid} dangerouslySetInnerHTML={{ __html: html }} />
@@ -1163,7 +1167,7 @@ function QueryPanel({
                       key={j}
                       className="whitespace-pre border-b border-white/5 px-3 py-1 font-mono text-slate-200"
                     >
-                      {renderCell(columns[j], row[j], appliedViews)}
+                      {renderCell(columns[j], row[j], appliedViews, row, columns)}
                     </td>
                   ))}
                 </tr>
