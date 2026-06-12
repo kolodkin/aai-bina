@@ -157,9 +157,10 @@ reveals the rest plus a `▾ collapse` control.
 - **Tuple** — one `name: value` per line, using the **named-tuple** element names
   from the type (`Tuple(id Int32, name String)` → `id: 1`); unnamed tuples use
   the positional index (`0:`, `1:`).
-- **`Array(Tuple(...))`** / **`Array(Map(...))`** — a list of elements where each
-  element is rendered with its inner tuple / map view. The outer array still
-  collapses to the first 3 elements.
+- **`Array(Tuple(...))`** — a list of tuples, **one tuple per line**
+  (`id: 1, name: a`), so a list of records stays scannable.
+- **`Array(Map(...))`** — a list of elements, each rendered with its inner map
+  view (`key → value` lines). The outer array collapses to the first 3 elements.
 - Nesting beyond those two cases (e.g. `Array(Array(...))`, a complex `Tuple`
   field) renders that nested piece as its **raw serialized substring**.
 

@@ -146,7 +146,10 @@ function mapLines(raw: string): string[] {
 export function complexCellItems(type: ComplexType, raw: string): CellItem[] {
   if (type.kind === 'array') {
     return parseArray(raw).map((el) => {
-      if (type.element?.kind === 'tuple') return { lines: tupleLines(type.element, el) }
+      // A list of tuples reads best with each tuple on one line.
+      if (type.element?.kind === 'tuple') {
+        return { lines: [tupleLines(type.element, el).join(', ')] }
+      }
       if (type.element?.kind === 'map') return { lines: mapLines(el) }
       return { lines: [unquoteScalar(el)] }
     })

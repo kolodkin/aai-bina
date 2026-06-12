@@ -197,10 +197,10 @@ describe('complexCellItems', () => {
     ])
   })
 
-  test('Array(Tuple) → one item per element, each a group of field lines', () => {
+  test('Array(Tuple) → one item per element, each tuple on a single line', () => {
     expect(complexCellItems(arrayTupleT, "[(1,'a'),(2,'b')]")).toEqual([
-      { lines: ['id: 1', 'name: a'] },
-      { lines: ['id: 2', 'name: b'] },
+      { lines: ['id: 1, name: a'] },
+      { lines: ['id: 2, name: b'] },
     ])
   })
 
