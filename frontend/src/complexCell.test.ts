@@ -204,10 +204,10 @@ describe('complexCellItems', () => {
     ])
   })
 
-  test('Array(Map) → one item per element, each a group of entry lines', () => {
+  test('Array(Map) → one item per element, each map on a single line', () => {
     expect(complexCellItems(arrayMapT, "[{'x':1},{'y':2,'z':3}]")).toEqual([
       { lines: ['x → 1'] },
-      { lines: ['y → 2', 'z → 3'] },
+      { lines: ['y → 2, z → 3'] },
     ])
   })
 

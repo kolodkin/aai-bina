@@ -159,8 +159,8 @@ reveals the rest plus a `▾ collapse` control.
   the positional index (`0:`, `1:`).
 - **`Array(Tuple(...))`** — a list of tuples, **one tuple per line**
   (`id: 1, name: a`), so a list of records stays scannable.
-- **`Array(Map(...))`** — a list of elements, each rendered with its inner map
-  view (`key → value` lines). The outer array collapses to the first 3 elements.
+- **`Array(Map(...))`** — a list of maps, **one map per line**
+  (`x → 1, y → 2`). The outer array collapses to the first 3 elements.
 - Nesting beyond those two cases (e.g. `Array(Array(...))`, a complex `Tuple`
   field) renders that nested piece as its **raw serialized substring**.
 
