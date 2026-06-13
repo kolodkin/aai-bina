@@ -143,6 +143,35 @@ query — editor edits take effect only after **Save** (which re-fetches the lis
 Ad-hoc SQL with no selected query renders plain, as does a broken (unparseable or
 unrecognized-shape) `cell_view`.
 
+## Default views for complex types
+
+Columns whose ClickHouse type is **`Array`**, **`Map`**, or **`Tuple`** get a
+built-in **default view** with no `cell_view` authored: instead of the raw
+serialized string (`['a','b']`, `{'x':1}`, `(1,'a')`) the cell renders a **plain
+vertical list**. When a collection has more than 3 items the cell starts
+**collapsed**, showing the first 3 with a `… (+N more)` expander; expanding
+reveals the rest plus a `▾ collapse` control.
+
+- **Array** — one element per line.
+- **Map** — one `key → value` per line.
+- **Tuple** — one `name: value` per line, using the **named-tuple** element names
+  from the type (`Tuple(id Int32, name String)` → `id: 1`); unnamed tuples use
+  the positional index (`0:`, `1:`).
+- **`Array(Tuple(...))`** — a list of tuples, **one tuple per line**
+  (`id: 1, name: a`), so a list of records stays scannable.
+- **`Array(Map(...))`** — a list of maps, **one map per line**
+  (`x → 1, y → 2`). The outer array collapses to the first 3 elements.
+- Nesting beyond those two cases (e.g. `Array(Array(...))`, a complex `Tuple`
+  field) renders that nested piece as its **raw serialized substring**.
+
+Types come from a `DESCRIBE (<query>)` run **automatically alongside each
+Execute** (cached per query, so paging doesn't re-describe), independent of the
+**Fields** picker. If that describe fails or the type isn't one of the above, the
+cell renders as plain text. An explicit `cell_view` entry for a column **takes
+precedence** over its default view (and is the way to opt out). Default views
+apply to the on-screen table only — **Download CSV** keeps the raw serialized
+value.
+
 ## Query parameters
 
 A predefined query can declare **dropdown selectors** whose chosen value is

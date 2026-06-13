@@ -209,6 +209,55 @@ def test_cell_view_cancel_discards_edits(seeded_test_db, page: Page, shot) -> No
     expect(page.get_by_test_id("cell-view-input")).to_have_value("")
 
 
+def test_default_views_for_array_map_tuple(seeded_test_db, page: Page, shot) -> None:
+    """Array/Map/Tuple columns get a built-in default view with no cell_view
+    authored: a plain vertical list, collapsed to the first 3 items with an
+    expander. Types come from an auto-DESCRIBE fired alongside the query, so a
+    named tuple renders `name: value` and Array(Tuple)/Array(Map) render each
+    element by its inner view."""
+    _open_query_panel(page)
+
+    page.get_by_test_id("query-input").fill(
+        "SELECT "
+        "['apple','banana','cherry','date','elderberry'] AS arr, "
+        "map('x',1,'y',2) AS m, "
+        "CAST((1,'alpha'), 'Tuple(id Int32, name String)') AS tup, "
+        "CAST([(1,'a'),(2,'b'),(3,'c'),(4,'d')], "
+        "'Array(Tuple(id Int32, name String))') AS arr_tup"
+    )
+    page.get_by_test_id("query-run").click()
+    output = page.get_by_test_id("query-output")
+    expect(output).to_be_visible()
+
+    # Array(String): collapsed shows the first 3 elements, hides the rest behind
+    # an expander.
+    arr = output.get_by_test_id("cell-arr")
+    expect(arr).to_contain_text("apple")
+    expect(arr).to_contain_text("cherry")
+    expect(arr).not_to_contain_text("elderberry")
+    shot("default views: array/map/tuple collapsed")
+
+    # Map: one `key → value` line per entry.
+    expect(output.get_by_test_id("cell-m")).to_contain_text("x → 1")
+
+    # Named tuple: `name: value` lines from the type (no collapse — 2 fields).
+    tup = output.get_by_test_id("cell-tup")
+    expect(tup).to_contain_text("id: 1")
+    expect(tup).to_contain_text("name: alpha")
+
+    # Array(Tuple): each element rendered as its tuple view; collapsed to 3.
+    arr_tup = output.get_by_test_id("cell-arr_tup")
+    expect(arr_tup).to_contain_text("id: 1")
+    expect(arr_tup).to_contain_text("name: c")
+    expect(arr_tup).not_to_contain_text("name: d")
+
+    # Expanding the array reveals the hidden elements and a collapse control.
+    page.get_by_test_id("cell-arr-toggle").click()
+    expect(arr).to_contain_text("elderberry")
+    expect(page.get_by_test_id("cell-arr-toggle")).to_contain_text("collapse")
+    shot("default views: array expanded")
+
+
 def test_field_pickers_visibility_and_order_by(seeded_test_db, page: Page, shot) -> None:
     _open_query_panel(page)
     page.get_by_test_id("query-input").fill("SELECT id, name FROM items")

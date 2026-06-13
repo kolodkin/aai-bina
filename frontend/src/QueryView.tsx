@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { CellViewModal } from './CellViewModal'
+import { ComplexCell } from './ComplexCell'
 import { escapeHtml, substituteCellTemplate } from './cellView'
+import { parseComplexType } from './complexCell'
 import {
   applyParams,
   parseQueryParams,
@@ -420,9 +422,15 @@ function renderCell(
   views: CellViewMap,
   row: string[],
   columns: string[],
+  colTypes: Record<string, string>,
 ): React.ReactNode {
   const view = views[colName]
-  if (!view) return raw
+  // An explicit cell_view entry wins (and is the opt-out from a default view).
+  if (!view) {
+    const complex = parseComplexType(colTypes[colName] ?? '')
+    if (complex) return <ComplexCell type={complex} raw={raw} col={colName} />
+    return raw
+  }
   const testid = `cell-${colName}`
   if (view.type === 'link') {
     const href = substituteCellTemplate(
@@ -482,6 +490,12 @@ function QueryPanel({
   const [selectedName, setSelectedName] = useState('')
   const [fields, setFields] = useState<Field[]>([])
   const [visibleCols, setVisibleCols] = useState<string[]>([])
+  // Column → ClickHouse type, from an auto-DESCRIBE fired alongside each run.
+  // Drives the built-in default views; independent of the Fields picker so it
+  // never resets the user's column selection. Cached per resolved query text so
+  // pagination (same SQL) doesn't re-describe.
+  const [colTypes, setColTypes] = useState<Record<string, string>>({})
+  const colTypeCache = useRef<Map<string, Record<string, string>>>(new Map())
   const [orderBy, setOrderBy] = useState<OrderCol[]>([])
   const [cellViewModalOpen, setCellViewModalOpen] = useState(false)
 
@@ -663,6 +677,33 @@ function QueryPanel({
     }
   }
 
+  // Populate `colTypes` for a resolved query via DESCRIBE. Fired in parallel
+  // with the query so results never wait on it; a failure leaves types empty so
+  // cells fall back to raw rendering. Cached by query text.
+  async function loadColTypes(query: string) {
+    const cached = colTypeCache.current.get(query)
+    if (cached) {
+      setColTypes(cached)
+      return
+    }
+    try {
+      const res = await fetch('/api/clickhouse/describe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      })
+      const data = await res.json()
+      const map: Record<string, string> = {}
+      if (data.ok) {
+        for (const f of (data.fields ?? []) as Field[]) map[f.name] = f.type
+        colTypeCache.current.set(query, map)
+      }
+      setColTypes(map)
+    } catch {
+      setColTypes({})
+    }
+  }
+
   async function runWith(
     q: string,
     lim: number,
@@ -687,6 +728,7 @@ function QueryPanel({
         const text = data.output as string
         setOutput(text)
         setOffset(off)
+        void loadColTypes(query) // parallel; default views appear when it lands
         // A pushed selection is authoritative: synthesize the field list from the
         // result columns so the visibility filter restricts the table to exactly
         // the pushed columns (empty/absent => show all).
@@ -1167,7 +1209,7 @@ function QueryPanel({
                       key={j}
                       className="whitespace-pre border-b border-white/5 px-3 py-1 font-mono text-slate-200"
                     >
-                      {renderCell(columns[j], row[j], appliedViews, row, columns)}
+                      {renderCell(columns[j], row[j], appliedViews, row, columns, colTypes)}
                     </td>
                   ))}
                 </tr>
