@@ -33,7 +33,7 @@ function Shell() {
 
   async function openConnection(name: string) {
     try {
-      const res = await fetch('/api/clickhouse/open', {
+      const res = await fetch('/api/db/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),

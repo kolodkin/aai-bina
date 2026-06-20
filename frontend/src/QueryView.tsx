@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { CellViewModal } from './CellViewModal'
 import { ComplexCell } from './ComplexCell'
+import { DRIVERS, type DriverMeta } from './drivers'
 import { escapeHtml, substituteCellTemplate } from './cellView'
 import { parseComplexType } from './complexCell'
 import {
@@ -59,6 +60,7 @@ function QueryView({
   const [prompt, setPrompt] = useState('')
   const [hint, setHint] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [formType, setFormType] = useState<string | null>(null)
   const [showQuery, setShowQuery] = useState(false)
 
   // Pushed query arrives via the shell's SSE listener; mount the panel to run it.
@@ -71,7 +73,7 @@ function QueryView({
 
   async function openSaved(name: string) {
     try {
-      const res = await fetch('/api/clickhouse/open', {
+      const res = await fetch('/api/db/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
@@ -101,10 +103,16 @@ function QueryView({
     const raw = prompt.trim()
     if (!raw) return
     const lower = raw.toLowerCase()
-    if (lower === 'new clickhouse') {
-      setShowForm(true)
-      setShowQuery(false)
-      setHint(null)
+    if (lower.startsWith('new ')) {
+      const type = lower.slice('new '.length).trim()
+      if (DRIVERS[type]) {
+        setFormType(type)
+        setShowForm(true)
+        setShowQuery(false)
+        setHint(null)
+      } else {
+        setHint(`Unknown driver “${type}”. Try: ${Object.keys(DRIVERS).join(', ')}.`)
+      }
       return
     }
     if (lower === 'query') {
@@ -138,7 +146,8 @@ function QueryView({
     setShowForm(false)
     setShowQuery(false)
     setHint(
-      `Unknown command “${raw}”. Try “new clickhouse”, “connect <name>” or “dashboard <name>”.`,
+      `Unknown command “${raw}”. Try “new ${Object.keys(DRIVERS).join('|')}”, ` +
+        `“connect <name>” or “dashboard <name>”.`,
     )
   }
 
@@ -151,7 +160,7 @@ function QueryView({
 
   async function selectDatabase(database: string) {
     if (!connection) return
-    const res = await fetch('/api/clickhouse/database', {
+    const res = await fetch('/api/db/database', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ database }),
@@ -201,7 +210,9 @@ function QueryView({
         </p>
       )}
 
-      {showForm && <ClickHouseForm onConnected={handleConnected} />}
+      {showForm && formType && DRIVERS[formType] && (
+        <ConnectionForm meta={DRIVERS[formType]} onConnected={handleConnected} />
+      )}
 
       {!showForm && connection && connection.database === null && (
         <DatabasePicker connection={connection} onSelect={selectDatabase} />
@@ -219,28 +230,28 @@ function QueryView({
   )
 }
 
-function ClickHouseForm({
+function ConnectionForm({
+  meta,
   onConnected,
 }: {
+  meta: DriverMeta
   onConnected: (name: string, type: string, databases: string[]) => void
 }) {
-  const [name, setName] = useState('clickhouse')
-  const [host, setHost] = useState('localhost')
-  const [port, setPort] = useState('8123')
-  const [username, setUsername] = useState('default')
-  const [password, setPassword] = useState('')
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(meta.fields.map((f) => [f.key, f.default])),
+  )
   const [result, setResult] = useState<TestResult | null>(null)
   const [busy, setBusy] = useState(false)
 
   function body() {
-    return JSON.stringify({ name, host, port: Number(port), username, password })
+    return JSON.stringify({ type: meta.type, ...values })
   }
 
   async function testConnection() {
     setBusy(true)
     setResult(null)
     try {
-      const res = await fetch('/api/clickhouse/test', {
+      const res = await fetch('/api/db/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: body(),
@@ -257,7 +268,7 @@ function ClickHouseForm({
     setBusy(true)
     setResult(null)
     try {
-      const res = await fetch('/api/clickhouse/connect', {
+      const res = await fetch('/api/db/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: body(),
@@ -266,7 +277,7 @@ function ClickHouseForm({
       if (data.ok) {
         onConnected(
           data.name as string,
-          (data.type ?? 'clickhouse') as string,
+          (data.type ?? meta.type) as string,
           (data.databases ?? []) as string[],
         )
       } else {
@@ -287,28 +298,20 @@ function ClickHouseForm({
         e.preventDefault()
         connect()
       }}
-      data-testid="clickhouse-form"
+      data-testid={meta.formTestid}
       className="glass-panel mt-6 space-y-4 p-6"
     >
-      <h2 className="text-lg font-semibold">New ClickHouse connection</h2>
+      <h2 className="text-lg font-semibold">New {meta.label} connection</h2>
 
-      {(
-        [
-          ['Name', name, setName, 'ch-name', 'text'],
-          ['Host', host, setHost, 'ch-host', 'text'],
-          ['Port', port, setPort, 'ch-port', 'text'],
-          ['Username', username, setUsername, 'ch-username', 'text'],
-          ['Password', password, setPassword, 'ch-password', 'password'],
-        ] as const
-      ).map(([label, value, setter, testid, type]) => (
-        <label key={testid} className="block text-sm font-medium text-slate-300">
-          {label}
+      {meta.fields.map((f) => (
+        <label key={f.key} className="block text-sm font-medium text-slate-300">
+          {f.label}
           <input
-            type={type}
-            value={value}
-            onChange={(e) => setter(e.target.value)}
-            aria-label={label}
-            data-testid={testid}
+            type={f.type}
+            value={values[f.key]}
+            onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+            aria-label={f.label}
+            data-testid={f.testid}
             className={`mt-1 ${fieldClass}`}
           />
         </label>
@@ -318,7 +321,7 @@ function ClickHouseForm({
         <button
           type="button"
           onClick={testConnection}
-          data-testid="ch-test"
+          data-testid={meta.testTestid}
           disabled={busy}
           className="glass-btn flex-1 px-4 py-2 font-medium"
         >
@@ -326,7 +329,7 @@ function ClickHouseForm({
         </button>
         <button
           type="submit"
-          data-testid="ch-connect"
+          data-testid={meta.connectTestid}
           disabled={busy}
           className="glass-btn-primary flex-1 px-4 py-2 font-medium"
         >
@@ -336,7 +339,7 @@ function ClickHouseForm({
 
       {result && (
         <p
-          data-testid="ch-result"
+          data-testid={meta.resultTestid}
           data-ok={result.ok}
           className={`text-sm ${result.ok ? 'text-emerald-300' : 'text-red-300'}`}
         >
@@ -543,7 +546,7 @@ function QueryPanel({
       const outcomes = await Promise.all(
         sqlSpecs.map(async (s) => {
           try {
-            const res = await fetch('/api/clickhouse/query', {
+            const res = await fetch('/api/db/query', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ query: s.optionsSql, format: 'text' }),
@@ -655,7 +658,7 @@ function QueryPanel({
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch('/api/clickhouse/describe', {
+      const res = await fetch('/api/db/describe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: applyParams(sql, paramDefs, paramValues) }),
@@ -687,7 +690,7 @@ function QueryPanel({
       return
     }
     try {
-      const res = await fetch('/api/clickhouse/describe', {
+      const res = await fetch('/api/db/describe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query }),
@@ -718,7 +721,7 @@ function QueryPanel({
       // Substitute {name} placeholders from the param dropdowns. An override is
       // passed when a dropdown change triggers the run (its setState hasn't committed).
       const query = applyParams(q, paramDefs, paramOverride ?? paramValues)
-      const res = await fetch('/api/clickhouse/query', {
+      const res = await fetch('/api/db/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, limit: lim, offset: off, format: 'text', order_by: ord }),
@@ -757,7 +760,7 @@ function QueryPanel({
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch('/api/clickhouse/query', {
+      const res = await fetch('/api/db/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
