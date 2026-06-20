@@ -34,4 +34,19 @@ export const DRIVERS: Record<string, DriverMeta> = {
       { key: 'password', label: 'Password', testid: 'ch-password', type: 'password', default: '' },
     ],
   },
+  postgres: {
+    type: 'postgres',
+    label: 'Postgres',
+    formTestid: 'postgres-form',
+    testTestid: 'pg-test',
+    connectTestid: 'pg-connect',
+    resultTestid: 'pg-result',
+    fields: [
+      { key: 'name', label: 'Name', testid: 'pg-name', type: 'text', default: 'postgres' },
+      { key: 'host', label: 'Host', testid: 'pg-host', type: 'text', default: 'localhost' },
+      { key: 'port', label: 'Port', testid: 'pg-port', type: 'text', default: '5432' },
+      { key: 'username', label: 'Username', testid: 'pg-username', type: 'text', default: 'postgres' },
+      { key: 'password', label: 'Password', testid: 'pg-password', type: 'password', default: '' },
+    ],
+  },
 }
