@@ -1,12 +1,12 @@
 """ClickHouse driver: the HTTP-interface client and a Driver implementation."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, NamedTuple
 
 import httpx
 
-from .base import QueryResult, build_order_by, wrap_paginated
+from .base import QueryResult, build_order_by, parse_host_port_config, wrap_paginated
 
 CH_TIMEOUT_SECONDS = 5.0
 
@@ -49,47 +49,24 @@ async def ch_query(c: ChConfig, query: str, database: str | None = None,
 def parse_ch_config(body: Any) -> tuple[ChConfig | None, str | None]:
     """Validate a ClickHouse config from a request body. Returns (config, None) or
     (None, message)."""
-    b = body if isinstance(body, dict) else {}
-    raw_host = b.get("host")
-    host = raw_host.strip() if isinstance(raw_host, str) else ""
-    raw_port = b.get("port")
-    if isinstance(raw_port, bool):
-        port = None
-    elif isinstance(raw_port, int):
-        port = raw_port
-    elif isinstance(raw_port, str):
-        try:
-            port = int(raw_port)
-        except ValueError:
-            port = None
-    else:
-        port = None
-    username = b.get("username") if isinstance(b.get("username"), str) else ""
-    password = b.get("password") if isinstance(b.get("password"), str) else ""
-    if not host:
-        return None, "host required"
-    if port is None or port <= 0 or port > 65535:
-        return None, "valid port required"
-    return ChConfig(host=host, port=port, username=username, password=password), None
+    fields, err = parse_host_port_config(body)
+    if err:
+        return None, err
+    return ChConfig(**fields), None
 
 
 class ClickHouseDriver:
     type = "clickhouse"
+    requires_database = True
 
     def parse_config(self, body: Any) -> tuple[ChConfig | None, str | None]:
         return parse_ch_config(body)
 
     def config_to_dict(self, config: ChConfig) -> dict[str, Any]:
-        return {
-            "host": config.host, "port": config.port,
-            "username": config.username, "password": config.password,
-        }
+        return asdict(config)
 
     def config_from_dict(self, data: dict[str, Any]) -> ChConfig:
-        return ChConfig(
-            host=data["host"], port=int(data["port"]),
-            username=data.get("username", ""), password=data.get("password", ""),
-        )
+        return ChConfig(**data)
 
     async def test(self, config: ChConfig) -> dict[str, Any]:
         r = await ch_query(config, "SELECT 1")

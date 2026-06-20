@@ -341,7 +341,7 @@ async def describe_query(sid: str, sql: str) -> dict[str, Any]:
     s = _get_session_entry(sid)
     if s is None:
         return {"ok": False, "message": "not connected", "reason": "no-session"}
-    if s.databases and not s.database:
+    if DRIVERS[s.type].requires_database and not s.database:
         return {"ok": False, "message": "select a database first", "reason": "no-database"}
     ok, result = await DRIVERS[s.type].describe_query(s.config, sql, s.database)
     if not ok:
@@ -363,7 +363,7 @@ async def run_query(
     s = _get_session_entry(sid)
     if s is None:
         return {"ok": False, "message": "not connected", "reason": "no-session"}
-    if s.databases and not s.database:
+    if DRIVERS[s.type].requires_database and not s.database:
         return {"ok": False, "message": "select a database first", "reason": "no-database"}
     r = await DRIVERS[s.type].run_query(
         s.config, sql, s.database, limit, offset, order_by, fmt

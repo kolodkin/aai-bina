@@ -3,7 +3,7 @@ library is driven in a worker thread so the event loop is never blocked."""
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 import duckdb
@@ -37,10 +37,10 @@ class DuckDBDriver:
         return parse_duck_config(body)
 
     def config_to_dict(self, config: DuckConfig) -> dict[str, Any]:
-        return {"path": config.path}
+        return asdict(config)
 
     def config_from_dict(self, data: dict[str, Any]) -> DuckConfig:
-        return DuckConfig(path=data["path"])
+        return DuckConfig(**data)
 
     async def test(self, config: DuckConfig) -> dict[str, Any]:
         def _work():

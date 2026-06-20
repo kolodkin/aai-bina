@@ -15,6 +15,7 @@ def _run(coro):
 
 class _FakeDriver:
     type = "fake"
+    requires_database = False  # no picker
 
     def parse_config(self, body):
         return {"v": 1}, None
@@ -49,6 +50,7 @@ def test_run_query_skips_db_gate_when_no_databases(monkeypatch):
 def test_run_query_requires_database_when_picker_present(monkeypatch):
     class _WithDbs(_FakeDriver):
         type = "fakedb"
+        requires_database = True
 
         async def list_databases(self, c):
             return True, ["a", "b"]

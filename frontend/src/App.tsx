@@ -9,7 +9,7 @@ import {
   useNavigate,
 } from 'react-router-dom'
 
-import QueryView, { type Connection, type QueryPush } from './QueryView'
+import QueryView, { isReady, type Connection, type QueryPush } from './QueryView'
 import DashboardView, { type DashboardPush } from './DashboardView'
 
 // App shell: routing, shared connection state, the connection pill + agent
@@ -18,10 +18,7 @@ function Shell() {
   const navigate = useNavigate()
   const location = useLocation()
   const [connection, setConnection] = useState<Connection | null>(null)
-  // Ready to query when a database is selected, or the driver has no picker
-  // (empty databases, e.g. DuckDB).
-  const ready =
-    !!connection && (connection.database !== null || connection.databases.length === 0)
+  const ready = isReady(connection)
   const [armed, setArmed] = useState(false)
   const [remoteId, setRemoteId] = useState<string | null>(null)
   const [agentOpen, setAgentOpen] = useState(false)

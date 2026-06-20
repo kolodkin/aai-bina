@@ -45,7 +45,7 @@ async def run_queries_for_connection(
             "message": f'no connection named "{name}"',
         }
     driver = DRIVERS[stored.type]
-    if getattr(driver, "requires_database", True) and not stored.database:
+    if driver.requires_database and not stored.database:
         return {
             "ok": False,
             "reason": "no-database",

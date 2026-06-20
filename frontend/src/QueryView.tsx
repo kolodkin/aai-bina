@@ -23,6 +23,14 @@ export type Connection = {
   database: string | null
 }
 
+// Ready to query when a database is selected, or the driver has no picker
+// (empty databases, e.g. DuckDB) so there's nothing to select.
+export function isReady(connection: Connection | null): boolean {
+  return (
+    !!connection && (connection.database !== null || connection.databases.length === 0)
+  )
+}
+
 type PredefinedQuery = { query_name: string; query: string; cell_view: string | null }
 
 type CellView = { type: string; value: string }
@@ -59,14 +67,11 @@ function QueryView({
   const navigate = useNavigate()
   const [prompt, setPrompt] = useState('')
   const [hint, setHint] = useState<string | null>(null)
-  const [showForm, setShowForm] = useState(false)
+  // The driver whose connection form is open, or null when no form is shown.
   const [formType, setFormType] = useState<string | null>(null)
   const [showQuery, setShowQuery] = useState(false)
 
-  // Ready to query when a database is selected, or the driver has no picker
-  // (empty databases, e.g. DuckDB) so there's nothing to select.
-  const ready =
-    !!connection && (connection.database !== null || connection.databases.length === 0)
+  const ready = isReady(connection)
 
   // Pushed query arrives via the shell's SSE listener; mount the panel to run it.
   useEffect(() => {
@@ -88,7 +93,7 @@ function QueryView({
         setHint(data.message ?? `no connection named “${name}”`)
         return
       }
-      setShowForm(false)
+      setFormType(null)
       setShowQuery(false)
       setHint(null)
       setConnection({
@@ -112,7 +117,6 @@ function QueryView({
       const type = lower.slice('new '.length).trim()
       if (DRIVERS[type]) {
         setFormType(type)
-        setShowForm(true)
         setShowQuery(false)
         setHint(null)
       } else {
@@ -123,7 +127,7 @@ function QueryView({
     if (lower === 'query') {
       if (ready) {
         setShowQuery(true)
-        setShowForm(false)
+        setFormType(null)
         setHint(null)
       } else {
         setHint('Select a database first.')
@@ -148,7 +152,7 @@ function QueryView({
         return
       }
     }
-    setShowForm(false)
+    setFormType(null)
     setShowQuery(false)
     setHint(
       `Unknown command “${raw}”. Try “new ${Object.keys(DRIVERS).join('|')}”, ` +
@@ -158,7 +162,7 @@ function QueryView({
 
   function handleConnected(name: string, type: string, databases: string[]) {
     setConnection({ name, type, databases, database: null })
-    setShowForm(false)
+    setFormType(null)
     setShowQuery(false)
     setPrompt(`connect ${name}`)
   }
@@ -213,11 +217,11 @@ function QueryView({
         </p>
       )}
 
-      {showForm && formType && DRIVERS[formType] && (
+      {formType && DRIVERS[formType] && (
         <ConnectionForm meta={DRIVERS[formType]} onConnected={handleConnected} />
       )}
 
-      {!showForm && connection && connection.database === null &&
+      {!formType && connection && connection.database === null &&
         connection.databases.length > 0 && (
           <DatabasePicker connection={connection} onSelect={selectDatabase} />
         )}

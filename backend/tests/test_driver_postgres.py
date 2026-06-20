@@ -58,7 +58,7 @@ def test_run_query_builds_aliased_double_quoted_sql(monkeypatch):
         captured["database"] = database
         return _Conn()
 
-    monkeypatch.setattr("queryview.drivers.postgres._connect", fake_connect)
+    monkeypatch.setattr("queryview.drivers.postgres._raw_connect", fake_connect)
     r = asyncio.run(
         d.run_query(PgConfig("h", 5432, "u", ""), "SELECT name FROM t;", "mydb",
                     50, 10, [{"name": "name", "dir": "ASC"}], "tsv")

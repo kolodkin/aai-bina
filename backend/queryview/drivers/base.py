@@ -15,6 +15,9 @@ class QueryResult(NamedTuple):
 @runtime_checkable
 class Driver(Protocol):
     type: str
+    # Whether queries require a database to be selected first (a non-empty
+    # picker). False for file-based drivers like DuckDB that have no picker.
+    requires_database: bool
 
     def parse_config(self, body: Any) -> tuple[Any | None, str | None]: ...
     def config_to_dict(self, config: Any) -> dict[str, Any]: ...
@@ -28,6 +31,35 @@ class Driver(Protocol):
     async def describe_query(
         self, config: Any, sql: str, database: str | None,
     ) -> tuple[bool, list[dict[str, str]] | str]: ...
+
+
+def _parse_port(raw: Any) -> int | None:
+    """Coerce a raw port value to an int in [1, 65535], or None. Rejects bool
+    (a bool is an int subclass) and out-of-range / non-numeric values."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        return None
+    try:
+        port = int(raw)
+    except ValueError:
+        return None
+    return port if 1 <= port <= 65535 else None
+
+
+def parse_host_port_config(body: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate the host/port/username/password fields shared by network drivers
+    (ClickHouse, Postgres). Returns ({host,port,username,password}, None) or
+    (None, message)."""
+    b = body if isinstance(body, dict) else {}
+    raw_host = b.get("host")
+    host = raw_host.strip() if isinstance(raw_host, str) else ""
+    port = _parse_port(b.get("port"))
+    username = b.get("username") if isinstance(b.get("username"), str) else ""
+    password = b.get("password") if isinstance(b.get("password"), str) else ""
+    if not host:
+        return None, "host required"
+    if port is None:
+        return None, "valid port required"
+    return {"host": host, "port": port, "username": username, "password": password}, None
 
 
 def build_order_by(order_by: list[dict[str, Any]] | None, quote: str) -> str:
