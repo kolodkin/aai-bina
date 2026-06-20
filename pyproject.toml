@@ -12,6 +12,7 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "alembic>=1.13",
     "mcp>=1.9",
+    "asyncpg>=0.29",
 ]
 
 [project.scripts]
