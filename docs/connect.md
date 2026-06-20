@@ -33,8 +33,17 @@ commit it; the app applies it on next start.
 | Command          | Effect |
 | ---------------- | ------ |
 | `new clickhouse` | Open the form to create a new ClickHouse connection. |
+| `new postgres`   | Open the form to create a new Postgres connection. |
+| `new duckdb`     | Open the form to create a new DuckDB connection (file path; no database picker). |
 | `connect <name>` | Open the saved connection `<name>` and show its database picker. |
-| `query`          | Once a database is selected, open the query panel (see [query.md](./query.md)). |
+| `query`          | Once ready (a database is selected, or a picker-less driver like DuckDB), open the query panel (see [query.md](./query.md)). |
+
+**Drivers.** ClickHouse and Postgres take host/port/username/password and present
+a database picker — for ClickHouse the picker lists `SHOW DATABASES`, for Postgres
+it lists real databases (`pg_database`) and the chosen one is where queries run.
+DuckDB takes a **path** (or `:memory:`), has no network and **no picker** —
+connecting goes straight to the query panel; schema-qualify tables in SQL as
+needed.
 
 All matching is case-insensitive and whitespace-trimmed. An unknown command
 shows a hint (`Try "new clickhouse" or "connect <name>"`); `connect <name>` for
