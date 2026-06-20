@@ -1,10 +1,12 @@
-"""Connection domain: the SQLModel/SQLite connection store (passwords encrypted
+"""Connection domain: the SQLModel/SQLite connection store (configs encrypted
 at rest) and per-session active connections. No HTTP concerns here — operations
-return plain results that main.py maps to responses."""
+return plain results that main.py maps to responses. Per-backend execution is
+delegated to the driver registry; nothing here is ClickHouse-specific."""
 
 from __future__ import annotations
 
 import base64
+import json
 import os
 import time
 from collections import OrderedDict
@@ -20,12 +22,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 if TYPE_CHECKING:
     from alembic.config import Config
 
-from .clickhouse import (
-    ChConfig,
-    ch_query,
-    describe_query as ch_describe_query,
-    list_databases,
-)
+from .drivers import DRIVERS
 
 # --- Storage (SQLite, lazily opened) --------------------------------------
 
@@ -36,10 +33,7 @@ class Connection(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(unique=True, index=True)
     type: str = Field(default="clickhouse", index=True)
-    host: str
-    port: int
-    username: str
-    password: str  # encrypted at rest, never plaintext
+    config: str  # base64(AES-GCM(json.dumps(driver config))) — never plaintext
     database: str | None = Field(default=None)
     last_active_at: int  # unix ms; the max is the "latest active"
 
@@ -91,7 +85,7 @@ async def _ensure_schema() -> None:
     _schema_ready = True
 
 
-# --- Password encryption at rest (AES-256-GCM) ----------------------------
+# --- Config encryption at rest (AES-256-GCM) ------------------------------
 # Key from DB_ENCRYPTION_KEY (base64, 32 bytes) or a generated local key file
 # next to the DB (gitignored). Stored value is base64(iv ‖ ciphertext); AES-GCM
 # appends its 16-byte tag to the ciphertext.
@@ -126,13 +120,13 @@ def _key_bytes() -> bytes:
     return _key
 
 
-def _encrypt_password(plain: str) -> str:
+def _encrypt_str(plain: str) -> str:
     iv = os.urandom(12)
     ct = AESGCM(_key_bytes()).encrypt(iv, plain.encode("utf-8"), None)
     return base64.b64encode(iv + ct).decode("ascii")
 
 
-def _decrypt_password(stored: str) -> str:
+def _decrypt_str(stored: str) -> str:
     combined = base64.b64decode(stored)
     iv, ct = combined[:12], combined[12:]
     return AESGCM(_key_bytes()).decrypt(iv, ct, None).decode("utf-8")
@@ -142,33 +136,22 @@ def _decrypt_password(stored: str) -> str:
 class StoredConnection:
     name: str
     type: str
-    config: ChConfig
+    config: Any
     database: str | None
 
 
-async def _save_active_connection(name: str, c: ChConfig, conn_type: str = "clickhouse") -> None:
-    password = _encrypt_password(c.password)
+async def _save_active_connection(name: str, config: Any, conn_type: str) -> None:
+    blob = _encrypt_str(json.dumps(DRIVERS[conn_type].config_to_dict(config)))
     now = _now_ms()
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
         row = (await s.exec(select(Connection).where(Connection.name == name))).first()
         if row is None:
-            row = Connection(
-                name=name,
-                type=conn_type,
-                host=c.host,
-                port=c.port,
-                username=c.username,
-                password=password,
-                last_active_at=now,
-            )
+            row = Connection(name=name, type=conn_type, config=blob, last_active_at=now)
         else:
             # Upsert by name; the selected database is intentionally left as-is.
             row.type = conn_type
-            row.host = c.host
-            row.port = c.port
-            row.username = c.username
-            row.password = password
+            row.config = blob
             row.last_active_at = now
         s.add(row)
         await s.commit()
@@ -188,17 +171,13 @@ def _row_to_stored(row: Connection | None) -> StoredConnection | None:
     if row is None:
         return None
     try:
-        password = _decrypt_password(row.password)
+        data = json.loads(_decrypt_str(row.config))
+        config = DRIVERS[row.type].config_from_dict(data)
     except Exception:
-        # Unreadable (key changed / legacy plaintext) — treat as unavailable.
+        # Unreadable (key changed / legacy) or unknown type — treat as unavailable.
         return None
     return StoredConnection(
-        name=row.name,
-        type=row.type,
-        config=ChConfig(
-            host=row.host, port=row.port, username=row.username, password=password
-        ),
-        database=row.database,
+        name=row.name, type=row.type, config=config, database=row.database,
     )
 
 
@@ -241,7 +220,7 @@ def _now_ms() -> int:
 class _SessionState:
     name: str
     type: str
-    config: ChConfig
+    config: Any
     databases: list[str]
     database: str | None
 
@@ -268,10 +247,10 @@ def _set_session_entry(sid: str, state: _SessionState) -> None:
 
 
 async def _build_session(
-    name: str, config: ChConfig, database: str | None, conn_type: str = "clickhouse"
+    name: str, config: Any, database: str | None, conn_type: str = "clickhouse"
 ) -> tuple[_SessionState | None, str | None]:
     """List a connection's databases and build a session object."""
-    ok, result = await list_databases(config)
+    ok, result = await DRIVERS[conn_type].list_databases(config)
     if not ok:
         return None, result  # type: ignore[return-value]
     databases: list[str] = result  # type: ignore[assignment]
@@ -315,13 +294,13 @@ async def get_session(sid: str) -> dict[str, Any]:
     }
 
 
-async def connect_new(sid: str, name: str, config: ChConfig) -> dict[str, Any]:
+async def connect_new(sid: str, name: str, config: Any, conn_type: str) -> dict[str, Any]:
     """Create: open a config, save + activate it for this session."""
-    state, message = await _build_session(name, config, None, "clickhouse")
+    state, message = await _build_session(name, config, None, conn_type)
     if state is None:
         return {"ok": False, "message": message}
     _set_session_entry(sid, state)
-    await _save_active_connection(name, config, "clickhouse")
+    await _save_active_connection(name, config, conn_type)
     return {"ok": True, "name": name, "type": state.type, "databases": state.databases}
 
 
@@ -355,39 +334,16 @@ async def select_database(sid: str, database: str) -> dict[str, Any]:
     return {"ok": True}
 
 
-def _build_order_by(order_by: list[dict[str, Any]] | None) -> str:
-    """Build an `ORDER BY` clause from `[{"name", "dir"}]`. Names are backtick-quoted
-    (doubling any embedded backtick) and directions are whitelisted to ASC/DESC, so a
-    malformed entry can't inject SQL. Empty/absent input yields no clause."""
-    if not order_by:
-        return ""
-    parts: list[str] = []
-    for col in order_by:
-        if not isinstance(col, dict):
-            continue
-        name = col.get("name")
-        if not isinstance(name, str) or not name:
-            continue
-        raw_dir = col.get("dir")
-        direction = raw_dir.upper() if isinstance(raw_dir, str) else ""
-        if direction not in ("ASC", "DESC"):
-            direction = "ASC"
-        escaped = name.replace("`", "``")
-        parts.append(f"`{escaped}` {direction}")
-    if not parts:
-        return ""
-    return "ORDER BY " + ", ".join(parts)
-
-
 async def describe_query(sid: str, sql: str) -> dict[str, Any]:
-    """Describe a query's output columns against this session's selected database."""
+    """Describe a query's output columns against this session's selected database.
+    Drivers that expose no databases (e.g. DuckDB) skip the selection gate."""
     await _ensure_session(sid)
     s = _get_session_entry(sid)
     if s is None:
         return {"ok": False, "message": "not connected", "reason": "no-session"}
-    if not s.database:
+    if s.databases and not s.database:
         return {"ok": False, "message": "select a database first", "reason": "no-database"}
-    ok, result = await ch_describe_query(s.config, sql, s.database)
+    ok, result = await DRIVERS[s.type].describe_query(s.config, sql, s.database)
     if not ok:
         return {"ok": False, "message": result}
     return {"ok": True, "fields": result}
@@ -401,23 +357,17 @@ async def run_query(
     fmt: str,
     order_by: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run a paginated SQL query against this session's selected database.
-    Pagination wraps the query in a subselect so any SELECT can be paged; an optional
-    `order_by` sorts that wrapper server-side."""
+    """Run a paginated SQL query against this session's selected database. The
+    driver owns pagination/quoting; `fmt` is the logical 'tsv'/'csv'."""
     await _ensure_session(sid)
     s = _get_session_entry(sid)
     if s is None:
         return {"ok": False, "message": "not connected", "reason": "no-session"}
-    if not s.database:
+    if s.databases and not s.database:
         return {"ok": False, "message": "select a database first", "reason": "no-database"}
-    inner = sql.rstrip().rstrip(";")
-    clauses = [f"SELECT * FROM (\n{inner}\n)"]
-    order_clause = _build_order_by(order_by)
-    if order_clause:
-        clauses.append(order_clause)
-    clauses.append(f"LIMIT {int(limit)} OFFSET {int(offset)}")
-    paginated = " ".join(clauses)
-    r = await ch_query(s.config, paginated, database=s.database, fmt=fmt)
+    r = await DRIVERS[s.type].run_query(
+        s.config, sql, s.database, limit, offset, order_by, fmt
+    )
     if not r.ok:
         return {"ok": False, "message": r.value}
     return {"ok": True, "output": r.value}

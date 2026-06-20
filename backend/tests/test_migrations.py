@@ -45,3 +45,40 @@ def test_fresh_db_is_migrated_to_head():
 
     head = ScriptDirectory.from_config(_alembic_config()).get_current_head()
     assert versions[0] == head, f"stamped {versions[0]} != head {head}"
+
+
+def test_config_blob_migration_backfills_existing_clickhouse_row():
+    """A row written at the pre-blob revision is rewrapped into an encrypted
+    JSON config that decrypts back to the original host/port/user/password."""
+    import json
+    import sqlite3
+
+    from alembic import command
+
+    from queryview.connect import _alembic_config, _db_path, _decrypt_str, _encrypt_str
+
+    cfg = _alembic_config()
+    command.downgrade(cfg, "9a536b7c0328")  # the per-column schema
+
+    con = sqlite3.connect(_db_path())
+    try:
+        con.execute(
+            "INSERT INTO connections (name, type, host, port, username, password, "
+            "database, last_active_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("legacy", "clickhouse", "h", 8123, "u", _encrypt_str("pw"), "db", 1),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    command.upgrade(cfg, "head")
+
+    con = sqlite3.connect(_db_path())
+    try:
+        blob = con.execute(
+            "SELECT config FROM connections WHERE name='legacy'"
+        ).fetchone()[0]
+    finally:
+        con.close()
+    data = json.loads(_decrypt_str(blob))
+    assert data == {"host": "h", "port": 8123, "username": "u", "password": "pw"}
