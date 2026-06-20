@@ -128,3 +128,18 @@ def seeded_pg_db():
     asyncio.run(_seed())
     yield
     asyncio.run(_teardown())
+
+
+# --- DuckDB seeding for query tests ---------------------------------------
+@pytest.fixture(scope="module")
+def seeded_duckdb(tmp_path_factory) -> str:
+    """A temp DuckDB file with a small `items` table; returns its path for the
+    connection form to point at."""
+    import duckdb
+
+    path = tmp_path_factory.mktemp("duck") / "qv.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE items (id INTEGER, name TEXT)")
+    con.execute("INSERT INTO items VALUES (1,'alpha'),(2,'beta'),(3,'gamma')")
+    con.close()
+    return str(path)
