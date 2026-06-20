@@ -40,7 +40,8 @@ class Driver(Protocol):
     type: str
 
     def parse_config(self, body: Any) -> tuple[Any | None, str | None]: ...
-    def config_from_row(self, row: Connection) -> Any: ...
+    def config_to_dict(self, config: Any) -> dict[str, Any]: ...   # JSON-serializable, for storage
+    def config_from_dict(self, data: dict[str, Any]) -> Any: ...    # rebuild config from storage
     async def test(self, config: Any) -> dict[str, Any]: ...
     async def list_databases(self, config: Any) -> tuple[bool, list[str] | str]: ...
     async def run_query(self, config: Any, sql: str, database: str | None,
@@ -84,21 +85,51 @@ go through the registry).
 
 ## Data model & storage
 
-The `connections` table must hold DuckDB's path (no host/port/user/pass).
-Alembic revision (SQLite batch mode):
+Driver-specific fields (host/port/user/pass for CH/PG, `path` for DuckDB) are
+**not** columns. Instead they collapse into a single opaque, encrypted `config`
+blob, so storage never knows a driver's shape and a future driver needs no
+migration. The columns that the app actually queries/orders by stay real:
 
-- `host`, `port`, `username`, `password` → **nullable**.
-- add `path TEXT` nullable (DuckDB file path; `:memory:` permitted).
-- `type`, `name`, `database`, `last_active_at` unchanged.
+```sql
+connections(
+  id             INTEGER PRIMARY KEY,
+  name           TEXT NOT NULL UNIQUE,
+  type           TEXT NOT NULL,        -- selects the driver
+  config         TEXT NOT NULL,        -- base64(AES-GCM(json.dumps(driver config)))
+  database       TEXT,                 -- selected db/picker choice (non-secret, updated independently)
+  last_active_at INTEGER NOT NULL
+)
+```
 
-Per-driver validation lives in `parse_config` (CH/PG require host+port; DuckDB
-requires path). `_row_to_stored` becomes
-`DRIVERS[row.type].config_from_row(row)`. Existing rows
-(`type="clickhouse"`, `path` NULL) are untouched and keep working.
+- **Encryption** moves from the single `password` column to the **whole config
+  blob** — `base64(AES-GCM(json.dumps(config_to_dict(config))))`. The storage
+  layer becomes secret-agnostic (DuckDB's path is simply encrypted too;
+  harmless). The existing `_encrypt_password`/`_decrypt_password` helpers
+  generalize to `_encrypt_json`/`_decrypt_json` over the same AES-256-GCM key.
+  (SQLite has no `JSONB`; `config` is JSON-serialized `TEXT` — we never query
+  *into* it, only round-trip it.)
+- **Per-driver validation** lives in `parse_config` (CH/PG require host+port;
+  DuckDB requires a path). Round-trip is `config_to_dict` (save) /
+  `config_from_dict` (load); `_row_to_stored` becomes
+  `DRIVERS[row.type].config_from_dict(json.loads(_decrypt_json(row.config)))`.
+- `StoredConnection.config` and `_SessionState.config` are typed `Any` (the
+  driver's own config). All `connect.py` call sites become
+  `driver = DRIVERS[type]; await driver.<method>(config, …)`.
 
-`StoredConnection.config` and `_SessionState.config` are typed `Any` (driver's
-own config). All `connect.py` call sites become
-`driver = DRIVERS[type]; await driver.<method>(config, …)`.
+### Migration (Alembic, SQLite batch mode)
+
+Existing rows have per-column `host/port/username/password` (password already
+encrypted). The revision:
+
+1. add `config TEXT` (nullable during the migration).
+2. **data migration** (key loader imported from `connect`): for each existing
+   row, decrypt the old `password`, build the ClickHouse config dict
+   `{host, port, username, password}`, and write
+   `_encrypt_json(json.dumps(dict))` into `config`.
+3. make `config` NOT NULL; drop `host`, `port`, `username`, `password`.
+
+A pre-Alembic DB is already documented as delete-and-recreate, so only
+Alembic-managed rows need the data step.
 
 ## Per-driver specifics
 
