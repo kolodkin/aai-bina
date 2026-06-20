@@ -29,7 +29,7 @@ tools:
   dashboard and push it to the session, which navigates to it and renders it.
   Returns `{ok, persisted, pushed, message}`. See [dashboard.md](./dashboard.md).
 
-The pushed query runs through the normal `POST /api/clickhouse/query`, so all of
+The pushed query runs through the normal `POST /api/db/query`, so all of
 that path's pagination and order-by safety applies; the push layer never talks
 to ClickHouse directly.
 
