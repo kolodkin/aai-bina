@@ -63,13 +63,18 @@ function QueryView({
   const [formType, setFormType] = useState<string | null>(null)
   const [showQuery, setShowQuery] = useState(false)
 
+  // Ready to query when a database is selected, or the driver has no picker
+  // (empty databases, e.g. DuckDB) so there's nothing to select.
+  const ready =
+    !!connection && (connection.database !== null || connection.databases.length === 0)
+
   // Pushed query arrives via the shell's SSE listener; mount the panel to run it.
   useEffect(() => {
-    if (pushed && connection?.database) {
+    if (pushed && ready) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowQuery(true)
     }
-  }, [pushed, connection?.database])
+  }, [pushed, ready])
 
   async function openSaved(name: string) {
     try {
@@ -116,7 +121,7 @@ function QueryView({
       return
     }
     if (lower === 'query') {
-      if (connection?.database) {
+      if (ready) {
         setShowQuery(true)
         setShowForm(false)
         setHint(null)
@@ -172,7 +177,7 @@ function QueryView({
     }
   }
 
-  const inQueryMode = showQuery && Boolean(connection?.database)
+  const inQueryMode = showQuery && ready
 
   // Command prompt. In query mode it joins the panel's top row to save space.
   const promptInput = (
@@ -181,9 +186,7 @@ function QueryView({
         type="text"
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
-        placeholder={
-          connection?.database ? 'query' : 'Type a command, e.g. new clickhouse'
-        }
+        placeholder={ready ? 'query' : 'Type a command, e.g. new clickhouse'}
         aria-label="Prompt"
         data-testid="prompt-input"
         autoFocus
@@ -214,11 +217,12 @@ function QueryView({
         <ConnectionForm meta={DRIVERS[formType]} onConnected={handleConnected} />
       )}
 
-      {!showForm && connection && connection.database === null && (
-        <DatabasePicker connection={connection} onSelect={selectDatabase} />
-      )}
+      {!showForm && connection && connection.database === null &&
+        connection.databases.length > 0 && (
+          <DatabasePicker connection={connection} onSelect={selectDatabase} />
+        )}
 
-      {showQuery && connection?.database && (
+      {showQuery && ready && connection && (
         <QueryPanel
           connectionType={connection.type}
           promptSlot={promptInput}

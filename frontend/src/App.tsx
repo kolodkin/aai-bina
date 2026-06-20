@@ -18,6 +18,10 @@ function Shell() {
   const navigate = useNavigate()
   const location = useLocation()
   const [connection, setConnection] = useState<Connection | null>(null)
+  // Ready to query when a database is selected, or the driver has no picker
+  // (empty databases, e.g. DuckDB).
+  const ready =
+    !!connection && (connection.database !== null || connection.databases.length === 0)
   const [armed, setArmed] = useState(false)
   const [remoteId, setRemoteId] = useState<string | null>(null)
   const [agentOpen, setAgentOpen] = useState(false)
@@ -126,7 +130,7 @@ function Shell() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center px-6 py-10 text-slate-100">
-      {connection?.database && (
+      {ready && connection && (
         <div className="absolute left-4 top-4 flex items-center gap-2">
           <div
             className="glass-chip flex items-center gap-2 px-3 py-1.5 text-sm font-medium"
@@ -137,7 +141,7 @@ function Shell() {
               data-testid="connection-indicator"
               aria-label="connected"
             />
-            connected - {connection.database}
+            connected - {connection.database ?? connection.name}
           </div>
           <div className="relative">
             <button

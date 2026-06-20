@@ -49,4 +49,16 @@ export const DRIVERS: Record<string, DriverMeta> = {
       { key: 'password', label: 'Password', testid: 'pg-password', type: 'password', default: '' },
     ],
   },
+  duckdb: {
+    type: 'duckdb',
+    label: 'DuckDB',
+    formTestid: 'duckdb-form',
+    testTestid: 'duck-test',
+    connectTestid: 'duck-connect',
+    resultTestid: 'duck-result',
+    fields: [
+      { key: 'name', label: 'Name', testid: 'duck-name', type: 'text', default: 'duckdb' },
+      { key: 'path', label: 'Path', testid: 'duck-path', type: 'text', default: ':memory:' },
+    ],
+  },
 }
