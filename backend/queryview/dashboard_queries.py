@@ -1,14 +1,14 @@
 """Run a dashboard's named SQL against a connection by name, decoupled from any
 session/cookie. Reads the saved connection (and its stored database) via
-connect.py, queries via clickhouse.py; dashboard persistence lives in
+connect.py, queries via the driver registry; dashboard persistence lives in
 dashboards.py."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from .clickhouse import ch_query
 from .connect import _connection_by_name
+from .drivers import DRIVERS
 
 # Row cap per dashboard query (matches /api/clickhouse/query's ceiling), applied
 # as the LIMIT of the subselect wrapping each query.
@@ -44,7 +44,8 @@ async def run_queries_for_connection(
             "reason": "no-connection",
             "message": f'no connection named "{name}"',
         }
-    if not stored.database:
+    driver = DRIVERS[stored.type]
+    if getattr(driver, "requires_database", True) and not stored.database:
         return {
             "ok": False,
             "reason": "no-database",
@@ -55,10 +56,9 @@ async def run_queries_for_connection(
         }
     results: dict[str, dict[str, list[str]]] = {}
     for qname, sql in queries.items():
-        inner = sql.rstrip().rstrip(";")
-        paginated = f"SELECT * FROM (\n{inner}\n) LIMIT {DASHBOARD_ROW_CAP}"
-        r = await ch_query(
-            stored.config, paginated, database=stored.database, fmt="TabSeparatedWithNames"
+        r = await driver.run_query(
+            stored.config, sql, stored.database,
+            limit=DASHBOARD_ROW_CAP, offset=0, order_by=None, fmt="tsv",
         )
         if not r.ok:
             return {"ok": False, "reason": "query", "message": f"{qname}: {r.value}"}
