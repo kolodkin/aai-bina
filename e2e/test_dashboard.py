@@ -18,8 +18,16 @@ def _connect_and_select_test_db(page: Page) -> None:
 
 
 # A dashboard that reads window.queries and writes a value into the DOM, so the
-# e2e can assert the injected results reached the agent HTML.
+# e2e can assert the injected results reached the agent HTML. Styled to render
+# the value as large, centered text (nicer as a screenshot); #out's textContent
+# stays exactly the joined names so the assertions below are unchanged.
 _DASHBOARD_HTML = (
+    "<style>"
+    "html,body{height:100%;margin:0}"
+    "body{display:flex;align-items:center;justify-content:center;"
+    "font-family:system-ui,-apple-system,sans-serif}"
+    "#out{font-size:72px;font-weight:800;color:#4338ca;letter-spacing:-0.02em}"
+    "</style>"
     "<div id='out'></div>"
     "<script>"
     "const items = window.queries && window.queries.items;"
