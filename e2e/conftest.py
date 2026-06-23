@@ -94,8 +94,11 @@ PG_PASSWORD = os.environ.get("PG_PASSWORD", "")
 @pytest.fixture(scope="module")
 def seeded_pg_db():
     """Create a `qvtest` database with a small `items` table; drop it after.
-    Uses asyncpg (a project dependency)."""
+    Uses asyncpg (a project dependency). The async work runs in a worker thread
+    because pytest-playwright's sync API keeps an event loop on the main thread,
+    so asyncio.run() can't be called there directly."""
     import asyncio
+    import concurrent.futures
 
     import asyncpg
 
@@ -125,9 +128,14 @@ def seeded_pg_db():
         await sys.execute("DROP DATABASE IF EXISTS qvtest WITH (FORCE)")
         await sys.close()
 
-    asyncio.run(_seed())
+    def _in_thread(make_coro):
+        # A fresh thread has no running loop, so asyncio.run works there.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(lambda: asyncio.run(make_coro())).result()
+
+    _in_thread(_seed)
     yield
-    asyncio.run(_teardown())
+    _in_thread(_teardown)
 
 
 # --- DuckDB seeding for query tests ---------------------------------------

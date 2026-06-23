@@ -10,9 +10,10 @@
 # Environment overrides:
 #   BACKEND_PORT      backend / BASE_URL port            (default 8000)
 #   CLICKHOUSE_PORT   ClickHouse HTTP port               (default 8123)
+#   PGPORT            Postgres TCP port                  (default 5432)
 #
-# The ClickHouse server is owned by setup_clickhouse.sh and left running; the
-# backend this script starts is stopped on exit.
+# The ClickHouse and Postgres servers are owned by their setup scripts and left
+# running; the backend this script starts is stopped on exit.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,8 +54,9 @@ else
   uv run --frozen --group test playwright install chromium
 fi
 
-# --- ClickHouse (delegated) ---------------------------------------------
+# --- Databases (delegated) ----------------------------------------------
 CLICKHOUSE_PORT="$CLICKHOUSE_PORT" "$ROOT/scripts/setup_clickhouse.sh"
+PGPORT="${PGPORT:-5432}" "$ROOT/scripts/setup_postgres.sh"
 
 # --- Frontend build + backend -------------------------------------------
 log "building SPA"
