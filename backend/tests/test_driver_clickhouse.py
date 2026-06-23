@@ -1,31 +1,11 @@
-"""ClickHouse driver: config round-trip, validation, registry conformance, and
-that run_query builds the historical paginated SQL (no network needed)."""
+"""ClickHouse-specific behavior: run_query builds the historical paginated SQL
+(backtick-quoted, no subquery alias, FORMAT clause). Registry conformance,
+config round-trip, and validation are covered by test_driver_contract."""
 from __future__ import annotations
 
 import asyncio
 
-from queryview.drivers import DRIVERS, Driver
 from queryview.drivers.clickhouse import ChConfig, ClickHouseDriver
-
-
-def test_registry_has_clickhouse_satisfying_protocol():
-    d = DRIVERS["clickhouse"]
-    assert isinstance(d, Driver)
-    assert d.type == "clickhouse"
-
-
-def test_parse_config_validates_host_and_port():
-    d = ClickHouseDriver()
-    cfg, err = d.parse_config({"host": "h", "port": "8123", "username": "u", "password": "p"})
-    assert err is None and cfg == ChConfig("h", 8123, "u", "p")
-    assert d.parse_config({"port": 8123})[0] is None       # missing host
-    assert d.parse_config({"host": "h", "port": 0})[0] is None  # bad port
-
-
-def test_config_dict_round_trip():
-    d = ClickHouseDriver()
-    cfg = ChConfig("h", 8123, "u", "p")
-    assert d.config_from_dict(d.config_to_dict(cfg)) == cfg
 
 
 def test_run_query_builds_clickhouse_sql(monkeypatch):

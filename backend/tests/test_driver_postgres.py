@@ -1,32 +1,12 @@
-"""Postgres driver: validation, config round-trip, registry conformance, and
-the paginated-SQL shape (asyncpg calls are monkeypatched — no server needed).
-Live connect/query/describe are covered by e2e."""
+"""Postgres-specific behavior: run_query builds double-quoted, `_qv`-aliased
+paginated SQL (asyncpg is monkeypatched — no server). Registry conformance,
+config round-trip, and validation are covered by test_driver_contract; live
+connect/query/describe by e2e."""
 from __future__ import annotations
 
 import asyncio
 
-from queryview.drivers import DRIVERS, Driver
 from queryview.drivers.postgres import PgConfig, PostgresDriver
-
-
-def test_registry_has_postgres_satisfying_protocol():
-    d = DRIVERS["postgres"]
-    assert isinstance(d, Driver)
-    assert d.type == "postgres" and d.requires_database is True
-
-
-def test_parse_config_validates_host_and_port():
-    d = PostgresDriver()
-    cfg, err = d.parse_config({"host": "h", "port": "5432", "username": "u", "password": "p"})
-    assert err is None and cfg == PgConfig("h", 5432, "u", "p")
-    assert d.parse_config({"port": 5432})[0] is None
-    assert d.parse_config({"host": "h", "port": 99999})[0] is None
-
-
-def test_config_dict_round_trip():
-    d = PostgresDriver()
-    cfg = PgConfig("h", 5432, "u", "p")
-    assert d.config_from_dict(d.config_to_dict(cfg)) == cfg
 
 
 def test_run_query_builds_aliased_double_quoted_sql(monkeypatch):

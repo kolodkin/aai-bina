@@ -1,5 +1,7 @@
-"""DuckDB driver against a real temp-file database: config round-trip, no
-picker, paginated query, describe, and registry conformance."""
+"""DuckDB-specific behavior against a real temp-file database: the :memory:
+default, the empty (no-picker) database list, paginated+serialized queries,
+describe, and error reporting. Registry conformance, config round-trip, and
+validation are covered by test_driver_contract."""
 from __future__ import annotations
 
 import asyncio
@@ -7,7 +9,6 @@ import asyncio
 import duckdb
 import pytest
 
-from queryview.drivers import DRIVERS, Driver
 from queryview.drivers.duckdb import DuckConfig, DuckDBDriver
 
 
@@ -25,21 +26,10 @@ def duck_path(tmp_path):
     return str(path)
 
 
-def test_registry_has_duckdb_satisfying_protocol():
-    d = DRIVERS["duckdb"]
-    assert isinstance(d, Driver)
-    assert d.type == "duckdb" and d.requires_database is False
-
-
 def test_parse_config_defaults_blank_path_to_memory():
     d = DuckDBDriver()
     assert d.parse_config({"path": ""})[0] == DuckConfig(":memory:")
     assert d.parse_config({"path": "/tmp/x.duckdb"})[0] == DuckConfig("/tmp/x.duckdb")
-
-
-def test_config_dict_round_trip():
-    d = DuckDBDriver()
-    assert d.config_from_dict(d.config_to_dict(DuckConfig("/p"))) == DuckConfig("/p")
 
 
 def test_list_databases_is_empty(duck_path):
