@@ -56,8 +56,8 @@ def parse_ch_config(body: Any) -> tuple[ChConfig | None, str | None]:
 
 
 class ClickHouseDriver:
-    type = "clickhouse"
-    requires_database = True
+    type: str = "clickhouse"
+    requires_database: bool = True
 
     def parse_config(self, body: Any) -> tuple[ChConfig | None, str | None]:
         return parse_ch_config(body)

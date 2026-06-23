@@ -2,7 +2,14 @@
 Plans 2 and 3 append PostgresDriver / DuckDBDriver to DRIVERS."""
 from __future__ import annotations
 
-from .base import Driver, QueryResult, build_order_by, serialize_rows, wrap_paginated
+from .base import (
+    Driver,
+    DriverConfig,
+    QueryResult,
+    build_order_by,
+    serialize_rows,
+    wrap_paginated,
+)
 from .clickhouse import ClickHouseDriver
 from .duckdb import DuckDBDriver
 from .postgres import PostgresDriver
@@ -13,6 +20,7 @@ DRIVERS: dict[str, Driver] = {
 
 __all__ = [
     "Driver",
+    "DriverConfig",
     "QueryResult",
     "DRIVERS",
     "build_order_by",

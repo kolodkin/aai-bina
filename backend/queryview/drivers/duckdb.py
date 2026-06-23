@@ -30,8 +30,8 @@ def _open(path: str):
 
 
 class DuckDBDriver:
-    type = "duckdb"
-    requires_database = False
+    type: str = "duckdb"
+    requires_database: bool = False
 
     def parse_config(self, body: Any) -> tuple[DuckConfig | None, str | None]:
         return parse_duck_config(body)

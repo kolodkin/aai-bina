@@ -22,7 +22,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 if TYPE_CHECKING:
     from alembic.config import Config
 
-from .drivers import DRIVERS
+from .drivers import DRIVERS, DriverConfig
 
 # --- Storage (SQLite, lazily opened) --------------------------------------
 
@@ -136,11 +136,11 @@ def _decrypt_str(stored: str) -> str:
 class StoredConnection:
     name: str
     type: str
-    config: Any
+    config: DriverConfig
     database: str | None
 
 
-async def _save_active_connection(name: str, config: Any, conn_type: str) -> None:
+async def _save_active_connection(name: str, config: DriverConfig, conn_type: str) -> None:
     blob = _encrypt_str(json.dumps(DRIVERS[conn_type].config_to_dict(config)))
     now = _now_ms()
     await _ensure_schema()
@@ -220,7 +220,7 @@ def _now_ms() -> int:
 class _SessionState:
     name: str
     type: str
-    config: Any
+    config: DriverConfig
     databases: list[str]
     database: str | None
 
@@ -247,7 +247,7 @@ def _set_session_entry(sid: str, state: _SessionState) -> None:
 
 
 async def _build_session(
-    name: str, config: Any, database: str | None, conn_type: str = "clickhouse"
+    name: str, config: DriverConfig, database: str | None, conn_type: str = "clickhouse"
 ) -> tuple[_SessionState | None, str | None]:
     """List a connection's databases and build a session object."""
     ok, result = await DRIVERS[conn_type].list_databases(config)
@@ -294,7 +294,7 @@ async def get_session(sid: str) -> dict[str, Any]:
     }
 
 
-async def connect_new(sid: str, name: str, config: Any, conn_type: str) -> dict[str, Any]:
+async def connect_new(sid: str, name: str, config: DriverConfig, conn_type: str) -> dict[str, Any]:
     """Create: open a config, save + activate it for this session."""
     state, message = await _build_session(name, config, None, conn_type)
     if state is None:

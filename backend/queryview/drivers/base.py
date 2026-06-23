@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Any, NamedTuple, Protocol, runtime_checkable
+from typing import Any, NamedTuple, Protocol, TypeAlias, runtime_checkable
 
 
 class QueryResult(NamedTuple):
@@ -12,24 +12,36 @@ class QueryResult(NamedTuple):
     value: str  # serialized rows when ok; an error message otherwise
 
 
+# A driver's own config object (ChConfig, PgConfig, DuckConfig, …). Opaque to
+# everything outside the driver that produced it: the storage and session layers
+# only ever round-trip it back through the same driver's methods, so they must
+# NOT depend on any concrete type. Named (rather than a bare `Any`) so that
+# opacity is intentional and documented at every use site. A union of the
+# concrete configs would instead re-couple connect.py to every driver and defeat
+# the registry indirection.
+DriverConfig: TypeAlias = Any
+
+
 @runtime_checkable
 class Driver(Protocol):
+    # Stable identifier, also the registry key, the persisted `connections.type`
+    # column, and the API `type` field — one word across the whole stack.
     type: str
     # Whether queries require a database to be selected first (a non-empty
     # picker). False for file-based drivers like DuckDB that have no picker.
     requires_database: bool
 
-    def parse_config(self, body: Any) -> tuple[Any | None, str | None]: ...
-    def config_to_dict(self, config: Any) -> dict[str, Any]: ...
-    def config_from_dict(self, data: dict[str, Any]) -> Any: ...
-    async def test(self, config: Any) -> dict[str, Any]: ...
-    async def list_databases(self, config: Any) -> tuple[bool, list[str] | str]: ...
+    def parse_config(self, body: Any) -> tuple[DriverConfig | None, str | None]: ...
+    def config_to_dict(self, config: DriverConfig) -> dict[str, Any]: ...
+    def config_from_dict(self, data: dict[str, Any]) -> DriverConfig: ...
+    async def test(self, config: DriverConfig) -> dict[str, Any]: ...
+    async def list_databases(self, config: DriverConfig) -> tuple[bool, list[str] | str]: ...
     async def run_query(
-        self, config: Any, sql: str, database: str | None,
+        self, config: DriverConfig, sql: str, database: str | None,
         limit: int, offset: int, order_by: list[dict[str, Any]] | None, fmt: str,
     ) -> QueryResult: ...
     async def describe_query(
-        self, config: Any, sql: str, database: str | None,
+        self, config: DriverConfig, sql: str, database: str | None,
     ) -> tuple[bool, list[dict[str, str]] | str]: ...
 
 
