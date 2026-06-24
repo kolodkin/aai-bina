@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from . import remote
 from .mcp_server import mcp
 
-from .clickhouse import parse_ch_config, test_connection
+from .drivers import DRIVERS
 from .connect import (
     _ensure_schema,
     connect_new,
@@ -116,31 +116,45 @@ async def session(request: Request) -> dict[str, Any]:
     return await get_session(request.state.sid)
 
 
+def _driver_and_config(body: Any):
+    """Resolve (driver, config) from a request body's `type`. Returns
+    (driver, config, None) or (None, None, message)."""
+    b = body if isinstance(body, dict) else {}
+    conn_type = b.get("type") if isinstance(b.get("type"), str) else ""
+    driver = DRIVERS.get(conn_type)
+    if driver is None:
+        return None, None, f"unknown connection type: {conn_type or '(none)'}"
+    config, error = driver.parse_config(b)
+    if error:
+        return None, None, error
+    return driver, config, None
+
+
 # Test only: a throwaway connectivity check, no save, no activation.
-@app.post("/api/clickhouse/test")
-async def clickhouse_test(request: Request):
-    config, error = parse_ch_config(await _read_json(request))
+@app.post("/api/db/test")
+async def db_test(request: Request):
+    driver, config, error = _driver_and_config(await _read_json(request))
     if error:
         return JSONResponse({"ok": False, "message": error}, status_code=400)
-    return await test_connection(config)
+    return await driver.test(config)
 
 
 # Create + open a connection for this session.
-@app.post("/api/clickhouse/connect")
-async def clickhouse_connect(request: Request):
+@app.post("/api/db/connect")
+async def db_connect(request: Request):
     body = await _read_json(request)
-    config, error = parse_ch_config(body)
+    driver, config, error = _driver_and_config(body)
     if error:
         return JSONResponse({"ok": False, "message": error}, status_code=400)
     b = body if isinstance(body, dict) else {}
     raw_name = b.get("name")
-    name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else "clickhouse"
-    return await connect_new(request.state.sid, name, config)
+    name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else driver.type
+    return await connect_new(request.state.sid, name, config, driver.type)
 
 
 # Open a saved connection by name for this session (connect <name>).
-@app.post("/api/clickhouse/open")
-async def clickhouse_open(request: Request):
+@app.post("/api/db/open")
+async def db_open(request: Request):
     b = await _read_json(request) or {}
     raw_name = b.get("name") if isinstance(b, dict) else None
     name = raw_name.strip() if isinstance(raw_name, str) else ""
@@ -156,8 +170,8 @@ async def clickhouse_open(request: Request):
 
 
 # Select this session's active connection's database.
-@app.post("/api/clickhouse/database")
-async def clickhouse_database(request: Request):
+@app.post("/api/db/database")
+async def db_database(request: Request):
     b = await _read_json(request) or {}
     raw_db = b.get("database") if isinstance(b, dict) else None
     database = raw_db if isinstance(raw_db, str) else ""
@@ -171,8 +185,8 @@ async def clickhouse_database(request: Request):
 
 
 # Run a SQL query (paginated) against this session's selected database.
-@app.post("/api/clickhouse/query")
-async def clickhouse_query(request: Request):
+@app.post("/api/db/query")
+async def db_query(request: Request):
     body = await _read_json(request)
     b = body if isinstance(body, dict) else {}
     raw_sql = b.get("query")
@@ -183,7 +197,7 @@ async def clickhouse_query(request: Request):
     limit = 100 if limit < 1 else min(limit, 1000)
     offset = _parse_int(b.get("offset"), 0)
     offset = 0 if offset < 0 else offset
-    fmt = "CSVWithNames" if b.get("format") == "csv" else "TabSeparatedWithNames"
+    fmt = "csv" if b.get("format") == "csv" else "tsv"
     raw_order = b.get("order_by")
     order_by = raw_order if isinstance(raw_order, list) else None
     r = await run_query(request.state.sid, sql, limit, offset, fmt, order_by)
@@ -193,9 +207,9 @@ async def clickhouse_query(request: Request):
     return {"ok": True, "output": r["output"]}
 
 
-# Describe a query's output columns (name + ClickHouse type) without scanning data.
-@app.post("/api/clickhouse/describe")
-async def clickhouse_describe(request: Request):
+# Describe a query's output columns (name + type) without scanning data.
+@app.post("/api/db/describe")
+async def db_describe(request: Request):
     body = await _read_json(request)
     b = body if isinstance(body, dict) else {}
     raw_sql = b.get("query")

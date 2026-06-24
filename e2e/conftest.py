@@ -82,3 +82,72 @@ def seeded_test_db():
     )
     yield
     _ch_exec("DROP DATABASE IF EXISTS test")
+
+
+# --- Postgres seeding for query tests -------------------------------------
+PG_HOST = os.environ.get("PG_HOST", "localhost")
+PG_PORT = int(os.environ.get("PG_PORT", "5432"))
+PG_USER = os.environ.get("PG_USER", "postgres")
+PG_PASSWORD = os.environ.get("PG_PASSWORD", "")
+
+
+@pytest.fixture(scope="module")
+def seeded_pg_db():
+    """Create a `qvtest` database with a small `items` table; drop it after.
+    Uses asyncpg (a project dependency). The async work runs in a worker thread
+    because pytest-playwright's sync API keeps an event loop on the main thread,
+    so asyncio.run() can't be called there directly."""
+    import asyncio
+    import concurrent.futures
+
+    import asyncpg
+
+    async def _seed():
+        sys = await asyncpg.connect(
+            host=PG_HOST, port=PG_PORT, user=PG_USER,
+            password=PG_PASSWORD or None, database="postgres",
+        )
+        await sys.execute("DROP DATABASE IF EXISTS qvtest WITH (FORCE)")
+        await sys.execute("CREATE DATABASE qvtest")
+        await sys.close()
+        db = await asyncpg.connect(
+            host=PG_HOST, port=PG_PORT, user=PG_USER,
+            password=PG_PASSWORD or None, database="qvtest",
+        )
+        await db.execute("CREATE TABLE items (id int, name text)")
+        await db.execute(
+            "INSERT INTO items (id, name) VALUES (1,'alpha'),(2,'beta'),(3,'gamma')"
+        )
+        await db.close()
+
+    async def _teardown():
+        sys = await asyncpg.connect(
+            host=PG_HOST, port=PG_PORT, user=PG_USER,
+            password=PG_PASSWORD or None, database="postgres",
+        )
+        await sys.execute("DROP DATABASE IF EXISTS qvtest WITH (FORCE)")
+        await sys.close()
+
+    def _in_thread(make_coro):
+        # A fresh thread has no running loop, so asyncio.run works there.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(lambda: asyncio.run(make_coro())).result()
+
+    _in_thread(_seed)
+    yield
+    _in_thread(_teardown)
+
+
+# --- DuckDB seeding for query tests ---------------------------------------
+@pytest.fixture(scope="module")
+def seeded_duckdb(tmp_path_factory) -> str:
+    """A temp DuckDB file with a small `items` table; returns its path for the
+    connection form to point at."""
+    import duckdb
+
+    path = tmp_path_factory.mktemp("duck") / "qv.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE items (id INTEGER, name TEXT)")
+    con.execute("INSERT INTO items VALUES (1,'alpha'),(2,'beta'),(3,'gamma')")
+    con.close()
+    return str(path)

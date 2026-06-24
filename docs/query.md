@@ -240,8 +240,8 @@ fields** view.
 
 | Method | Path                        | Body                                          | Result |
 | ------ | --------------------------- | --------------------------------------------- | ------ |
-| POST   | `/api/clickhouse/query`     | `{query, limit?, offset?, format?, order_by?}` | `{ok, output}` (raw text) \| `{ok:false, message}`. `format:"csv"` returns CSV. `order_by` is `[{name, dir}]` (`dir` ASC/DESC). Empty query → `400`; no session → `409`. |
-| POST   | `/api/clickhouse/describe`  | `{query}`                                     | `{ok, fields:[{name, type}]}` — the query's output columns, via `DESCRIBE`, no data scanned. \| `{ok:false, message}`. Empty query → `400`; no session / no database → `409`. |
+| POST   | `/api/db/query`     | `{query, limit?, offset?, format?, order_by?}` | `{ok, output}` (raw text) \| `{ok:false, message}`. `format:"csv"` returns CSV. `order_by` is `[{name, dir}]` (`dir` ASC/DESC). Empty query → `400`; no session → `409`. |
+| POST   | `/api/db/describe`  | `{query}`                                     | `{ok, fields:[{name, type}]}` — the query's output columns, via `DESCRIBE`, no data scanned. \| `{ok:false, message}`. Empty query → `400`; no session / no database → `409`. |
 | GET    | `/api/predefined-queries`   | `?type=<connType>`                            | `{queries:[{query_name, query, cell_view}]}` for that connection type. `cell_view` is raw YAML text or `null`. |
 | POST   | `/api/predefined-queries`   | `{query_name, type, query, cell_view?}`       | `{ok}`; upserts a predefined query. `cell_view` is optional raw YAML; empty/missing clears it. Missing required fields → `400`. |
 

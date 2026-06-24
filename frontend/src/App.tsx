@@ -9,7 +9,7 @@ import {
   useNavigate,
 } from 'react-router-dom'
 
-import QueryView, { type Connection, type QueryPush } from './QueryView'
+import QueryView, { isReady, type Connection, type QueryPush } from './QueryView'
 import DashboardView, { type DashboardPush } from './DashboardView'
 
 // App shell: routing, shared connection state, the connection pill + agent
@@ -18,6 +18,7 @@ function Shell() {
   const navigate = useNavigate()
   const location = useLocation()
   const [connection, setConnection] = useState<Connection | null>(null)
+  const ready = isReady(connection)
   const [armed, setArmed] = useState(false)
   const [remoteId, setRemoteId] = useState<string | null>(null)
   const [agentOpen, setAgentOpen] = useState(false)
@@ -33,7 +34,7 @@ function Shell() {
 
   async function openConnection(name: string) {
     try {
-      const res = await fetch('/api/clickhouse/open', {
+      const res = await fetch('/api/db/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
@@ -126,7 +127,7 @@ function Shell() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center px-6 py-10 text-slate-100">
-      {connection?.database && (
+      {ready && connection && (
         <div className="absolute left-4 top-4 flex items-center gap-2">
           <div
             className="glass-chip flex items-center gap-2 px-3 py-1.5 text-sm font-medium"
@@ -137,7 +138,7 @@ function Shell() {
               data-testid="connection-indicator"
               aria-label="connected"
             />
-            connected - {connection.database}
+            connected - {connection.database ?? connection.name}
           </div>
           <div className="relative">
             <button

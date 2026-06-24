@@ -33,8 +33,17 @@ commit it; the app applies it on next start.
 | Command          | Effect |
 | ---------------- | ------ |
 | `new clickhouse` | Open the form to create a new ClickHouse connection. |
+| `new postgres`   | Open the form to create a new Postgres connection. |
+| `new duckdb`     | Open the form to create a new DuckDB connection (file path; no database picker). |
 | `connect <name>` | Open the saved connection `<name>` and show its database picker. |
-| `query`          | Once a database is selected, open the query panel (see [query.md](./query.md)). |
+| `query`          | Once ready (a database is selected, or a picker-less driver like DuckDB), open the query panel (see [query.md](./query.md)). |
+
+**Drivers.** ClickHouse and Postgres take host/port/username/password and present
+a database picker — for ClickHouse the picker lists `SHOW DATABASES`, for Postgres
+it lists real databases (`pg_database`) and the chosen one is where queries run.
+DuckDB takes a **path** (or `:memory:`), has no network and **no picker** —
+connecting goes straight to the query panel; schema-qualify tables in SQL as
+needed.
 
 All matching is case-insensitive and whitespace-trimmed. An unknown command
 shows a hint (`Try "new clickhouse" or "connect <name>"`); `connect <name>` for
@@ -69,9 +78,9 @@ an unknown name reports `no connection named "<name>"`.
 
 Two actions:
 
-- **Test connection** — `POST /api/clickhouse/test`. Shows a pass/fail message
+- **Test connection** — `POST /api/db/test`. Shows a pass/fail message
   inline. No side effects.
-- **Connect** — `POST /api/clickhouse/connect`. On success the form closes and
+- **Connect** — `POST /api/db/connect`. On success the form closes and
   the prompt view returns with a database picker.
 
 ## Flow
@@ -103,7 +112,7 @@ After connecting, the prompt view shows the databases returned by
 Selecting a database:
 
 - sets the session's selected database,
-- persists it on the saved connection (`POST /api/clickhouse/database`),
+- persists it on the saved connection (`POST /api/db/database`),
 - collapses the picker and shows the top-left indicator `🟢 connected - <database>`,
 - clears the prompt and switches its placeholder to `query`, inviting a query
   (see [query.md](./query.md)).
@@ -117,10 +126,8 @@ Connection details are stored via SQLModel in the SQLite database (see
 CREATE TABLE connections (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   name           TEXT NOT NULL UNIQUE,
-  host           TEXT NOT NULL,
-  port           INTEGER NOT NULL,
-  username       TEXT NOT NULL,
-  password       TEXT NOT NULL,
+  type           TEXT NOT NULL,   -- selects the driver (clickhouse | postgres | duckdb)
+  config         TEXT NOT NULL,   -- base64(AES-GCM(json.dumps(driver config)))
   database       TEXT,            -- last selected database (nullable)
   last_active_at INTEGER NOT NULL -- unix ms; the max is the "latest active"
 );
@@ -130,12 +137,18 @@ CREATE TABLE connections (
 - **Selecting a database** updates `database` for that row.
 - **Latest active** = the row with the greatest `last_active_at`.
 
-## Password encryption
+Driver-specific fields (host/port/user/pass for ClickHouse and Postgres, a file
+path for DuckDB) are not columns — each driver serializes its own config to a
+dict that is JSON-encoded and stored encrypted in `config`. Adding a future
+driver needs no schema change.
 
-The `password` column is **encrypted at rest** with AES-256-GCM; the stored
+## Config encryption
+
+The whole `config` blob is **encrypted at rest** with AES-256-GCM; the stored
 value is `base64(iv ‖ ciphertext)` (AES-GCM appends its 16-byte tag to the
-ciphertext), never plaintext. The key is resolved once and memoized on first
-use:
+ciphertext), never plaintext. Storing the entire config (not just a password
+field) keeps the storage layer secret-agnostic. The key is resolved once and
+memoized on first use:
 
 - `DB_ENCRYPTION_KEY` — base64 of 32 bytes, if set (use this in CI/shared envs);
 - otherwise a key is generated and written to `<DB_PATH>.key` (gitignored,
@@ -173,18 +186,19 @@ request gets a new session that auto-connects the latest active connection.
 
 | Method | Path                          | Body                                   | Result |
 | ------ | ----------------------------- | -------------------------------------- | ------ |
-| POST   | `/api/clickhouse/test`        | `{host,port,username,password}`        | `{ok, message}` — test only |
-| POST   | `/api/clickhouse/connect`     | `{name,host,port,username,password}`   | `{ok, name, databases}` \| `{ok:false, message}`; saves + activates (`new <type>` form) |
-| POST   | `/api/clickhouse/open`        | `{name}`                               | `{ok, name, databases}` \| `{ok:false, message}`; opens a saved connection (`connect <name>`) |
-| POST   | `/api/clickhouse/database`    | `{database}`                           | `{ok}`; sets the session/connection database |
-| POST   | `/api/clickhouse/query`       | `{query, limit?, offset?, format?}`    | `{ok, output}` \| `{ok:false, message}`; paginated SQL against the session's selected database (`format:"csv"` for CSV) |
+| POST   | `/api/db/test`        | `{type, …driver config}`               | `{ok, message}` — test only |
+| POST   | `/api/db/connect`     | `{type, name, …driver config}`         | `{ok, name, type, databases}` \| `{ok:false, message}`; saves + activates (`new <type>` form) |
+| POST   | `/api/db/open`        | `{name}`                               | `{ok, name, databases}` \| `{ok:false, message}`; opens a saved connection (`connect <name>`) |
+| POST   | `/api/db/database`    | `{database}`                           | `{ok}`; sets the session/connection database |
+| POST   | `/api/db/query`       | `{query, limit?, offset?, format?}`    | `{ok, output}` \| `{ok:false, message}`; paginated SQL against the session's selected database (`format:"csv"` for CSV) |
 | GET    | `/api/predefined-queries`     | `?type=<connType>`                     | `{queries:[{query_name, query}]}`; global predefined queries by connection type |
 | POST   | `/api/predefined-queries`     | `{query_name, type, query}`            | `{ok}`; upserts a global predefined query |
 | GET    | `/api/session`                | —                                      | `{connected, name?, type?, databases?, database?}`; auto-connects latest active |
 
-All validate `host` (non-empty) and `port` (integer `1..65535`); validation
-errors return `400`. ClickHouse queries run over the HTTP interface with HTTP
-Basic auth and a 5s timeout.
+`test`/`connect` resolve the driver from `type` and validate per driver
+(ClickHouse/Postgres require `host` + `port` `1..65535`; DuckDB requires a
+`path`); validation errors return `400`. ClickHouse queries run over the HTTP
+interface with HTTP Basic auth and a 5s timeout.
 
 ## CI
 
