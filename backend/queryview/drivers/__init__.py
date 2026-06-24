@@ -1,15 +1,7 @@
-"""Driver registry: maps a connection `type` to the Driver that executes it.
-Plans 2 and 3 append PostgresDriver / DuckDBDriver to DRIVERS."""
+"""Driver registry: maps a connection `type` to the Driver that executes it."""
 from __future__ import annotations
 
-from .base import (
-    Driver,
-    DriverConfig,
-    QueryResult,
-    build_order_by,
-    serialize_rows,
-    wrap_paginated,
-)
+from .base import Driver
 from .clickhouse import ClickHouseDriver
 from .duckdb import DuckDBDriver
 from .postgres import PostgresDriver
@@ -17,13 +9,3 @@ from .postgres import PostgresDriver
 DRIVERS: dict[str, Driver] = {
     d.type: d for d in (ClickHouseDriver(), PostgresDriver(), DuckDBDriver())
 }
-
-__all__ = [
-    "Driver",
-    "DriverConfig",
-    "QueryResult",
-    "DRIVERS",
-    "build_order_by",
-    "serialize_rows",
-    "wrap_paginated",
-]

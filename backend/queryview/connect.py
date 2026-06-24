@@ -22,7 +22,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 if TYPE_CHECKING:
     from alembic.config import Config
 
-from .drivers import DRIVERS, DriverConfig
+from .drivers import DRIVERS
+from .drivers.base import DriverConfig
 
 # --- Storage (SQLite, lazily opened) --------------------------------------
 
