@@ -47,6 +47,9 @@ export type QueryPush = {
   offset?: number
   order_by?: OrderCol[]
   fields?: string[]
+  // Raw cell-view YAML carried with this push; overrides the selected
+  // predefined query's saved cell_view for the pushed result only.
+  cell_view?: string | null
 }
 
 // Sentinel value for the predefined dropdown's "new name" item.
@@ -642,6 +645,10 @@ function QueryPanel({
   const colTypeCache = useRef<Map<string, Record<string, string>>>(new Map())
   const [orderBy, setOrderBy] = useState<OrderCol[]>([])
   const [cellViewModalOpen, setCellViewModalOpen] = useState(false)
+  // Cell-view YAML carried by a push, applied to that pushed result only.
+  // Overrides the selected query's saved cell_view until the next manual run or
+  // selection change; null when no push override is active.
+  const [pushedCellView, setPushedCellView] = useState<string | null>(null)
 
   // Saved cell_view of the selected query, or '' when none. Single source of
   // truth for rendering, modal seeding, and top-button re-saves.
@@ -650,10 +657,13 @@ function QueryPanel({
     [predefined, selectedName],
   )
 
+  // What actually renders: a push override wins over the saved view.
+  const effectiveCellView = pushedCellView ?? savedCellView
+
   // Editor edits don't take effect until Save (which refreshes `predefined`).
   const appliedViews = useMemo<CellViewMap>(
-    () => parseCellViewYaml(savedCellView),
-    [savedCellView],
+    () => parseCellViewYaml(effectiveCellView),
+    [effectiveCellView],
   )
 
   // Selectors from the cell_view YAML's `params:` section. Each renders a
@@ -788,6 +798,7 @@ function QueryPanel({
     setLimit(lim)
     setOffset(off)
     setOrderBy(ord)
+    setPushedCellView(pushed.cell_view ?? null)
     /* eslint-enable react-hooks/set-state-in-effect */
     void runWith(q, lim, off, ord, fld)
     // Consume the push so re-mounting doesn't re-run a stale query.
@@ -894,6 +905,8 @@ function QueryPanel({
   }
 
   function run(nextOffset: number) {
+    // A manual run drops any push-only cell view; the saved view takes over.
+    setPushedCellView(null)
     void runWith(sql, limit, nextOffset, orderBy)
   }
 
@@ -940,6 +953,7 @@ function QueryPanel({
       return
     }
     setSelectedName(value)
+    setPushedCellView(null) // selecting a query reverts to its saved cell view
     const q = predefined.find((p) => p.query_name === value)
     if (q) setSql(q.query)
   }

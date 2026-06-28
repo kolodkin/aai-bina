@@ -23,6 +23,7 @@ async def push_query(
     offset: int = 0,
     order_by: list[dict[str, Any]] | None = None,
     fields: list[str] | None = None,
+    cell_view: str | None = None,
 ) -> dict[str, Any]:
     """Push a SQL query to a live QueryView browser session.
 
@@ -37,6 +38,11 @@ async def push_query(
         offset: Row offset (default 0).
         order_by: Optional sort, e.g. [{"name": "id", "dir": "DESC"}].
         fields: Optional column names to display; omit to show all columns.
+        cell_view: Optional raw cell-view YAML (column -> {type, value}) applied
+            to this pushed result only, e.g. to render a column as a custom
+            HTML token. Same format as the "Cell view" modal; see docs/query.md.
+            Unlike the modal it isn't persisted — it rides with this one push and
+            overrides any selected predefined query's saved cell_view.
     """
     payload = {
         "type": "query",
@@ -45,6 +51,7 @@ async def push_query(
         "offset": offset,
         "order_by": order_by,
         "fields": fields,
+        "cell_view": cell_view,
     }
     ok, message = remote.push(session_id, payload)
     return {"ok": ok, "message": message}
