@@ -1,3 +1,13 @@
+# Commit Guideline
+
+1. Avoid `Co-Authored-By: Claude` (and similar Claude/AI attribution) trailers in
+   commit messages and PR bodies.
+
+# Operational Guidelines
+
+1. Use `uv run` (e.g. `uv run pytest`, `uv run python ...`), not `python -m` or a
+   manually activated virtualenv.
+
 # Conventions
 
 ## Python
