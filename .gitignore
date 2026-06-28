@@ -29,3 +29,8 @@ backend/*.key
 .idea/
 .vscode/
 
+# logs
+*.log
+
+# playwright
+.playwright-mcp

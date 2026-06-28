@@ -5,7 +5,7 @@ import { CellViewModal } from './CellViewModal'
 import { ComplexCell } from './ComplexCell'
 import { DRIVERS, type DriverMeta } from './drivers'
 import { escapeHtml, substituteCellTemplate } from './cellView'
-import { parseComplexType } from './complexCell'
+import { parseComplexType } from './complexCellParsing'
 import {
   applyParams,
   parseQueryParams,

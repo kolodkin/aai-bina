@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { complexCellItems, PREVIEW_COUNT, type ComplexType } from './complexCell'
+import { complexCellItems, PREVIEW_COUNT, type ComplexType } from './complexCellParsing'
 
 // Built-in default view for an Array/Map/Tuple result cell: a plain vertical
 // list of items, collapsed to the first PREVIEW_COUNT with an expander. See
