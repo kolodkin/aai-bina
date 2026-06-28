@@ -21,7 +21,9 @@ from .connect import (
     _ensure_schema,
     connect_new,
     describe_query,
+    disconnect,
     get_session,
+    list_connection_names,
     open_saved,
     run_query,
     select_database,
@@ -114,6 +116,18 @@ async def health() -> dict[str, str]:
 @app.get("/api/session")
 async def session(request: Request) -> dict[str, Any]:
     return await get_session(request.state.sid)
+
+
+# Drop this session's active connection (disconnect command).
+@app.post("/api/db/disconnect")
+async def db_disconnect(request: Request) -> dict[str, Any]:
+    return await disconnect(request.state.sid)
+
+
+# Saved connection names, for the `connect <name>` autocomplete.
+@app.get("/api/db/connections")
+async def db_connections() -> dict[str, Any]:
+    return {"names": await list_connection_names()}
 
 
 def _driver_and_config(body: Any):

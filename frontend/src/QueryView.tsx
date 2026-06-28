@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { CellViewModal } from './CellViewModal'
 import { ComplexCell } from './ComplexCell'
 import { DRIVERS, type DriverMeta } from './drivers'
+import { suggestCompletions, type Suggestion } from './promptSuggestions'
 import { escapeHtml, substituteCellTemplate } from './cellView'
 import { parseComplexType } from './complexCellParsing'
 import {
@@ -70,6 +71,28 @@ function QueryView({
   // The driver whose connection form is open, or null when no form is shown.
   const [formType, setFormType] = useState<string | null>(null)
   const [showQuery, setShowQuery] = useState(false)
+  // Command-prompt autocomplete: highlighted row, and whether Esc dismissed it.
+  const [acIndex, setAcIndex] = useState(0)
+  const [acDismissed, setAcDismissed] = useState(false)
+  const [connNames, setConnNames] = useState<string[]>([])
+  const promptRef = useRef<HTMLInputElement>(null)
+
+  // Saved connection names power `connect <name>` autocomplete; refresh on mount
+  // and whenever the set may have changed (new connection created).
+  const refreshConnections = useCallback(async () => {
+    try {
+      const res = await fetch('/api/db/connections')
+      const data = await res.json()
+      setConnNames(Array.isArray(data.names) ? (data.names as string[]) : [])
+    } catch {
+      /* leave the last known list in place on a failed refresh */
+    }
+  }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshConnections()
+  }, [refreshConnections])
 
   const ready = isReady(connection)
 
@@ -134,6 +157,10 @@ function QueryView({
       }
       return
     }
+    if (lower === 'disconnect') {
+      void disconnect()
+      return
+    }
     if (lower === 'dashboard') {
       navigate('/dashboard')
       return
@@ -156,7 +183,7 @@ function QueryView({
     setShowQuery(false)
     setHint(
       `Unknown command “${raw}”. Try “new ${Object.keys(DRIVERS).join('|')}”, ` +
-        `“connect <name>” or “dashboard <name>”.`,
+        `“connect <name>”, “dashboard <name>” or “disconnect”.`,
     )
   }
 
@@ -165,6 +192,22 @@ function QueryView({
     setFormType(null)
     setShowQuery(false)
     setPrompt(`connect ${name}`)
+    void refreshConnections()
+  }
+
+  // Drop the active connection both server- and client-side, returning to the
+  // bare command prompt. Saved connections survive — `connect <name>` reopens.
+  async function disconnect() {
+    try {
+      await fetch('/api/db/disconnect', { method: 'POST' })
+    } catch {
+      /* a failed disconnect still clears the UI; the session is best-effort */
+    }
+    setConnection(null)
+    setFormType(null)
+    setShowQuery(false)
+    setHint(null)
+    setPrompt('')
   }
 
   async function selectDatabase(database: string) {
@@ -183,23 +226,113 @@ function QueryView({
 
   const inQueryMode = showQuery && ready
 
+  // Command-prompt autocomplete suggestions for the current input. Hidden when
+  // dismissed, empty, or the lone match already equals what's typed.
+  const suggestions = useMemo(
+    () =>
+      suggestCompletions(prompt, {
+        drivers: Object.keys(DRIVERS),
+        connections: connNames,
+        ready,
+        connected: !!connection,
+      }),
+    [prompt, ready, connection, connNames],
+  )
+  const showAc =
+    !acDismissed &&
+    prompt.trim() !== '' && // nothing typed yet → no unsolicited dropdown
+    suggestions.length > 0 &&
+    !(suggestions.length === 1 && suggestions[0].value === prompt)
+  const acActive = Math.min(acIndex, suggestions.length - 1)
+
+  function acceptSuggestion(s: Suggestion) {
+    setPrompt(s.value)
+    setAcIndex(0)
+    setAcDismissed(false)
+    promptRef.current?.focus()
+  }
+
+  function onPromptKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showAc) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setAcIndex((i) => (Math.min(i, suggestions.length - 1) + 1) % suggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setAcIndex(
+        (i) =>
+          (Math.min(i, suggestions.length - 1) - 1 + suggestions.length) % suggestions.length,
+      )
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
+      // Accept the highlighted row rather than completing/submitting.
+      e.preventDefault()
+      acceptSuggestion(suggestions[acActive])
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setAcDismissed(true)
+    }
+  }
+
   // Command prompt. In query mode it joins the panel's top row to save space.
   const promptInput = (
-    <form onSubmit={submitPrompt} className={inQueryMode ? 'min-w-0 flex-1' : undefined}>
+    <form
+      onSubmit={submitPrompt}
+      className={`relative ${inQueryMode ? 'min-w-0 flex-1' : ''}`}
+    >
       <input
+        ref={promptRef}
         type="text"
         value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
+        onChange={(e) => {
+          setPrompt(e.target.value)
+          setAcIndex(0)
+          setAcDismissed(false)
+        }}
+        onKeyDown={onPromptKeyDown}
         placeholder={ready ? 'query' : 'Type a command, e.g. new clickhouse'}
         aria-label="Prompt"
         data-testid="prompt-input"
         autoFocus
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={showAc}
+        aria-controls="prompt-suggestions"
+        aria-activedescendant={showAc ? `prompt-suggestion-${acActive}` : undefined}
         className={
           inQueryMode
             ? 'glass-input w-full px-3 py-2 text-sm'
             : 'glass-input w-full px-4 py-3 text-center'
         }
       />
+      {showAc && (
+        <ul
+          id="prompt-suggestions"
+          role="listbox"
+          data-testid="prompt-suggestions"
+          className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-white/10 bg-slate-900/95 text-left shadow-xl backdrop-blur"
+        >
+          {suggestions.map((s, i) => (
+            <li
+              key={s.value}
+              id={`prompt-suggestion-${i}`}
+              role="option"
+              aria-selected={i === acActive}
+              data-testid={`suggestion-${s.label}`}
+              onMouseDown={(e) => {
+                // Keep focus on the input; mousedown beats the input's blur.
+                e.preventDefault()
+                acceptSuggestion(s)
+              }}
+              className={`flex cursor-pointer items-baseline justify-between px-3 py-2 text-sm ${
+                i === acActive ? 'bg-indigo-500/30 text-white' : 'text-slate-300 hover:bg-white/5'
+              }`}
+            >
+              <span className="font-medium">{s.label}</span>
+              <span className="ml-3 text-xs text-slate-500">{s.hint}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </form>
   )
 

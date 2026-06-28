@@ -47,6 +47,30 @@ def test_run_query_skips_db_gate_when_no_databases(monkeypatch):
     assert out["ok"] and out["output"] == "ran:SELECT 1:db=None"
 
 
+def test_disconnect_clears_session_and_suppresses_reconnect(monkeypatch):
+    monkeypatch.setitem(DRIVERS, "fake", _FakeDriver())
+    sid = "s-disc"
+    _run(connect.connect_new(sid, "f", {"v": 1}, "fake"))
+    assert _run(connect.get_session(sid))["connected"] is True
+    # Disconnect drops the active session...
+    assert _run(connect.disconnect(sid)) == {"ok": True}
+    # ...and stays disconnected even though a saved active connection exists,
+    # i.e. get_session must not silently auto-reconnect it.
+    assert _run(connect.get_session(sid))["connected"] is False
+    # Connecting again clears the suppression.
+    _run(connect.connect_new(sid, "f", {"v": 1}, "fake"))
+    assert _run(connect.get_session(sid))["connected"] is True
+
+
+def test_list_connection_names_orders_by_recency(monkeypatch):
+    monkeypatch.setitem(DRIVERS, "fake", _FakeDriver())
+    _run(connect.connect_new("s-a", "alpha", {"v": 1}, "fake"))
+    _run(connect.connect_new("s-b", "beta", {"v": 1}, "fake"))
+    names = _run(connect.list_connection_names())
+    # Most-recently-activated first; both saved connections are present.
+    assert names[:2] == ["beta", "alpha"]
+
+
 def test_run_query_requires_database_when_picker_present(monkeypatch):
     class _WithDbs(_FakeDriver):
         type = "fakedb"

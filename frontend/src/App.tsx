@@ -191,7 +191,10 @@ function Shell() {
                     <button
                       type="button"
                       data-testid="remote-copy"
-                      onClick={() => void navigator.clipboard?.writeText(agentCommand)}
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(agentCommand)
+                        setAgentOpen(false)
+                      }}
                       className="glass-btn px-2 py-1 text-xs font-medium text-indigo-200"
                     >
                       Copy agent command
