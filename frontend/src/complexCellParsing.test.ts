@@ -8,7 +8,7 @@ import {
   unquoteScalar,
   complexCellItems,
   PREVIEW_COUNT,
-} from './complexCell'
+} from './complexCellParsing'
 
 describe('parseComplexType', () => {
   test('Array(String) → scalar array', () => {
