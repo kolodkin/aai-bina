@@ -143,6 +143,16 @@ query — editor edits take effect only after **Save** (which re-fetches the lis
 Ad-hoc SQL with no selected query renders plain, as does a broken (unparseable or
 unrecognized-shape) `cell_view`.
 
+### Pushed cell views (MCP / remote)
+
+A remote push (the `push_query` MCP tool, or `POST /api/remote/push`) may carry a
+`cell_view` field — the same raw YAML — that styles **that pushed result only**.
+It's a per-push override, not persisted: it wins over the selected query's saved
+`cell_view` for rendering and is dropped on the next manual **Execute** or when a
+query is picked from the dropdown. This lets an agent push a query *and* its
+render rules in one call (e.g. show a `source` column as a custom HTML token)
+without saving a predefined query.
+
 ## Default views for complex types
 
 Columns whose ClickHouse type is **`Array`**, **`Map`**, or **`Tuple`** get a

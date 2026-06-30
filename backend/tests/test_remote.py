@@ -90,3 +90,40 @@ def test_push_endpoint_delivers_to_registered_session():
         assert msg["fields"] == ["name"]
     finally:
         remote.unregister(rid)
+
+
+def test_push_endpoint_forwards_cell_view():
+    import asyncio
+    from queryview import remote
+
+    rid = remote.register()
+    try:
+        client = TestClient(app)
+        yaml = "source:\n  type: custom\n  value: <span>{cell}</span>\n"
+        r = client.post(
+            "/api/remote/push",
+            json={"session_id": rid, "query": "SELECT 1", "cell_view": yaml},
+        )
+        assert r.json()["ok"] is True
+        msg = asyncio.run(remote.next_message(rid, 1.0))
+        assert msg["cell_view"] == yaml
+    finally:
+        remote.unregister(rid)
+
+
+def test_push_endpoint_blank_cell_view_is_none():
+    import asyncio
+    from queryview import remote
+
+    rid = remote.register()
+    try:
+        client = TestClient(app)
+        r = client.post(
+            "/api/remote/push",
+            json={"session_id": rid, "query": "SELECT 1", "cell_view": "   "},
+        )
+        assert r.json()["ok"] is True
+        msg = asyncio.run(remote.next_message(rid, 1.0))
+        assert msg["cell_view"] is None
+    finally:
+        remote.unregister(rid)

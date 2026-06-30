@@ -337,6 +337,10 @@ async def remote_push(request: Request):
         if isinstance(raw_fields, list)
         else None
     )
+    raw_cv = b.get("cell_view")
+    cell_view = raw_cv if isinstance(raw_cv, str) and raw_cv.strip() else None
+    raw_name = b.get("name")
+    name = raw_name if isinstance(raw_name, str) and raw_name.strip() else None
     payload = {
         "type": "query",
         "query": query,
@@ -344,6 +348,8 @@ async def remote_push(request: Request):
         "offset": offset,
         "order_by": order_by,
         "fields": fields,
+        "cell_view": cell_view,
+        "name": name,
     }
     ok, message = remote.push(session_id, payload)
     return {"ok": ok, "message": message}
