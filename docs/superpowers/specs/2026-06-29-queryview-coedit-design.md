@@ -76,6 +76,42 @@ clients rendezvous through it.
 5. Human blurs → `POST /api/remote/lock {action:"release"}` (owner=none).
 6. Agent retries push (succeeds) **or** `GET`s the committed query to read changes.
 
+## Backend UI-state handling (bottom line)
+
+The backend **never holds the live panel state.** The current SQL/fields/sort/
+cell_view in the panel lives in the browser's React state. The backend does three
+things: **relay** a push, **guard** with the lock, **persist** committed queries.
+
+| State | Where it lives | Who writes | Who reads |
+|---|---|---|---|
+| **Live panel** (SQL, fields, order_by, cell_view draft, selected name) | **Browser RAM** (React) — not backend | Agent (push) + User (typing) | Browser only |
+| **Committed query** (SQL, cell_view, +order_by, +fields) | **SQLite** `predefined_queries` | **User only** (Save) | Agent (`GET`) + User (load) |
+| **Edit lock / presence** | **Backend RAM** (`remote.py` `_Channel`) | User (focus/blur) + Agent (atomic push) | Push guard |
+
+The asymmetry: **agent proposes (relay) and reads only what the user committed;
+user is the sole writer of durable state and the live panel.** Backend is a
+stateless relay for the live half and a durable store for the committed half,
+with a RAM lock arbitrating who may push when.
+
+## Architecture: state ownership
+
+All hub/lock/relay state lives in **one module, `remote.py`**, as module-global
+state (matching `connect.py`'s `_sessions` convention) — not a class:
+
+- `_channels: dict[str, _Channel]` registry + free functions `register` /
+  `unregister` / `push` / `next_message`.
+- Per-session machine-state is one dataclass, **`_Channel`**. Today `{queue}`;
+  this design extends it **in place** with `lock_owner: None|"human"|"agent"`
+  and `lock_touched: float`.
+- `remote.py` gains `acquire()` / `release()` and the lock-guard used by
+  `push()` — same module, same style.
+
+Rationale for staying module-function style (not promoting to a `RemoteHub`
+class): matches the existing convention, keeps the current function-level tests
+intact, and the lock is genuinely just more fields on `_Channel` + two
+functions (YAGNI). Isolating all of it in one module is also what makes a future
+multi-process swap (Redis-backed hub) a contained change.
+
 ## Architecture & components
 
 ### Backend
@@ -210,5 +246,12 @@ human+agent race beyond the serialized-lock guarantee.
 ## Known constraints
 
 - **Single backend process.** Channels and the lock are in-process RAM, exactly
-  like the existing SSE relay. Scaling to multiple workers would require a shared
-  store (e.g. Redis) for both — a pre-existing relay limitation, not introduced here.
+  like the existing SSE relay. The precise requirement isn't merely "one process"
+  — it's that **the SSE connection and the push must be served by the same
+  process** (both read the same `_channels` heap). This holds today because
+  `uvicorn --reload` runs a single worker. Under `--workers N` or multiple
+  instances, a browser's SSE could register on worker A while the agent's push
+  routes to worker B — which has neither the channel nor the lock. The existing
+  push/relay feature already depends on this; the lock adds no new limitation.
+  Going multi-process requires a shared backplane: Redis pub/sub for the relay
+  queues + a Redis key with TTL for the lock.
