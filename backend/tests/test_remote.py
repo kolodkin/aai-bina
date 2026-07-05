@@ -111,6 +111,58 @@ def test_push_endpoint_forwards_cell_view():
         remote.unregister(rid)
 
 
+import time as _time
+from queryview import remote as _remote
+
+
+def test_acquire_blocks_push_then_release_allows():
+    rid = _remote.register()
+    try:
+        ok, _ = _remote.acquire(rid, "human")
+        assert ok is True
+        ok, msg = _remote.push(rid, {"type": "query", "query": "SELECT 1"})
+        assert ok is False and msg == "blocked, user editing"
+        _remote.release(rid, "human")
+        ok, msg = _remote.push(rid, {"type": "query", "query": "SELECT 1"})
+        assert ok is True and msg == "delivered"
+    finally:
+        _remote.unregister(rid)
+
+
+def test_lock_ttl_expiry_allows_push():
+    rid = _remote.register()
+    try:
+        _remote.acquire(rid, "human")
+        # Simulate the heartbeat lapsing: age the lock past its TTL.
+        _remote._channels[rid].lock_touched = _time.monotonic() - (_remote.LOCK_TTL_SECONDS + 1)
+        ok, msg = _remote.push(rid, {"type": "query", "query": "SELECT 1"})
+        assert ok is True and msg == "delivered"
+    finally:
+        _remote.unregister(rid)
+
+
+def test_push_rejects_invalid_order_by():
+    rid = _remote.register()
+    try:
+        ok, msg = _remote.push(
+            rid, {"type": "query", "query": "SELECT 1", "order_by": [{"name": "id", "dir": "X"}]}
+        )
+        assert ok is False and "invalid order_by" in msg
+    finally:
+        _remote.unregister(rid)
+
+
+def test_release_by_nonowner_is_noop():
+    rid = _remote.register()
+    try:
+        _remote.acquire(rid, "human")
+        _remote.release(rid, "agent")  # wrong owner: must not clear
+        ok, msg = _remote.push(rid, {"type": "query", "query": "SELECT 1"})
+        assert ok is False and msg == "blocked, user editing"
+    finally:
+        _remote.unregister(rid)
+
+
 def test_push_endpoint_blank_cell_view_is_none():
     import asyncio
     from queryview import remote

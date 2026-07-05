@@ -329,25 +329,19 @@ async def remote_push(request: Request):
         )
     limit = _parse_int(b.get("limit"), 100)
     offset = _parse_int(b.get("offset"), 0)
-    raw_order = b.get("order_by")
-    order_by = raw_order if isinstance(raw_order, list) else None
-    raw_fields = b.get("fields")
-    fields = (
-        [f for f in raw_fields if isinstance(f, str)]
-        if isinstance(raw_fields, list)
-        else None
-    )
     raw_cv = b.get("cell_view")
     cell_view = raw_cv if isinstance(raw_cv, str) and raw_cv.strip() else None
     raw_name = b.get("name")
     name = raw_name if isinstance(raw_name, str) and raw_name.strip() else None
+    # Pass order_by/fields raw so remote.push's validator can reject malformed
+    # input (fail-fast) rather than silently coercing it away.
     payload = {
         "type": "query",
         "query": query,
         "limit": limit,
         "offset": offset,
-        "order_by": order_by,
-        "fields": fields,
+        "order_by": b.get("order_by"),
+        "fields": b.get("fields"),
         "cell_view": cell_view,
         "name": name,
     }
