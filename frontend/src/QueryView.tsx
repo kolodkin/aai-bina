@@ -6,6 +6,7 @@ import { ComplexCell } from './ComplexCell'
 import { DRIVERS, type DriverMeta } from './drivers'
 import { suggestCompletions, type Suggestion } from './promptSuggestions'
 import { escapeHtml, substituteCellTemplate } from './cellView'
+import { postLock } from './sessionLock'
 import { parseComplexType } from './complexCellParsing'
 import {
   applyParams,
@@ -65,11 +66,13 @@ function QueryView({
   setConnection,
   pushed,
   onPushConsumed,
+  remoteId,
 }: {
   connection: Connection | null
   setConnection: (c: Connection | null) => void
   pushed?: QueryPush | null
   onPushConsumed?: () => void
+  remoteId?: string | null
 }) {
   const navigate = useNavigate()
   const [prompt, setPrompt] = useState('')
@@ -371,6 +374,7 @@ function QueryView({
           promptSlot={promptInput}
           pushed={pushed}
           onPushConsumed={onPushConsumed}
+          remoteId={remoteId}
         />
       )}
     </div>
@@ -623,11 +627,13 @@ function QueryPanel({
   promptSlot,
   pushed,
   onPushConsumed,
+  remoteId,
 }: {
   connectionType: string
   promptSlot?: React.ReactNode
   pushed?: QueryPush | null
   onPushConsumed?: () => void
+  remoteId?: string | null
 }) {
   const [sql, setSql] = useState('')
   const [limit, setLimit] = useState(100)
@@ -650,6 +656,39 @@ function QueryPanel({
   const [cellViewModalOpen, setCellViewModalOpen] = useState(false)
   // Transient "Copied" feedback for the copy-name button.
   const [copiedName, setCopiedName] = useState(false)
+  // Panel root, for the edit-lock focus tracker.
+  const panelRef = useRef<HTMLElement>(null)
+  const blurTimer = useRef<number | undefined>(undefined)
+
+  // Edit lock: acquire on panel focus (+ ~10s heartbeat to refresh the 30s TTL),
+  // release on blur out of the panel. Advisory — postLock swallows errors.
+  useEffect(() => {
+    const el = panelRef.current
+    if (!el || !remoteId) return
+    const acquire = () => void postLock(remoteId, 'acquire')
+    const onFocusIn = () => {
+      window.clearTimeout(blurTimer.current)
+      acquire()
+    }
+    const onFocusOut = () => {
+      // Debounce: moving between inputs fires focusout then focusin.
+      window.clearTimeout(blurTimer.current)
+      blurTimer.current = window.setTimeout(() => {
+        if (!el.contains(document.activeElement)) void postLock(remoteId, 'release')
+      }, 150)
+    }
+    el.addEventListener('focusin', onFocusIn)
+    el.addEventListener('focusout', onFocusOut)
+    const beat = window.setInterval(() => {
+      if (el.contains(document.activeElement)) acquire()
+    }, 10000)
+    return () => {
+      el.removeEventListener('focusin', onFocusIn)
+      el.removeEventListener('focusout', onFocusOut)
+      window.clearInterval(beat)
+      window.clearTimeout(blurTimer.current)
+    }
+  }, [remoteId])
   // Cell-view YAML carried by a push, loaded as an unsaved draft: it renders
   // and seeds the editor/Save, but isn't persisted until the user clicks Save.
   // Cleared on a successful Save (the saved view takes over) or when another
@@ -1066,7 +1105,11 @@ function QueryPanel({
   const inputClass = 'glass-input px-3 py-2'
 
   return (
-    <section data-testid="query-panel" className="glass-panel mt-6 space-y-3 p-6">
+    <section
+      ref={panelRef}
+      data-testid="query-panel"
+      className="glass-panel mt-6 space-y-3 p-6"
+    >
       <div className="flex items-center gap-2">
         {promptSlot}
         <select

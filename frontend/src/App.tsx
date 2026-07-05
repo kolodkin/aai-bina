@@ -230,6 +230,7 @@ function Shell() {
               setConnection={setConnection}
               pushed={queryPush}
               onPushConsumed={() => setQueryPush(null)}
+              remoteId={remoteId}
             />
           }
         />
