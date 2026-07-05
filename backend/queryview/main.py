@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from . import remote
+from .validation import presentation_error
 from .mcp_server import mcp
 
 from .drivers import DRIVERS
@@ -240,8 +241,14 @@ async def db_describe(request: Request):
 # Predefined queries: global, keyed by connection type.
 @app.get("/api/predefined-queries")
 async def predefined_queries_list(request: Request):
+    import json
+
     conn_type = request.query_params.get("type") or "clickhouse"
-    return {"queries": await list_predefined_queries(conn_type)}
+    rows = await list_predefined_queries(conn_type)
+    for r in rows:
+        r["order_by"] = json.loads(r["order_by"]) if r["order_by"] else None
+        r["fields"] = json.loads(r["fields"]) if r["fields"] else None
+    return {"queries": rows}
 
 
 @app.post("/api/predefined-queries")
@@ -262,7 +269,16 @@ async def predefined_queries_save(request: Request):
     raw_cv = b.get("cell_view")
     # Store the raw YAML text verbatim; empty string => NULL (no custom views).
     cell_view = raw_cv if isinstance(raw_cv, str) and raw_cv.strip() else None
-    await save_predefined_query(name, conn_type, query, cell_view)
+    order_by_arr = b.get("order_by")
+    fields_arr = b.get("fields")
+    perr = presentation_error(order_by_arr, fields_arr)
+    if perr is not None:
+        return JSONResponse({"ok": False, "message": perr}, status_code=400)
+    import json
+
+    order_by = json.dumps(order_by_arr) if isinstance(order_by_arr, list) and order_by_arr else None
+    fields = json.dumps(fields_arr) if isinstance(fields_arr, list) and fields_arr else None
+    await save_predefined_query(name, conn_type, query, cell_view, order_by, fields)
     return {"ok": True}
 
 

@@ -23,6 +23,10 @@ class PredefinedQuery(SQLModel, table=True):
     # Raw YAML (column_name -> {type, value}) controlling cell rendering; NULL =
     # none. Never parsed here — interpreted client-side, matched to columns by name.
     cell_view: str | None = Field(default=None)
+    # Raw JSON text (or NULL) for saved presentation, stored verbatim like
+    # cell_view: order_by is [{"name","dir"}], fields is ["col", ...].
+    order_by: str | None = Field(default=None)
+    fields: str | None = Field(default=None)
 
 
 async def list_predefined_queries(conn_type: str) -> list[dict[str, str | None]]:
@@ -37,7 +41,13 @@ async def list_predefined_queries(conn_type: str) -> list[dict[str, str | None]]
             )
         ).all()
     return [
-        {"query_name": r.query_name, "query": r.query, "cell_view": r.cell_view}
+        {
+            "query_name": r.query_name,
+            "query": r.query,
+            "cell_view": r.cell_view,
+            "order_by": r.order_by,
+            "fields": r.fields,
+        }
         for r in rows
     ]
 
@@ -47,6 +57,8 @@ async def save_predefined_query(
     conn_type: str,
     query: str,
     cell_view: str | None = None,
+    order_by: str | None = None,
+    fields: str | None = None,
 ) -> None:
     """Upsert a predefined query by (type, query_name)."""
     await _ensure_schema()
@@ -65,9 +77,13 @@ async def save_predefined_query(
                 type=conn_type,
                 query=query,
                 cell_view=cell_view,
+                order_by=order_by,
+                fields=fields,
             )
         else:
             row.query = query
             row.cell_view = cell_view
+            row.order_by = order_by
+            row.fields = fields
         s.add(row)
         await s.commit()

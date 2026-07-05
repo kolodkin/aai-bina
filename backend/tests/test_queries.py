@@ -49,3 +49,27 @@ def test_clearing_cell_view_persists_null():
     rows = _run(list_predefined_queries("clickhouse"))
     row = next(r for r in rows if r["query_name"] == "c")
     assert row["cell_view"] is None
+
+
+def test_order_by_and_fields_round_trip():
+    _run(
+        save_predefined_query(
+            "q1",
+            "clickhouse",
+            "SELECT 1",
+            cell_view=None,
+            order_by='[{"name":"id","dir":"DESC"}]',
+            fields='["id","name"]',
+        )
+    )
+    rows = _run(list_predefined_queries("clickhouse"))
+    row = next(r for r in rows if r["query_name"] == "q1")
+    assert row["order_by"] == '[{"name":"id","dir":"DESC"}]'
+    assert row["fields"] == '["id","name"]'
+
+
+def test_null_presentation_is_preserved():
+    _run(save_predefined_query("q2", "clickhouse", "SELECT 2"))
+    rows = _run(list_predefined_queries("clickhouse"))
+    row = next(r for r in rows if r["query_name"] == "q2")
+    assert row["order_by"] is None and row["fields"] is None
