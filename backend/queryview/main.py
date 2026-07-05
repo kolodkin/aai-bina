@@ -349,6 +349,28 @@ async def remote_push(request: Request):
     return {"ok": ok, "message": message}
 
 
+@app.post("/api/remote/lock")
+async def remote_lock(request: Request):
+    """Browser-only edit-lock control for a live session. action=acquire is sent
+    on panel focus (and as a ~10s heartbeat); action=release on blur. Owner is
+    always 'human' — the agent never calls this."""
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    raw_sid = b.get("session_id")
+    session_id = raw_sid.strip() if isinstance(raw_sid, str) else ""
+    action = b.get("action")
+    if not session_id or action not in ("acquire", "release"):
+        return JSONResponse(
+            {"ok": False, "message": "session_id and action (acquire|release) required"},
+            status_code=400,
+        )
+    if action == "acquire":
+        ok, message = remote.acquire(session_id, "human")
+    else:
+        ok, message = remote.release(session_id, "human")
+    return {"ok": ok, "message": message}
+
+
 # --- Dashboards (persist + reopen + run-against-a-named-connection) --------
 
 

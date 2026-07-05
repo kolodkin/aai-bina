@@ -115,6 +115,34 @@ import time as _time
 from queryview import remote as _remote
 
 
+def test_lock_endpoint_acquire_blocks_push():
+    from queryview import remote
+    rid = remote.register()
+    try:
+        client = TestClient(app)
+        r = client.post("/api/remote/lock", json={"session_id": rid, "action": "acquire"})
+        assert r.json()["ok"] is True
+        ok, msg = remote.push(rid, {"type": "query", "query": "SELECT 1"})
+        assert ok is False and msg == "blocked, user editing"
+        r = client.post("/api/remote/lock", json={"session_id": rid, "action": "release"})
+        assert r.json()["ok"] is True
+        ok, _ = remote.push(rid, {"type": "query", "query": "SELECT 1"})
+        assert ok is True
+    finally:
+        remote.unregister(rid)
+
+
+def test_lock_endpoint_bad_action_400():
+    from queryview import remote
+    rid = remote.register()
+    try:
+        client = TestClient(app)
+        r = client.post("/api/remote/lock", json={"session_id": rid, "action": "nope"})
+        assert r.status_code == 400
+    finally:
+        remote.unregister(rid)
+
+
 def test_acquire_blocks_push_then_release_allows():
     rid = _remote.register()
     try:
