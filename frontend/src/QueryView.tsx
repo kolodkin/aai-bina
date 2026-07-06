@@ -7,6 +7,7 @@ import { DRIVERS, type DriverMeta } from './drivers'
 import { suggestCompletions, type Suggestion } from './promptSuggestions'
 import { escapeHtml, substituteCellTemplate } from './cellView'
 import { postLock } from './sessionLock'
+import { presentationForSave } from './presentation'
 import { parseComplexType } from './complexCellParsing'
 import {
   applyParams,
@@ -33,14 +34,20 @@ export function isReady(connection: Connection | null): boolean {
   )
 }
 
-type PredefinedQuery = { query_name: string; query: string; cell_view: string | null }
+type PredefinedQuery = {
+  query_name: string
+  query: string
+  cell_view: string | null
+  order_by: OrderCol[] | null
+  fields: string[] | null
+}
 
 type CellView = { type: string; value: string }
 type CellViewMap = Record<string, CellView>
 
 type Field = { name: string; type: string }
 
-type OrderCol = { name: string; dir: 'ASC' | 'DESC' }
+export type OrderCol = { name: string; dir: 'ASC' | 'DESC' }
 
 export type QueryPush = {
   query: string
@@ -1017,7 +1024,11 @@ function QueryPanel({
     setSelectedName(value)
     setPushedCellView(null) // selecting a query reverts to its saved cell view
     const q = predefined.find((p) => p.query_name === value)
-    if (q) setSql(q.query)
+    if (q) {
+      setSql(q.query)
+      setOrderBy(q.order_by ?? [])
+      setVisibleCols(q.fields ?? []) // [] = show all (matches pushed-fields semantics)
+    }
   }
 
   // SQL-only saves (top button) re-persist the existing cell_view; the modal
@@ -1036,6 +1047,7 @@ function QueryPanel({
           type: connectionType,
           query: sql,
           cell_view: cellViewValue,
+          ...presentationForSave(orderBy, visibleCols),
         }),
       })
       const data = await res.json()
