@@ -31,7 +31,7 @@ from .connect import (
 )
 from .dashboard_queries import run_queries_for_connection
 from .dashboards import _upsert_and_push, get_dashboard, list_dashboards
-from .queries import list_predefined_queries, save_predefined_query
+from .queries import list_predefined_queries_view, save_predefined_query
 
 SERVE_STATIC = os.environ.get("SERVE_STATIC") == "1"
 
@@ -241,14 +241,8 @@ async def db_describe(request: Request):
 # Predefined queries: global, keyed by connection type.
 @app.get("/api/predefined-queries")
 async def predefined_queries_list(request: Request):
-    import json
-
     conn_type = request.query_params.get("type") or "clickhouse"
-    rows = await list_predefined_queries(conn_type)
-    for r in rows:
-        r["order_by"] = json.loads(r["order_by"]) if r["order_by"] else None
-        r["fields"] = json.loads(r["fields"]) if r["fields"] else None
-    return {"queries": rows}
+    return {"queries": await list_predefined_queries_view(conn_type)}
 
 
 @app.post("/api/predefined-queries")

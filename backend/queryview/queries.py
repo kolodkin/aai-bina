@@ -52,6 +52,20 @@ async def list_predefined_queries(conn_type: str) -> list[dict[str, str | None]]
     ]
 
 
+async def list_predefined_queries_view(conn_type: str) -> list[dict]:
+    """Like list_predefined_queries but with order_by/fields parsed from their
+    stored JSON text into values (cell_view stays raw YAML). Shared by the HTTP
+    list endpoint and the MCP list_queries tool so both present the same shape."""
+    import json
+
+    rows = await list_predefined_queries(conn_type)
+    for r in rows:
+        ob, fl = r.get("order_by"), r.get("fields")
+        r["order_by"] = json.loads(ob) if ob else None
+        r["fields"] = json.loads(fl) if fl else None
+    return rows
+
+
 async def save_predefined_query(
     query_name: str,
     conn_type: str,

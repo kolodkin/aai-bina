@@ -121,7 +121,7 @@ function Shell() {
     setArmed(e.target.checked)
   }
 
-  const agentCommand = `Use the queryview MCP to push queries to QueryView session "${remoteId ?? ''}".`
+  const agentCommand = `Use the queryview MCP to connect to session "${remoteId ?? ''}".`
 
   const navLinkClass = (path: string) =>
     `glass-toggle px-3 py-1.5 text-sm ${

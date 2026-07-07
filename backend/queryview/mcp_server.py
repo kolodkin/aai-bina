@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import remote
 from .dashboards import _upsert_and_push
+from .queries import list_predefined_queries_view
 
 mcp = FastMCP("queryview", stateless_http=True)
 mcp.settings.streamable_http_path = "/"
@@ -61,6 +62,20 @@ async def push_query(
     }
     ok, message = remote.push(session_id, payload)
     return {"ok": ok, "message": message}
+
+
+@mcp.tool()
+async def list_queries(conn_type: str = "clickhouse") -> dict[str, Any]:
+    """List the saved (predefined) queries for a connection type.
+
+    These are reusable queries a human has saved, shared globally per connection
+    type (default "clickhouse"). Returns
+    {"queries": [{query_name, query, cell_view, order_by, fields}]}, where
+    order_by is [{"name","dir"}] or null, fields is ["col", ...] or null, and
+    cell_view is raw YAML or null. Pass a query_name back as push_query's `name`
+    to select that query in the browser (its saved presentation then applies).
+    """
+    return {"queries": await list_predefined_queries_view(conn_type)}
 
 
 @mcp.tool()

@@ -73,3 +73,20 @@ def test_null_presentation_is_preserved():
     rows = _run(list_predefined_queries("clickhouse"))
     row = next(r for r in rows if r["query_name"] == "q2")
     assert row["order_by"] is None and row["fields"] is None
+
+
+def test_mcp_list_queries_parses_presentation():
+    from queryview.mcp_server import list_queries
+
+    _run(
+        save_predefined_query(
+            "lq", "clickhouse", "SELECT 1",
+            order_by='[{"name":"id","dir":"ASC"}]',
+            fields='["id"]',
+        )
+    )
+    out = _run(list_queries("clickhouse"))
+    row = next(r for r in out["queries"] if r["query_name"] == "lq")
+    assert row["order_by"] == [{"name": "id", "dir": "ASC"}]
+    assert row["fields"] == ["id"]
+    assert row["query"] == "SELECT 1"
