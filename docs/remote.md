@@ -11,27 +11,28 @@ database is selected, an **agent icon** sits next to the connection status pill.
 Click it and toggle **Allow remote control**. The popover then shows this
 session's **id** and a copyable command, e.g.:
 
-> Use the queryview MCP to connect to session "a1b2c3".
+> Use the queryview mcp to connect to session "a1b2c3"
 
 Turning the toggle off (or closing the tab) disarms the session immediately —
 pushes to its id are then reported as not delivered.
 
 ## MCP tools
 
-The backend mounts a FastMCP server (Streamable HTTP) at `/mcp` exposing three
+The backend mounts a FastMCP server (Streamable HTTP) at `/mcp` exposing four
 tools:
 
 - `push_query(session_id, query, limit?=100, offset?=0, order_by?, fields?, cell_view?, name?)` —
-  push a query to the session. `order_by` is `[{name, dir}]`; `fields` is the
-  list of column names to display (omit to show all). `cell_view` is optional
-  raw YAML applied to this pushed result only (not persisted). `name` selects a
-  saved predefined query in the dropdown (its saved presentation then applies).
-  Returns `{ok, message}`; an unknown/disarmed id returns `{ok: false}`, a
-  human holding the edit lock returns `{ok: false, message: "blocked, user editing"}`,
-  and malformed `order_by`/`fields` return `{ok: false, message: "invalid …"}`.
-- `list_queries(conn_type?="clickhouse")` — list the saved predefined queries
-  for a connection type: `{queries: [{query_name, query, cell_view, order_by,
-  fields}]}`. Pass a `query_name` back as `push_query`'s `name`.
+  push a query. `order_by` is `[{name, dir}]`; `fields` are the columns to show
+  (omit for all); `cell_view` is raw YAML for this push only (not persisted);
+  `name` selects a saved query. Returns `{ok, message}` — `ok:false` for an
+  unknown id, a held lock (`"blocked, user editing"`), or malformed
+  `order_by`/`fields` (`"invalid …"`).
+- `list_queries(conn_type?="clickhouse")` — list saved queries:
+  `{queries: [{query_name, query, cell_view, order_by, fields}]}`. Pass a
+  `query_name` back as `push_query`'s `name`.
+- `run_query(query, connection?="clickhouse")` — run a read-only query and return
+  rows to the agent (not the browser): `{ok, columns, rows}`, capped at 1000
+  rows. For schema discovery / data inspection before building a dashboard.
 - `upsert_dashboard(session_id, name, connection, html, queries)` — persist a
   dashboard and push it to the session, which navigates to it and renders it.
   Returns `{ok, persisted, pushed, message}`. See [dashboard.md](./dashboard.md).

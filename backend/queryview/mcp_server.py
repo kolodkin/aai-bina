@@ -64,6 +64,33 @@ async def push_query(
     return {"ok": ok, "message": message}
 
 
+def _columns_to_rows(cols: dict[str, list]) -> dict[str, Any]:
+    """Turn a column-oriented map {col: [values, ...]} into
+    {"columns": [...], "rows": [[...], ...]} for agent-friendly row output."""
+    names = list(cols.keys())
+    n = len(next(iter(cols.values()), []))
+    return {"columns": names, "rows": [[cols[c][i] for c in names] for i in range(n)]}
+
+
+@mcp.tool()
+async def run_query(query: str, connection: str = "clickhouse") -> dict[str, Any]:
+    """Run a read-only SQL query against a saved connection and return the rows
+    to the agent (unlike push_query, which only fills a browser panel).
+
+    Use this to explore schema (system.tables / system.columns) and inspect data
+    before building a dashboard or a push_query. Returns
+    {"ok": True, "columns": [...], "rows": [[...], ...]} (capped at 1000 rows),
+    or {"ok": False, "message": ...}. Fully-qualify tables as db.table, or ensure
+    the connection has a database selected.
+    """
+    from .dashboard_queries import run_queries_for_connection
+
+    r = await run_queries_for_connection(connection, {"q": query})
+    if not r["ok"]:
+        return {"ok": False, "message": r["message"]}
+    return {"ok": True, **_columns_to_rows(r["results"]["q"])}
+
+
 @mcp.tool()
 async def list_queries(conn_type: str = "clickhouse") -> dict[str, Any]:
     """List the saved (predefined) queries for a connection type.
