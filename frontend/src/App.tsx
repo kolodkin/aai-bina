@@ -11,6 +11,7 @@ import {
 
 import QueryView, { isReady, type Connection, type QueryPush } from './QueryView'
 import DashboardView, { type DashboardPush } from './DashboardView'
+import { Toast } from './Toast'
 
 // App shell: routing, shared connection state, the connection pill + agent
 // popover, and the armed/SSE remote-control channel. Pages: /queries, /dashboard.
@@ -24,6 +25,7 @@ function Shell() {
   const [agentOpen, setAgentOpen] = useState(false)
   const [queryPush, setQueryPush] = useState<QueryPush | null>(null)
   const [dashboardPush, setDashboardPush] = useState<DashboardPush | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
 
   // The ?connection= deep-link, captured before the `/`→`/queries` redirect
   // rewrites the URL.
@@ -93,6 +95,7 @@ function Shell() {
     es.addEventListener('query', (e) => {
       try {
         setQueryPush(JSON.parse((e as MessageEvent).data) as QueryPush)
+        setToast('Agent updated the query')
         navigate('/queries')
       } catch {
         /* ignore malformed event */
@@ -245,6 +248,7 @@ function Shell() {
         />
         <Route path="*" element={<Navigate to="/queries" replace />} />
       </Routes>
+      <Toast message={toast} onDone={() => setToast(null)} />
     </main>
   )
 }
