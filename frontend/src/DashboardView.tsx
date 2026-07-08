@@ -213,7 +213,7 @@ function DashboardView({
         <p className="text-center text-sm text-slate-400" data-testid="dashboard-empty">
           {dashboards.length
             ? 'Pick a dashboard to view it.'
-            : 'No dashboards yet. An agent can create one with the upsert_dashboard tool.'}
+            : 'No dashboards yet. An agent can create one with the push_dashboard tool.'}
         </p>
       )}
 

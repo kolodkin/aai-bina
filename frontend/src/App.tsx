@@ -26,6 +26,7 @@ function Shell() {
   const [queryPush, setQueryPush] = useState<QueryPush | null>(null)
   const [dashboardPush, setDashboardPush] = useState<DashboardPush | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [dbOpen, setDbOpen] = useState(false)
 
   // The ?connection= deep-link, captured before the `/`→`/queries` redirect
   // rewrites the URL.
@@ -121,6 +122,22 @@ function Shell() {
     setArmed(e.target.checked)
   }
 
+  // Switch the active database for the current connection (via the pill dropdown).
+  async function switchDatabase(database: string) {
+    setDbOpen(false)
+    if (!connection || database === connection.database) return
+    try {
+      const res = await fetch('/api/db/database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ database }),
+      })
+      if (res.ok) setConnection({ ...connection, database })
+    } catch {
+      /* leave the connection as-is on a failed switch */
+    }
+  }
+
   const agentCommand = `Use the queryview mcp to connect to session "${remoteId ?? ''}"`
 
   const navLinkClass = (path: string) =>
@@ -132,16 +149,47 @@ function Shell() {
     <main className="relative flex min-h-screen items-center justify-center px-6 py-10 text-slate-100">
       {ready && connection && (
         <div className="absolute left-4 top-4 flex items-center gap-2">
-          <div
-            className="glass-chip flex items-center gap-2 px-3 py-1.5 text-sm font-medium"
-            data-testid="connection-status"
-          >
-            <span
-              className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500"
-              data-testid="connection-indicator"
-              aria-label="connected"
-            />
-            connected - {connection.database ?? connection.name}
+          <div className="relative">
+            <button
+              type="button"
+              data-testid="connection-status"
+              onClick={() => connection.databases.length > 0 && setDbOpen((o) => !o)}
+              aria-haspopup="listbox"
+              aria-expanded={dbOpen}
+              className="glass-chip flex items-center gap-2 px-3 py-1.5 text-sm font-medium"
+            >
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500"
+                data-testid="connection-indicator"
+                aria-label="connected"
+              />
+              connected - {connection.database ?? connection.name}
+              {connection.databases.length > 0 && (
+                <span className="text-xs text-slate-400">▾</span>
+              )}
+            </button>
+            {dbOpen && connection.databases.length > 0 && (
+              <div
+                data-testid="db-select"
+                role="listbox"
+                className="glass-popover absolute left-0 top-full z-10 mt-2 max-h-72 w-64 overflow-auto p-1 text-sm"
+              >
+                {connection.databases.map((db) => (
+                  <button
+                    key={db}
+                    type="button"
+                    role="option"
+                    aria-selected={db === connection.database}
+                    onClick={() => void switchDatabase(db)}
+                    className={`block w-full truncate rounded px-2 py-1.5 text-left hover:bg-white/10 ${
+                      db === connection.database ? 'text-indigo-200' : 'text-slate-200'
+                    }`}
+                  >
+                    {db}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="relative">
             <button

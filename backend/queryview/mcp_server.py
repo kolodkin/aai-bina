@@ -106,7 +106,7 @@ async def list_queries(conn_type: str = "clickhouse") -> dict[str, Any]:
 
 
 @mcp.tool()
-async def upsert_dashboard(
+async def push_dashboard(
     session_id: str,
     name: str,
     connection: str,
