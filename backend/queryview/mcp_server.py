@@ -79,16 +79,25 @@ async def run_query(query: str, connection: str = "clickhouse") -> dict[str, Any
 
     Use this to explore schema (system.tables / system.columns) and inspect data
     before building a dashboard or a push_query. Returns
-    {"ok": True, "columns": [...], "rows": [[...], ...]} (capped at 1000 rows),
-    or {"ok": False, "message": ...}. Fully-qualify tables as db.table, or ensure
-    the connection has a database selected.
+    {"ok": True, "connection": ..., "database": ..., "columns": [...],
+    "rows": [[...], ...]} (capped at 1000 rows), or {"ok": False, "message": ...}.
+    `database` is the connection's currently-selected database (the user can
+    change it from the connection pill), so check it before deciding whether to
+    fully-qualify tables as db.table.
     """
+    from .connect import _connection_by_name
     from .dashboard_queries import run_queries_for_connection
 
     r = await run_queries_for_connection(connection, {"q": query})
     if not r["ok"]:
         return {"ok": False, "message": r["message"]}
-    return {"ok": True, **_columns_to_rows(r["results"]["q"])}
+    stored = await _connection_by_name(connection)
+    return {
+        "ok": True,
+        "connection": connection,
+        "database": stored.database if stored else None,
+        **_columns_to_rows(r["results"]["q"]),
+    }
 
 
 @mcp.tool()

@@ -31,8 +31,10 @@ tools:
   `{queries: [{query_name, query, cell_view, order_by, fields}]}`. Pass a
   `query_name` back as `push_query`'s `name`.
 - `run_query(query, connection?="clickhouse")` — run a read-only query and return
-  rows to the agent (not the browser): `{ok, columns, rows}`, capped at 1000
-  rows. For schema discovery / data inspection before building a dashboard.
+  rows to the agent (not the browser): `{ok, connection, database, columns, rows}`,
+  capped at 1000 rows. `database` is the connection's currently-selected database
+  (the user can change it from the pill), so the agent can tell what it's querying
+  and whether to fully-qualify tables. For schema discovery / data inspection.
 - `push_dashboard(session_id, name, connection, html, queries)` — push a
   dashboard **draft** to the session, which navigates to it and renders it.
   Does **not** persist — only the user's **Save** button in the dashboard view
