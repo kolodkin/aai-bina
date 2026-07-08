@@ -1150,7 +1150,7 @@ function QueryPanel({
           data-testid="query-copy-name"
           title="Copy query name"
           aria-label="Copy query name"
-          className="glass-btn px-3 py-2 font-medium"
+          className="glass-btn min-w-[4.5rem] px-3 py-2 text-center font-medium"
         >
           {copiedName ? 'Copied' : 'Copy'}
         </button>

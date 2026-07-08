@@ -206,7 +206,7 @@ function DashboardView({
           data-testid="dashboard-save"
           onClick={() => void save()}
           disabled={!active || saving}
-          className="glass-btn px-3 py-2 text-sm font-medium"
+          className="glass-btn min-w-[5rem] px-3 py-2 text-center text-sm font-medium"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
