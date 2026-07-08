@@ -24,22 +24,24 @@ tools:
 - `push_query(session_id, query, limit?=100, offset?=0, order_by?, fields?, cell_view?, name?)` —
   push a query. `order_by` is `[{name, dir}]`; `fields` are the columns to show
   (omit for all); `cell_view` is raw YAML for this push only (not persisted);
-  `name` selects a saved query. Returns `{ok, message}` — `ok:false` for an
-  unknown id, a held lock (`"blocked, user editing"`), or malformed
+  `name` selects a saved query. Returns `{ok, message, database}` (`database` is
+  the session's currently-selected DB, reported by the browser) — `ok:false` for
+  an unknown id, a held lock (`"blocked, user editing"`), or malformed
   `order_by`/`fields` (`"invalid …"`).
 - `list_queries(conn_type?="clickhouse")` — list saved queries:
   `{queries: [{query_name, query, cell_view, order_by, fields}]}`. Pass a
   `query_name` back as `push_query`'s `name`.
-- `run_query(query, connection?="clickhouse")` — run a read-only query and return
-  rows to the agent (not the browser): `{ok, connection, database, columns, rows}`,
-  capped at 1000 rows. `database` is the connection's currently-selected database
+- `run_query(query, connection?="clickhouse", limit?=1000, offset?=0)` — run a
+  read-only query and return rows to the agent (not the browser):
+  `{ok, connection, database, columns, rows}`. `database` is the connection's
+  currently-selected database
   (the user can change it from the pill), so the agent can tell what it's querying
   and whether to fully-qualify tables. For schema discovery / data inspection.
 - `push_dashboard(session_id, name, connection, html, queries)` — push a
   dashboard **draft** to the session, which navigates to it and renders it.
   Does **not** persist — only the user's **Save** button in the dashboard view
-  writes it to the store (mirrors `push_query`). Returns `{ok, pushed, message}`.
-  See [dashboard.md](./dashboard.md).
+  writes it to the store (mirrors `push_query`). Returns
+  `{ok, pushed, message, database}`. See [dashboard.md](./dashboard.md).
 
 The pushed query runs through the normal `POST /api/db/query`, so all of
 that path's pagination and order-by safety applies; the push layer never talks

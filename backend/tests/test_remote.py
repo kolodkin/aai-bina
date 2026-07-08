@@ -207,3 +207,42 @@ def test_push_endpoint_blank_cell_view_is_none():
         assert msg["cell_view"] is None
     finally:
         remote.unregister(rid)
+
+
+def test_session_database_set_and_read():
+    rid = _remote.register()
+    try:
+        assert _remote.session_database(rid) is None
+        assert _remote.set_session_database(rid, "acme_db") is True
+        assert _remote.session_database(rid) == "acme_db"
+    finally:
+        _remote.unregister(rid)
+
+
+def test_set_session_database_unknown_session():
+    assert _remote.set_session_database("deadbeef", "x") is False
+
+
+def test_remote_db_endpoint_sets_channel_database():
+    from queryview import remote
+    rid = remote.register()
+    try:
+        client = TestClient(app)
+        r = client.post("/api/remote/db", json={"session_id": rid, "database": "d1"})
+        assert r.json()["ok"] is True
+        assert remote.session_database(rid) == "d1"
+    finally:
+        remote.unregister(rid)
+
+
+def test_push_query_return_includes_database():
+    import asyncio
+    from queryview.mcp_server import push_query as mcp_push_query
+
+    rid = _remote.register()
+    try:
+        _remote.set_session_database(rid, "acme_db")
+        out = asyncio.run(mcp_push_query(rid, "SELECT 1"))
+        assert out["ok"] is True and out["database"] == "acme_db"
+    finally:
+        _remote.unregister(rid)

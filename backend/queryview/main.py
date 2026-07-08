@@ -359,6 +359,25 @@ async def remote_push(request: Request):
     return {"ok": ok, "message": message}
 
 
+@app.post("/api/remote/db")
+async def remote_db(request: Request):
+    """Browser reports the database its live session targets, so the agent's
+    push_query/push_dashboard responses can echo it. Called on arm and whenever
+    the active database changes."""
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    raw_sid = b.get("session_id")
+    session_id = raw_sid.strip() if isinstance(raw_sid, str) else ""
+    raw_db = b.get("database")
+    database = raw_db if isinstance(raw_db, str) and raw_db else None
+    if not session_id:
+        return JSONResponse(
+            {"ok": False, "message": "session_id required"}, status_code=400
+        )
+    ok = remote.set_session_database(session_id, database)
+    return {"ok": ok}
+
+
 @app.post("/api/remote/lock")
 async def remote_lock(request: Request):
     """Browser-only edit-lock control for a live session. action=acquire is sent

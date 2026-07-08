@@ -122,6 +122,17 @@ function Shell() {
     setArmed(e.target.checked)
   }
 
+  // Report the active database to the live session so the agent's push_query /
+  // push_dashboard responses can echo it. Fires on arm and on each DB change.
+  useEffect(() => {
+    if (!armed || !remoteId) return
+    void fetch('/api/remote/db', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: remoteId, database: connection?.database ?? null }),
+    }).catch(() => {})
+  }, [armed, remoteId, connection?.database])
+
   // Switch the active database for the current connection (via the pill dropdown).
   async function switchDatabase(database: string) {
     setDbOpen(false)

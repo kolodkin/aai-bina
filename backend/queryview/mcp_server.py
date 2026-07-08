@@ -61,7 +61,7 @@ async def push_query(
         "name": name,
     }
     ok, message = remote.push(session_id, payload)
-    return {"ok": ok, "message": message}
+    return {"ok": ok, "message": message, "database": remote.session_database(session_id)}
 
 
 def _columns_to_rows(cols: dict[str, list]) -> dict[str, Any]:
@@ -73,22 +73,31 @@ def _columns_to_rows(cols: dict[str, list]) -> dict[str, Any]:
 
 
 @mcp.tool()
-async def run_query(query: str, connection: str = "clickhouse") -> dict[str, Any]:
+async def run_query(
+    query: str,
+    connection: str = "clickhouse",
+    limit: int = 1000,
+    offset: int = 0,
+) -> dict[str, Any]:
     """Run a read-only SQL query against a saved connection and return the rows
     to the agent (unlike push_query, which only fills a browser panel).
 
     Use this to explore schema (system.tables / system.columns) and inspect data
-    before building a dashboard or a push_query. Returns
+    before building a dashboard or a push_query. `limit`/`offset` page the result
+    (default 1000 / 0; limit is capped at 10000). Returns
     {"ok": True, "connection": ..., "database": ..., "columns": [...],
-    "rows": [[...], ...]} (capped at 1000 rows), or {"ok": False, "message": ...}.
+    "rows": [[...], ...]}, or {"ok": False, "message": ...}.
     `database` is the connection's currently-selected database (the user can
     change it from the connection pill), so check it before deciding whether to
     fully-qualify tables as db.table.
     """
     from .connect import _connection_by_name
     from .dashboard_queries import run_queries_for_connection
+    from .validation import MAX_LIMIT
 
-    r = await run_queries_for_connection(connection, {"q": query})
+    limit = max(0, min(limit, MAX_LIMIT))
+    offset = max(0, offset)
+    r = await run_queries_for_connection(connection, {"q": query}, limit=limit, offset=offset)
     if not r["ok"]:
         return {"ok": False, "message": r["message"]}
     stored = await _connection_by_name(connection)
@@ -147,4 +156,9 @@ async def push_dashboard(
     pushed, message = await _push_dashboard(
         name, connection, html, queries, session_id or None
     )
-    return {"ok": pushed, "pushed": pushed, "message": message}
+    return {
+        "ok": pushed,
+        "pushed": pushed,
+        "message": message,
+        "database": remote.session_database(session_id),
+    }

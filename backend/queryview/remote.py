@@ -23,6 +23,9 @@ class _Channel:
     # treated as released (heartbeat lapsed / tab froze).
     lock_owner: str | None = None
     lock_touched: float = 0.0
+    # The database this browser session currently targets, reported by the UI so
+    # push_query/push_dashboard can echo it back to the agent.
+    database: str | None = None
 
 
 # remote_id -> channel. Module-level, like connect.py's _sessions.
@@ -75,6 +78,22 @@ def register() -> str:
 def unregister(remote_id: str) -> None:
     """Drop a channel (idempotent)."""
     _channels.pop(remote_id, None)
+
+
+def set_session_database(remote_id: str, database: str | None) -> bool:
+    """Record the database a live session targets (reported by the UI). Returns
+    False for an unknown/inactive session."""
+    channel = _channels.get(remote_id)
+    if channel is None:
+        return False
+    channel.database = database
+    return True
+
+
+def session_database(remote_id: str) -> str | None:
+    """The database a live session targets, or None if unknown/unreported."""
+    channel = _channels.get(remote_id)
+    return channel.database if channel else None
 
 
 def push(remote_id: str, payload: dict[str, Any]) -> tuple[bool, str]:
