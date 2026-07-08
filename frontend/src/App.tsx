@@ -106,6 +106,7 @@ function Shell() {
       try {
         const payload = JSON.parse((e as MessageEvent).data) as DashboardPush
         setDashboardPush(payload)
+        setToast('Agent updated the dashboard')
         navigate(`/dashboard?name=${encodeURIComponent(payload.name)}`)
       } catch {
         /* ignore malformed event */
