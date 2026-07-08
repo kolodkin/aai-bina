@@ -28,9 +28,12 @@ function buildSrcDoc(html: string, results: Results): string {
 function DashboardView({
   pushed,
   onPushConsumed,
+  database,
 }: {
   pushed?: DashboardPush | null
   onPushConsumed?: () => void
+  // Active connection database; a change re-runs the dashboard's queries.
+  database?: string | null
 }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const name = searchParams.get('name') ?? ''
@@ -164,7 +167,7 @@ function DashboardView({
     return () => {
       cancelled = true
     }
-  }, [name, localPush])
+  }, [name, localPush, database])
 
   const srcDoc = useMemo(
     () => (active && results ? buildSrcDoc(active.html, results) : null),

@@ -291,6 +291,7 @@ function Shell() {
             <DashboardView
               pushed={dashboardPush}
               onPushConsumed={() => setDashboardPush(null)}
+              database={connection?.database ?? null}
             />
           }
         />
