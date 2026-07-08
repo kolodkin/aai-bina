@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from . import remote
+from .validation import presentation_error
 from .mcp_server import mcp
 
 from .drivers import DRIVERS
@@ -21,14 +22,16 @@ from .connect import (
     _ensure_schema,
     connect_new,
     describe_query,
+    disconnect,
     get_session,
+    list_connection_names,
     open_saved,
     run_query,
     select_database,
 )
 from .dashboard_queries import run_queries_for_connection
 from .dashboards import _upsert_and_push, get_dashboard, list_dashboards
-from .queries import list_predefined_queries, save_predefined_query
+from .queries import list_predefined_queries_view, save_predefined_query
 
 SERVE_STATIC = os.environ.get("SERVE_STATIC") == "1"
 
@@ -114,6 +117,18 @@ async def health() -> dict[str, str]:
 @app.get("/api/session")
 async def session(request: Request) -> dict[str, Any]:
     return await get_session(request.state.sid)
+
+
+# Drop this session's active connection (disconnect command).
+@app.post("/api/db/disconnect")
+async def db_disconnect(request: Request) -> dict[str, Any]:
+    return await disconnect(request.state.sid)
+
+
+# Saved connection names, for the `connect <name>` autocomplete.
+@app.get("/api/db/connections")
+async def db_connections() -> dict[str, Any]:
+    return {"names": await list_connection_names()}
 
 
 def _driver_and_config(body: Any):
@@ -227,7 +242,7 @@ async def db_describe(request: Request):
 @app.get("/api/predefined-queries")
 async def predefined_queries_list(request: Request):
     conn_type = request.query_params.get("type") or "clickhouse"
-    return {"queries": await list_predefined_queries(conn_type)}
+    return {"queries": await list_predefined_queries_view(conn_type)}
 
 
 @app.post("/api/predefined-queries")
@@ -248,7 +263,16 @@ async def predefined_queries_save(request: Request):
     raw_cv = b.get("cell_view")
     # Store the raw YAML text verbatim; empty string => NULL (no custom views).
     cell_view = raw_cv if isinstance(raw_cv, str) and raw_cv.strip() else None
-    await save_predefined_query(name, conn_type, query, cell_view)
+    order_by_arr = b.get("order_by")
+    fields_arr = b.get("fields")
+    perr = presentation_error(order_by_arr, fields_arr)
+    if perr is not None:
+        return JSONResponse({"ok": False, "message": perr}, status_code=400)
+    import json
+
+    order_by = json.dumps(order_by_arr) if isinstance(order_by_arr, list) and order_by_arr else None
+    fields = json.dumps(fields_arr) if isinstance(fields_arr, list) and fields_arr else None
+    await save_predefined_query(name, conn_type, query, cell_view, order_by, fields)
     return {"ok": True}
 
 
@@ -315,23 +339,64 @@ async def remote_push(request: Request):
         )
     limit = _parse_int(b.get("limit"), 100)
     offset = _parse_int(b.get("offset"), 0)
-    raw_order = b.get("order_by")
-    order_by = raw_order if isinstance(raw_order, list) else None
-    raw_fields = b.get("fields")
-    fields = (
-        [f for f in raw_fields if isinstance(f, str)]
-        if isinstance(raw_fields, list)
-        else None
-    )
+    raw_cv = b.get("cell_view")
+    cell_view = raw_cv if isinstance(raw_cv, str) and raw_cv.strip() else None
+    raw_name = b.get("name")
+    name = raw_name if isinstance(raw_name, str) and raw_name.strip() else None
+    # Pass order_by/fields raw so remote.push's validator can reject malformed
+    # input (fail-fast) rather than silently coercing it away.
     payload = {
         "type": "query",
         "query": query,
         "limit": limit,
         "offset": offset,
-        "order_by": order_by,
-        "fields": fields,
+        "order_by": b.get("order_by"),
+        "fields": b.get("fields"),
+        "cell_view": cell_view,
+        "name": name,
     }
     ok, message = remote.push(session_id, payload)
+    return {"ok": ok, "message": message}
+
+
+@app.post("/api/remote/db")
+async def remote_db(request: Request):
+    """Browser reports the database its live session targets, so the agent's
+    push_query/push_dashboard responses can echo it. Called on arm and whenever
+    the active database changes."""
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    raw_sid = b.get("session_id")
+    session_id = raw_sid.strip() if isinstance(raw_sid, str) else ""
+    raw_db = b.get("database")
+    database = raw_db if isinstance(raw_db, str) and raw_db else None
+    if not session_id:
+        return JSONResponse(
+            {"ok": False, "message": "session_id required"}, status_code=400
+        )
+    ok = remote.set_session_database(session_id, database)
+    return {"ok": ok}
+
+
+@app.post("/api/remote/lock")
+async def remote_lock(request: Request):
+    """Browser-only edit-lock control for a live session. action=acquire is sent
+    on panel focus (and as a ~10s heartbeat); action=release on blur. Owner is
+    always 'human' — the agent never calls this."""
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    raw_sid = b.get("session_id")
+    session_id = raw_sid.strip() if isinstance(raw_sid, str) else ""
+    action = b.get("action")
+    if not session_id or action not in ("acquire", "release"):
+        return JSONResponse(
+            {"ok": False, "message": "session_id and action (acquire|release) required"},
+            status_code=400,
+        )
+    if action == "acquire":
+        ok, message = remote.acquire(session_id, "human")
+    else:
+        ok, message = remote.release(session_id, "human")
     return {"ok": ok, "message": message}
 
 

@@ -28,9 +28,12 @@ function buildSrcDoc(html: string, results: Results): string {
 function DashboardView({
   pushed,
   onPushConsumed,
+  database,
 }: {
   pushed?: DashboardPush | null
   onPushConsumed?: () => void
+  // Active connection database; a change re-runs the dashboard's queries.
+  database?: string | null
 }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const name = searchParams.get('name') ?? ''
@@ -42,6 +45,47 @@ function DashboardView({
   const [results, setResults] = useState<Results | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  // Refetch the dropdown list (also used after a Save to surface a new name).
+  async function loadDashboards() {
+    try {
+      const d = await (await fetch('/api/dashboards')).json()
+      setDashboards((d.dashboards ?? []) as DashboardSummary[])
+    } catch {
+      /* non-fatal; keep the last list */
+    }
+  }
+
+  // User-only persist: an agent push renders a draft; this Save writes the
+  // currently-active dashboard (draft or loaded) to the store.
+  async function save() {
+    if (!active) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/dashboards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: active.name,
+          connection: active.connection,
+          html: active.html,
+          queries: active.queries,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.ok) {
+        setError(data.message ?? 'Failed to save dashboard.')
+        return
+      }
+      await loadDashboards()
+    } catch {
+      setError('Failed to save dashboard.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // Load the dropdown list; refresh on each push so a new dashboard appears.
   useEffect(() => {
@@ -123,7 +167,7 @@ function DashboardView({
     return () => {
       cancelled = true
     }
-  }, [name, localPush])
+  }, [name, localPush, database])
 
   const srcDoc = useMemo(
     () => (active && results ? buildSrcDoc(active.html, results) : null),
@@ -157,13 +201,22 @@ function DashboardView({
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          data-testid="dashboard-save"
+          onClick={() => void save()}
+          disabled={!active || saving}
+          className="glass-btn min-w-[5rem] px-3 py-2 text-center text-sm font-medium"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
       </div>
 
       {!name && (
         <p className="text-center text-sm text-slate-400" data-testid="dashboard-empty">
           {dashboards.length
             ? 'Pick a dashboard to view it.'
-            : 'No dashboards yet. An agent can create one with the upsert_dashboard tool.'}
+            : 'No dashboards yet. An agent can create one with the push_dashboard tool.'}
         </p>
       )}
 

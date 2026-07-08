@@ -49,3 +49,57 @@ def test_clearing_cell_view_persists_null():
     rows = _run(list_predefined_queries("clickhouse"))
     row = next(r for r in rows if r["query_name"] == "c")
     assert row["cell_view"] is None
+
+
+def test_order_by_and_fields_round_trip():
+    _run(
+        save_predefined_query(
+            "q1",
+            "clickhouse",
+            "SELECT 1",
+            cell_view=None,
+            order_by='[{"name":"id","dir":"DESC"}]',
+            fields='["id","name"]',
+        )
+    )
+    rows = _run(list_predefined_queries("clickhouse"))
+    row = next(r for r in rows if r["query_name"] == "q1")
+    assert row["order_by"] == '[{"name":"id","dir":"DESC"}]'
+    assert row["fields"] == '["id","name"]'
+
+
+def test_null_presentation_is_preserved():
+    _run(save_predefined_query("q2", "clickhouse", "SELECT 2"))
+    rows = _run(list_predefined_queries("clickhouse"))
+    row = next(r for r in rows if r["query_name"] == "q2")
+    assert row["order_by"] is None and row["fields"] is None
+
+
+def test_mcp_list_queries_parses_presentation():
+    from queryview.mcp_server import list_queries
+
+    _run(
+        save_predefined_query(
+            "lq", "clickhouse", "SELECT 1",
+            order_by='[{"name":"id","dir":"ASC"}]',
+            fields='["id"]',
+        )
+    )
+    out = _run(list_queries("clickhouse"))
+    row = next(r for r in out["queries"] if r["query_name"] == "lq")
+    assert row["order_by"] == [{"name": "id", "dir": "ASC"}]
+    assert row["fields"] == ["id"]
+    assert row["query"] == "SELECT 1"
+
+
+def test_columns_to_rows():
+    from queryview.mcp_server import _columns_to_rows
+
+    out = _columns_to_rows({"a": ["1", "2"], "b": ["x", "y"]})
+    assert out == {"columns": ["a", "b"], "rows": [["1", "x"], ["2", "y"]]}
+
+
+def test_columns_to_rows_empty():
+    from queryview.mcp_server import _columns_to_rows
+
+    assert _columns_to_rows({}) == {"columns": [], "rows": []}

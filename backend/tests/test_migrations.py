@@ -82,3 +82,13 @@ def test_config_blob_migration_backfills_existing_clickhouse_row():
         con.close()
     data = json.loads(_decrypt_str(blob))
     assert data == {"host": "h", "port": 8123, "username": "u", "password": "pw"}
+
+
+def test_predefined_queries_has_presentation_columns():
+    _run(_ensure_schema())
+    con = sqlite3.connect(os.environ["DB_PATH"])
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(predefined_queries)")}
+    finally:
+        con.close()
+    assert {"order_by", "fields"} <= cols, f"missing columns, got {sorted(cols)}"

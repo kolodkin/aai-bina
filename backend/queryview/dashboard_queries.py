@@ -31,12 +31,16 @@ def _parse_tsv_columns(text: str) -> dict[str, list[str]]:
 
 
 async def run_queries_for_connection(
-    name: str, queries: dict[str, str]
+    name: str,
+    queries: dict[str, str],
+    limit: int = DASHBOARD_ROW_CAP,
+    offset: int = 0,
 ) -> dict[str, Any]:
     """Run a dashboard's named queries against a saved connection by name.
     Fail-fast: an unknown connection, no selected database, or the first failing
     query aborts the call. On full success returns {"ok": True, "results": {name:
-    {col: [values, …]}}} — column-oriented, ready for window.queries."""
+    {col: [values, …]}}} — column-oriented, ready for window.queries. `limit`/
+    `offset` page each query (default: the dashboard row cap, from row 0)."""
     stored = await _connection_by_name(name)
     if stored is None:
         return {
@@ -58,7 +62,7 @@ async def run_queries_for_connection(
     for qname, sql in queries.items():
         r = await driver.run_query(
             stored.config, sql, stored.database,
-            limit=DASHBOARD_ROW_CAP, offset=0, order_by=None, fmt="tsv",
+            limit=limit, offset=offset, order_by=None, fmt="tsv",
         )
         if not r.ok:
             return {"ok": False, "reason": "query", "message": f"{qname}: {r.value}"}

@@ -143,6 +143,16 @@ query — editor edits take effect only after **Save** (which re-fetches the lis
 Ad-hoc SQL with no selected query renders plain, as does a broken (unparseable or
 unrecognized-shape) `cell_view`.
 
+### Pushed cell views (MCP / remote)
+
+A remote push (the `push_query` MCP tool, or `POST /api/remote/push`) may carry a
+`cell_view` field — the same raw YAML — that styles **that pushed result only**.
+It's a per-push override, not persisted: it wins over the selected query's saved
+`cell_view` for rendering and is dropped on the next manual **Execute** or when a
+query is picked from the dropdown. This lets an agent push a query *and* its
+render rules in one call (e.g. show a `source` column as a custom HTML token)
+without saving a predefined query.
+
 ## Default views for complex types
 
 Columns whose ClickHouse type is **`Array`**, **`Map`**, or **`Tuple`** get a
@@ -236,14 +246,39 @@ horizontally). **Download CSV** re-runs the current page as `CSVWithNames` and s
 `query.csv` — current page only, always every column regardless of the **Select
 fields** view.
 
+## Co-edit & edit lock
+
+An agent (via the `push_query` MCP tool) and a human can share a live session
+without clobbering each other, arbitrated by a **server-side edit lock** on the
+session (owner: none / human / agent, held in memory).
+
+- **Human** acquires the lock on **focus** of any editable item in the query
+  panel and releases it on **blur** (a ~10s heartbeat refreshes a 30s TTL, so a
+  frozen tab can't hold it forever; a closed tab drops it immediately).
+- **Agent** pushes are atomic: a push checks the lock and, if a human holds it,
+  is rejected with `blocked, user editing` (the agent backs off and retries).
+- A push is validated first: malformed `order_by`/`fields` are rejected with
+  `invalid …` and nothing is delivered. `cell_view` stays lenient.
+- When an agent push lands, the browser shows a brief **"Agent updated the
+  query"** toast so the human notices the panel changed.
+- **Save persists presentation:** the human's Save now stores `order_by` and the
+  selected `fields` alongside `cell_view`, so reloading a predefined query
+  restores its full presentation. Pushes never persist — only the human's Save
+  writes to the DB.
+
+The lock and channels live in one process's memory (like the SSE relay), so this
+assumes a single backend process; multi-worker deployments would need a shared
+backplane.
+
 ## API
 
 | Method | Path                        | Body                                          | Result |
 | ------ | --------------------------- | --------------------------------------------- | ------ |
 | POST   | `/api/db/query`     | `{query, limit?, offset?, format?, order_by?}` | `{ok, output}` (raw text) \| `{ok:false, message}`. `format:"csv"` returns CSV. `order_by` is `[{name, dir}]` (`dir` ASC/DESC). Empty query → `400`; no session → `409`. |
 | POST   | `/api/db/describe`  | `{query}`                                     | `{ok, fields:[{name, type}]}` — the query's output columns, via `DESCRIBE`, no data scanned. \| `{ok:false, message}`. Empty query → `400`; no session / no database → `409`. |
-| GET    | `/api/predefined-queries`   | `?type=<connType>`                            | `{queries:[{query_name, query, cell_view}]}` for that connection type. `cell_view` is raw YAML text or `null`. |
-| POST   | `/api/predefined-queries`   | `{query_name, type, query, cell_view?}`       | `{ok}`; upserts a predefined query. `cell_view` is optional raw YAML; empty/missing clears it. Missing required fields → `400`. |
+| GET    | `/api/predefined-queries`   | `?type=<connType>`                            | `{queries:[{query_name, query, cell_view, order_by, fields}]}` for that connection type. `cell_view` is raw YAML text or `null`; `order_by` is `[{name, dir}]` or `null`; `fields` is `["col", …]` or `null`. |
+| POST   | `/api/predefined-queries`   | `{query_name, type, query, cell_view?, order_by?, fields?}` | `{ok}`; upserts a predefined query. `cell_view` is optional raw YAML; `order_by`/`fields` persist the saved presentation (validated; malformed → `400`). Missing required fields → `400`. |
+| POST   | `/api/remote/lock`          | `{session_id, action:"acquire"\|"release"}`   | `{ok, message}`; browser-only edit lock for a live session (acquire on panel focus + ~10s heartbeat, release on blur). Bad action → `400`. |
 
 Queries run over the ClickHouse HTTP interface (HTTP Basic auth, 5s timeout),
 scoped to the session's selected database.

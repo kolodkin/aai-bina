@@ -81,6 +81,35 @@ async def list_dashboards() -> list[dict[str, Any]]:
     ]
 
 
+def _dashboard_event(
+    name: str, connection: str, html: str, queries: dict[str, str]
+) -> dict[str, Any]:
+    """The SSE payload the browser renders for a pushed dashboard."""
+    return {
+        "type": "dashboard",
+        "name": name,
+        "connection": connection,
+        "html": html,
+        "queries": queries,
+    }
+
+
+async def _push_dashboard(
+    name: str,
+    connection: str,
+    html: str,
+    queries: dict[str, str],
+    session_id: str | None,
+) -> tuple[bool, str]:
+    """Push a dashboard to a live session as a DRAFT — no persistence. Only the
+    user's Save (POST /api/dashboards) writes it to the store, mirroring how
+    push_query drafts a query for the user to Save. Returns (pushed, message);
+    no session_id -> (False, "no session")."""
+    if not session_id:
+        return False, "no session"
+    return remote.push(session_id, _dashboard_event(name, connection, html, queries))
+
+
 async def _upsert_and_push(
     name: str,
     connection: str,
@@ -91,18 +120,11 @@ async def _upsert_and_push(
     """Persist a dashboard, then (if `session_id` given) push it to that live
     browser session. Returns (persisted, pushed, message). Push is best-effort:
     an unknown/inactive session leaves it saved with pushed=False, per
-    remote.push's contract."""
+    remote.push's contract. Used by the REST endpoint (the user-Save path)."""
     await upsert_dashboard(name, connection, html, queries)
     if session_id:
         ok, message = remote.push(
-            session_id,
-            {
-                "type": "dashboard",
-                "name": name,
-                "connection": connection,
-                "html": html,
-                "queries": queries,
-            },
+            session_id, _dashboard_event(name, connection, html, queries)
         )
         return True, ok, message
     return True, False, "persisted"

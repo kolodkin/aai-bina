@@ -23,17 +23,17 @@ Open it from the prompt with `dashboard` (just the dropdown) or `dashboard
 re-fetches the dashboard and re-runs its queries, so a reloaded or shared link
 always shows live data.
 
-## The `upsert_dashboard` MCP tool
+## The `push_dashboard` MCP tool
 
 The FastMCP server at `/mcp` (see [remote.md](./remote.md) for arming and the
 session id) exposes:
 
-- `upsert_dashboard(session_id, name, connection, html, queries)` — persist the
-  dashboard by `name` (upsert) **and** push it to the browser identified by
-  `session_id`, which navigates to `/dashboard?name=<name>` and renders it.
-  Returns `{ok, persisted, pushed, message}`. An unknown/disarmed `session_id`
-  still persists (`persisted:true`) while reporting `pushed:false` — it stays
-  openable by name.
+- `push_dashboard(session_id, name, connection, html, queries)` — push the
+  dashboard **draft** to the browser identified by `session_id`, which navigates
+  to `/dashboard?name=<name>` and renders it. It does **not** persist — only the
+  user's **Save** button in the dashboard view writes it to the store (mirrors
+  `push_query`). Returns `{ok, pushed, message}`; an unknown/disarmed
+  `session_id` reports `pushed:false`.
 
 `session_id` and `connection` are distinct: `session_id` is the live browser to
 push the preview to; `connection` is the saved [connection](./connect.md) the

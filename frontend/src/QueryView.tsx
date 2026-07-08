@@ -4,7 +4,10 @@ import { useNavigate } from 'react-router-dom'
 import { CellViewModal } from './CellViewModal'
 import { ComplexCell } from './ComplexCell'
 import { DRIVERS, type DriverMeta } from './drivers'
+import { suggestCompletions, type Suggestion } from './promptSuggestions'
 import { escapeHtml, substituteCellTemplate } from './cellView'
+import { postLock } from './sessionLock'
+import { presentationForSave } from './presentation'
 import { parseComplexType } from './complexCellParsing'
 import {
   applyParams,
@@ -31,14 +34,20 @@ export function isReady(connection: Connection | null): boolean {
   )
 }
 
-type PredefinedQuery = { query_name: string; query: string; cell_view: string | null }
+type PredefinedQuery = {
+  query_name: string
+  query: string
+  cell_view: string | null
+  order_by: OrderCol[] | null
+  fields: string[] | null
+}
 
 type CellView = { type: string; value: string }
 type CellViewMap = Record<string, CellView>
 
 type Field = { name: string; type: string }
 
-type OrderCol = { name: string; dir: 'ASC' | 'DESC' }
+export type OrderCol = { name: string; dir: 'ASC' | 'DESC' }
 
 export type QueryPush = {
   query: string
@@ -46,6 +55,12 @@ export type QueryPush = {
   offset?: number
   order_by?: OrderCol[]
   fields?: string[]
+  // Raw cell-view YAML carried with this push; loaded into the editor as a
+  // draft (renders immediately, persisted only when the user clicks Save).
+  cell_view?: string | null
+  // Predefined-query name to select in the dropdown. Selection only — the push
+  // never persists; the user's Save writes the loaded SQL + cell_view under it.
+  name?: string | null
 }
 
 // Sentinel value for the predefined dropdown's "new name" item.
@@ -58,11 +73,13 @@ function QueryView({
   setConnection,
   pushed,
   onPushConsumed,
+  remoteId,
 }: {
   connection: Connection | null
   setConnection: (c: Connection | null) => void
   pushed?: QueryPush | null
   onPushConsumed?: () => void
+  remoteId?: string | null
 }) {
   const navigate = useNavigate()
   const [prompt, setPrompt] = useState('')
@@ -70,6 +87,28 @@ function QueryView({
   // The driver whose connection form is open, or null when no form is shown.
   const [formType, setFormType] = useState<string | null>(null)
   const [showQuery, setShowQuery] = useState(false)
+  // Command-prompt autocomplete: highlighted row, and whether Esc dismissed it.
+  const [acIndex, setAcIndex] = useState(0)
+  const [acDismissed, setAcDismissed] = useState(false)
+  const [connNames, setConnNames] = useState<string[]>([])
+  const promptRef = useRef<HTMLInputElement>(null)
+
+  // Saved connection names power `connect <name>` autocomplete; refresh on mount
+  // and whenever the set may have changed (new connection created).
+  const refreshConnections = useCallback(async () => {
+    try {
+      const res = await fetch('/api/db/connections')
+      const data = await res.json()
+      setConnNames(Array.isArray(data.names) ? (data.names as string[]) : [])
+    } catch {
+      /* leave the last known list in place on a failed refresh */
+    }
+  }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshConnections()
+  }, [refreshConnections])
 
   const ready = isReady(connection)
 
@@ -134,6 +173,10 @@ function QueryView({
       }
       return
     }
+    if (lower === 'disconnect') {
+      void disconnect()
+      return
+    }
     if (lower === 'dashboard') {
       navigate('/dashboard')
       return
@@ -156,7 +199,7 @@ function QueryView({
     setShowQuery(false)
     setHint(
       `Unknown command “${raw}”. Try “new ${Object.keys(DRIVERS).join('|')}”, ` +
-        `“connect <name>” or “dashboard <name>”.`,
+        `“connect <name>”, “dashboard <name>” or “disconnect”.`,
     )
   }
 
@@ -165,6 +208,22 @@ function QueryView({
     setFormType(null)
     setShowQuery(false)
     setPrompt(`connect ${name}`)
+    void refreshConnections()
+  }
+
+  // Drop the active connection both server- and client-side, returning to the
+  // bare command prompt. Saved connections survive — `connect <name>` reopens.
+  async function disconnect() {
+    try {
+      await fetch('/api/db/disconnect', { method: 'POST' })
+    } catch {
+      /* a failed disconnect still clears the UI; the session is best-effort */
+    }
+    setConnection(null)
+    setFormType(null)
+    setShowQuery(false)
+    setHint(null)
+    setPrompt('')
   }
 
   async function selectDatabase(database: string) {
@@ -183,23 +242,113 @@ function QueryView({
 
   const inQueryMode = showQuery && ready
 
+  // Command-prompt autocomplete suggestions for the current input. Hidden when
+  // dismissed, empty, or the lone match already equals what's typed.
+  const suggestions = useMemo(
+    () =>
+      suggestCompletions(prompt, {
+        drivers: Object.keys(DRIVERS),
+        connections: connNames,
+        ready,
+        connected: !!connection,
+      }),
+    [prompt, ready, connection, connNames],
+  )
+  const showAc =
+    !acDismissed &&
+    prompt.trim() !== '' && // nothing typed yet → no unsolicited dropdown
+    suggestions.length > 0 &&
+    !(suggestions.length === 1 && suggestions[0].value === prompt)
+  const acActive = Math.min(acIndex, suggestions.length - 1)
+
+  function acceptSuggestion(s: Suggestion) {
+    setPrompt(s.value)
+    setAcIndex(0)
+    setAcDismissed(false)
+    promptRef.current?.focus()
+  }
+
+  function onPromptKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!showAc) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setAcIndex((i) => (Math.min(i, suggestions.length - 1) + 1) % suggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setAcIndex(
+        (i) =>
+          (Math.min(i, suggestions.length - 1) - 1 + suggestions.length) % suggestions.length,
+      )
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
+      // Accept the highlighted row rather than completing/submitting.
+      e.preventDefault()
+      acceptSuggestion(suggestions[acActive])
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setAcDismissed(true)
+    }
+  }
+
   // Command prompt. In query mode it joins the panel's top row to save space.
   const promptInput = (
-    <form onSubmit={submitPrompt} className={inQueryMode ? 'min-w-0 flex-1' : undefined}>
+    <form
+      onSubmit={submitPrompt}
+      className={`relative ${inQueryMode ? 'min-w-0 flex-1' : ''}`}
+    >
       <input
+        ref={promptRef}
         type="text"
         value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
+        onChange={(e) => {
+          setPrompt(e.target.value)
+          setAcIndex(0)
+          setAcDismissed(false)
+        }}
+        onKeyDown={onPromptKeyDown}
         placeholder={ready ? 'query' : 'Type a command, e.g. new clickhouse'}
         aria-label="Prompt"
         data-testid="prompt-input"
         autoFocus
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={showAc}
+        aria-controls="prompt-suggestions"
+        aria-activedescendant={showAc ? `prompt-suggestion-${acActive}` : undefined}
         className={
           inQueryMode
             ? 'glass-input w-full px-3 py-2 text-sm'
             : 'glass-input w-full px-4 py-3 text-center'
         }
       />
+      {showAc && (
+        <ul
+          id="prompt-suggestions"
+          role="listbox"
+          data-testid="prompt-suggestions"
+          className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-white/10 bg-slate-900/95 text-left shadow-xl backdrop-blur"
+        >
+          {suggestions.map((s, i) => (
+            <li
+              key={s.value}
+              id={`prompt-suggestion-${i}`}
+              role="option"
+              aria-selected={i === acActive}
+              data-testid={`suggestion-${s.label}`}
+              onMouseDown={(e) => {
+                // Keep focus on the input; mousedown beats the input's blur.
+                e.preventDefault()
+                acceptSuggestion(s)
+              }}
+              className={`flex cursor-pointer items-baseline justify-between px-3 py-2 text-sm ${
+                i === acActive ? 'bg-indigo-500/30 text-white' : 'text-slate-300 hover:bg-white/5'
+              }`}
+            >
+              <span className="font-medium">{s.label}</span>
+              <span className="ml-3 text-xs text-slate-500">{s.hint}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </form>
   )
 
@@ -232,6 +381,7 @@ function QueryView({
           promptSlot={promptInput}
           pushed={pushed}
           onPushConsumed={onPushConsumed}
+          remoteId={remoteId}
         />
       )}
     </div>
@@ -484,11 +634,13 @@ function QueryPanel({
   promptSlot,
   pushed,
   onPushConsumed,
+  remoteId,
 }: {
   connectionType: string
   promptSlot?: React.ReactNode
   pushed?: QueryPush | null
   onPushConsumed?: () => void
+  remoteId?: string | null
 }) {
   const [sql, setSql] = useState('')
   const [limit, setLimit] = useState(100)
@@ -509,18 +661,61 @@ function QueryPanel({
   const colTypeCache = useRef<Map<string, Record<string, string>>>(new Map())
   const [orderBy, setOrderBy] = useState<OrderCol[]>([])
   const [cellViewModalOpen, setCellViewModalOpen] = useState(false)
+  // Transient "Copied" feedback for the copy-name button.
+  const [copiedName, setCopiedName] = useState(false)
+  // Panel root, for the edit-lock focus tracker.
+  const panelRef = useRef<HTMLElement>(null)
+  const blurTimer = useRef<number | undefined>(undefined)
 
-  // Saved cell_view of the selected query, or '' when none. Single source of
-  // truth for rendering, modal seeding, and top-button re-saves.
+  // Edit lock: acquire on panel focus (+ ~10s heartbeat to refresh the 30s TTL),
+  // release on blur out of the panel. Advisory — postLock swallows errors.
+  useEffect(() => {
+    const el = panelRef.current
+    if (!el || !remoteId) return
+    const acquire = () => void postLock(remoteId, 'acquire')
+    const onFocusIn = () => {
+      window.clearTimeout(blurTimer.current)
+      acquire()
+    }
+    const onFocusOut = () => {
+      // Debounce: moving between inputs fires focusout then focusin.
+      window.clearTimeout(blurTimer.current)
+      blurTimer.current = window.setTimeout(() => {
+        if (!el.contains(document.activeElement)) void postLock(remoteId, 'release')
+      }, 150)
+    }
+    el.addEventListener('focusin', onFocusIn)
+    el.addEventListener('focusout', onFocusOut)
+    const beat = window.setInterval(() => {
+      if (el.contains(document.activeElement)) acquire()
+    }, 10000)
+    return () => {
+      el.removeEventListener('focusin', onFocusIn)
+      el.removeEventListener('focusout', onFocusOut)
+      window.clearInterval(beat)
+      window.clearTimeout(blurTimer.current)
+    }
+  }, [remoteId])
+  // Cell-view YAML carried by a push, loaded as an unsaved draft: it renders
+  // and seeds the editor/Save, but isn't persisted until the user clicks Save.
+  // Cleared on a successful Save (the saved view takes over) or when another
+  // query is picked from the dropdown. null when no push draft is active.
+  const [pushedCellView, setPushedCellView] = useState<string | null>(null)
+
+  // Saved cell_view of the selected query, or '' when none.
   const savedCellView = useMemo(
     () => predefined.find((p) => p.query_name === selectedName)?.cell_view ?? '',
     [predefined, selectedName],
   )
 
+  // What rendering, the modal editor, and Save all read: a pushed draft wins
+  // over the persisted view until it's saved or discarded.
+  const effectiveCellView = pushedCellView ?? savedCellView
+
   // Editor edits don't take effect until Save (which refreshes `predefined`).
   const appliedViews = useMemo<CellViewMap>(
-    () => parseCellViewYaml(savedCellView),
-    [savedCellView],
+    () => parseCellViewYaml(effectiveCellView),
+    [effectiveCellView],
   )
 
   // Selectors from the cell_view YAML's `params:` section. Each renders a
@@ -655,6 +850,10 @@ function QueryPanel({
     setLimit(lim)
     setOffset(off)
     setOrderBy(ord)
+    setPushedCellView(pushed.cell_view ?? null)
+    // Load everything into the editor: select the named query so the dropdown,
+    // saved view, and Save all target it (selection only — nothing persisted).
+    if (pushed.name != null) setSelectedName(pushed.name)
     /* eslint-enable react-hooks/set-state-in-effect */
     void runWith(q, lim, off, ord, fld)
     // Consume the push so re-mounting doesn't re-run a stale query.
@@ -761,6 +960,8 @@ function QueryPanel({
   }
 
   function run(nextOffset: number) {
+    // Keep any pushed draft (cell view) across re-runs/paging so the user can
+    // review and Save it; it's only cleared on Save or a dropdown selection.
     void runWith(sql, limit, nextOffset, orderBy)
   }
 
@@ -800,6 +1001,20 @@ function QueryPanel({
 
   // Dropdown selection: a saved query loads its SQL and cell_view; the "new name"
   // item prompts for a fresh name. The chosen name is what Save writes under.
+  // Copy the selected predefined-query name to the clipboard, with a brief
+  // "Copied" confirmation on the button.
+  async function copyName() {
+    const name = selectedName.trim()
+    if (!name) return
+    try {
+      await navigator.clipboard.writeText(name)
+      setCopiedName(true)
+      window.setTimeout(() => setCopiedName(false), 1500)
+    } catch {
+      /* clipboard blocked (e.g. insecure context); silently no-op */
+    }
+  }
+
   function onSelectName(value: string) {
     if (value === NEW_NAME_OPTION) {
       const name = window.prompt('Save query as (name):', selectedName || '')?.trim()
@@ -807,13 +1022,18 @@ function QueryPanel({
       return
     }
     setSelectedName(value)
+    setPushedCellView(null) // selecting a query reverts to its saved cell view
     const q = predefined.find((p) => p.query_name === value)
-    if (q) setSql(q.query)
+    if (q) {
+      setSql(q.query)
+      setOrderBy(q.order_by ?? [])
+      setVisibleCols(q.fields ?? []) // [] = show all (matches pushed-fields semantics)
+    }
   }
 
   // SQL-only saves (top button) re-persist the existing cell_view; the modal
   // passes its draft. Returns success so the modal closes only on a clean persist.
-  async function save(cellViewValue: string = savedCellView): Promise<boolean> {
+  async function save(cellViewValue: string = effectiveCellView): Promise<boolean> {
     const name = selectedName.trim()
     if (!name) return false
     setBusy(true)
@@ -827,10 +1047,13 @@ function QueryPanel({
           type: connectionType,
           query: sql,
           cell_view: cellViewValue,
+          ...presentationForSave(orderBy, visibleCols),
         }),
       })
       const data = await res.json()
       if (data.ok) {
+        // Persisted: drop the draft so the freshly-saved view takes over.
+        setPushedCellView(null)
         await loadPredefined()
         return true
       }
@@ -844,8 +1067,8 @@ function QueryPanel({
     }
   }
 
-  // Modal owns its draft state (seeded from savedCellView); we just toggle
-  // visibility and forward the saved value to the backend.
+  // Modal owns its draft state (seeded from effectiveCellView, so a pushed
+  // draft is editable); we just toggle visibility and forward the saved value.
   async function onCellViewSave(value: string) {
     if (await save(value)) setCellViewModalOpen(false)
   }
@@ -894,7 +1117,11 @@ function QueryPanel({
   const inputClass = 'glass-input px-3 py-2'
 
   return (
-    <section data-testid="query-panel" className="glass-panel mt-6 space-y-3 p-6">
+    <section
+      ref={panelRef}
+      data-testid="query-panel"
+      className="glass-panel mt-6 space-y-3 p-6"
+    >
       <div className="flex items-center gap-2">
         {promptSlot}
         <select
@@ -916,6 +1143,17 @@ function QueryPanel({
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          onClick={() => void copyName()}
+          disabled={!selectedName.trim()}
+          data-testid="query-copy-name"
+          title="Copy query name"
+          aria-label="Copy query name"
+          className="glass-btn min-w-[4.5rem] px-3 py-2 text-center font-medium"
+        >
+          {copiedName ? 'Copied' : 'Copy'}
+        </button>
         <button
           type="button"
           onClick={() => void save()}
@@ -999,7 +1237,7 @@ function QueryPanel({
 
       {cellViewModalOpen && (
         <CellViewModal
-          initial={savedCellView}
+          initial={effectiveCellView}
           onCancel={() => setCellViewModalOpen(false)}
           onSave={(value) => void onCellViewSave(value)}
           saveDisabled={busy || !selectedName.trim()}

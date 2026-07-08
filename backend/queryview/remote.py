@@ -6,17 +6,64 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from .validation import presentation_error
+
+LOCK_TTL_SECONDS = 30.0
 
 
 @dataclass
 class _Channel:
     queue: "asyncio.Queue[dict[str, Any]]" = field(default_factory=asyncio.Queue)
+    # Advisory edit lock: "human" | "agent" | None. lock_touched is a monotonic
+    # timestamp refreshed on acquire; a human lock older than LOCK_TTL_SECONDS is
+    # treated as released (heartbeat lapsed / tab froze).
+    lock_owner: str | None = None
+    lock_touched: float = 0.0
+    # The database this browser session currently targets, reported by the UI so
+    # push_query/push_dashboard can echo it back to the agent.
+    database: str | None = None
 
 
 # remote_id -> channel. Module-level, like connect.py's _sessions.
 _channels: dict[str, _Channel] = {}
+
+
+def _human_holds(channel: _Channel) -> bool:
+    return (
+        channel.lock_owner == "human"
+        and (time.monotonic() - channel.lock_touched) < LOCK_TTL_SECONDS
+    )
+
+
+def acquire(remote_id: str, owner: str) -> tuple[bool, str]:
+    """Take (or refresh) the edit lock for `owner`. Succeeds if free, already
+    yours, or the current holder's TTL has lapsed. Otherwise returns the
+    owner-named block reason."""
+    channel = _channels.get(remote_id)
+    if channel is None:
+        return False, "unknown or inactive session"
+    now = time.monotonic()
+    expired = (now - channel.lock_touched) >= LOCK_TTL_SECONDS
+    if channel.lock_owner in (None, owner) or expired:
+        channel.lock_owner = owner
+        channel.lock_touched = now
+        return True, "acquired"
+    who = "user" if channel.lock_owner == "human" else "agent"
+    return False, f"blocked, {who} editing"
+
+
+def release(remote_id: str, owner: str) -> tuple[bool, str]:
+    """Release the lock only if `owner` holds it (idempotent)."""
+    channel = _channels.get(remote_id)
+    if channel is None:
+        return False, "unknown or inactive session"
+    if channel.lock_owner == owner:
+        channel.lock_owner = None
+    return True, "released"
 
 
 def register() -> str:
@@ -33,11 +80,33 @@ def unregister(remote_id: str) -> None:
     _channels.pop(remote_id, None)
 
 
+def set_session_database(remote_id: str, database: str | None) -> bool:
+    """Record the database a live session targets (reported by the UI). Returns
+    False for an unknown/inactive session."""
+    channel = _channels.get(remote_id)
+    if channel is None:
+        return False
+    channel.database = database
+    return True
+
+
+def session_database(remote_id: str) -> str | None:
+    """The database a live session targets, or None if unknown/unreported."""
+    channel = _channels.get(remote_id)
+    return channel.database if channel else None
+
+
 def push(remote_id: str, payload: dict[str, Any]) -> tuple[bool, str]:
-    """Enqueue a payload for a channel. (False, message) if no such channel."""
+    """Validate + lock-check + enqueue a payload for a channel. Ordered:
+    unknown session -> invalid presentation -> human holds lock -> deliver."""
     channel = _channels.get(remote_id)
     if channel is None:
         return False, "unknown or inactive session"
+    err = presentation_error(payload.get("order_by"), payload.get("fields"))
+    if err is not None:
+        return False, err
+    if _human_holds(channel):
+        return False, "blocked, user editing"
     channel.queue.put_nowait(payload)
     return True, "delivered"
 
