@@ -33,9 +33,11 @@ tools:
 - `run_query(query, connection?="clickhouse")` — run a read-only query and return
   rows to the agent (not the browser): `{ok, columns, rows}`, capped at 1000
   rows. For schema discovery / data inspection before building a dashboard.
-- `upsert_dashboard(session_id, name, connection, html, queries)` — persist a
-  dashboard and push it to the session, which navigates to it and renders it.
-  Returns `{ok, persisted, pushed, message}`. See [dashboard.md](./dashboard.md).
+- `upsert_dashboard(session_id, name, connection, html, queries)` — push a
+  dashboard **draft** to the session, which navigates to it and renders it.
+  Does **not** persist — only the user's **Save** button in the dashboard view
+  writes it to the store (mirrors `push_query`). Returns `{ok, pushed, message}`.
+  See [dashboard.md](./dashboard.md).
 
 The pushed query runs through the normal `POST /api/db/query`, so all of
 that path's pagination and order-by safety applies; the push layer never talks

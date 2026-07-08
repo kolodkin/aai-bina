@@ -9,7 +9,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from . import remote
-from .dashboards import _upsert_and_push
+from .dashboards import _push_dashboard
 from .queries import list_predefined_queries_view
 
 mcp = FastMCP("queryview", stateless_http=True)
@@ -113,12 +113,13 @@ async def upsert_dashboard(
     html: str,
     queries: dict[str, str],
 ) -> dict[str, Any]:
-    """Create or update a dashboard and push it to a live QueryView session.
+    """Push a dashboard DRAFT to a live QueryView session (does not persist).
 
-    Persists the dashboard (HTML + named SQL) by name, then pushes it to the
-    browser identified by session_id (the id from the QueryView agent popover),
-    which navigates to it and renders it. The dashboard's queries run against
-    the named connection.
+    The dashboard renders immediately in the browser, but nothing is written to
+    the store — only the user's **Save** button in the dashboard view persists
+    it, mirroring how push_query drafts a query for the user to Save. Re-push to
+    update the live draft. The dashboard's queries run against the named
+    connection.
 
     The browser consumes the results, not the agent: the HTML reads them from a
     `window.queries` global, a column-oriented map
@@ -127,19 +128,14 @@ async def upsert_dashboard(
 
     Args:
         session_id: The session id shown in the QueryView popover.
-        name: Dashboard name (upsert key).
+        name: Dashboard name (the name the user's Save will persist under).
         connection: Saved connection name the queries run against.
         html: The dashboard HTML document (renders in a sandboxed iframe).
         queries: Map of query name to SQL.
 
-    Returns {ok, persisted, pushed, message}.
+    Returns {ok, pushed, message}.
     """
-    persisted, pushed, message = await _upsert_and_push(
+    pushed, message = await _push_dashboard(
         name, connection, html, queries, session_id or None
     )
-    return {
-        "ok": persisted,
-        "persisted": persisted,
-        "pushed": pushed,
-        "message": message,
-    }
+    return {"ok": pushed, "pushed": pushed, "message": message}

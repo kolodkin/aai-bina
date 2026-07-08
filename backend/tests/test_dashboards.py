@@ -157,3 +157,18 @@ def test_dashboards_upsert_pushes_to_registered_session():
         assert msg["type"] == "dashboard" and msg["name"] == "live-dash"
     finally:
         remote.unregister(rid)
+
+
+def test_mcp_upsert_dashboard_pushes_draft_without_persisting():
+    from queryview.mcp_server import upsert_dashboard as mcp_upsert
+
+    rid = remote.register()
+    try:
+        out = _run(mcp_upsert(rid, "draftdash", "c", "<p>d</p>", {"q": "SELECT 1"}))
+        assert out["pushed"] is True
+        # Draft: the agent push must NOT persist — only the user's Save does.
+        assert _run(get_dashboard("draftdash")) is None
+        msg = _run(remote.next_message(rid, 1.0))
+        assert msg["type"] == "dashboard" and msg["name"] == "draftdash"
+    finally:
+        remote.unregister(rid)
