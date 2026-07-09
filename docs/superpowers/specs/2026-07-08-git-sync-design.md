@@ -184,5 +184,8 @@ unconfigured, Commit and Restore render disabled with a tooltip explaining
   with no change makes no commit; history paginates with `before`; restore at
   an old sha overwrites the DB row and does not move HEAD.
 - **API tests** for the three endpoints incl. the unconfigured error.
-- e2e: history menu renders revisions and restore round-trips (behind a
-  temp-dir remote).
+- e2e: CI starts a loopback `git daemon` (composite action, with
+  `--enable=receive-pack` since store pushes) serving an empty bare repo over
+  git:// and exports it as `GIT_SYNC_REMOTE` before starting the backend; the
+  test commits and restores a dashboard through the UI. On unconfigured
+  stacks the flow test skips and the controls are asserted disabled instead.

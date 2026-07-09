@@ -68,6 +68,9 @@ jobs:
       - name: Build frontend
         run: npm run build -w frontend
 
+      - name: Start git daemon
+        uses: ./.github/actions/start-git-daemon
+
       - name: Start backend (serving built SPA)
         run: |
           SERVE_STATIC=1 uv run --frozen queryview-backend > backend.log 2>&1 &
