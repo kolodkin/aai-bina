@@ -124,6 +124,8 @@ handles GitHub credentials beyond passing the remote URL to git.
 REST (mirroring the existing `/api/dashboards` style; thin wrappers in
 `main.py`, logic in `gitsync.py`):
 
+- `GET /api/git/status` → `{configured}` — lets the UI disable Commit/Restore
+  with a tooltip when `GIT_SYNC_REMOTE` is unset.
 - `POST /api/git/store` — body `{kind, name, conn_type?, message?}` →
   `{sha}`.
 - `GET /api/git/history?kind=&name=&conn_type=&before=&limit=10` →

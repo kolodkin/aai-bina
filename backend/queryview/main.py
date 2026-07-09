@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from . import remote
+from . import gitsync, remote
 from .validation import presentation_error
 from .mcp_server import mcp
 
@@ -456,6 +456,78 @@ async def dashboards_get(name: str):
     if d is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return d
+
+
+# --- Git sync: per-entity backup/restore (see docs/gitsync.md) -------------
+
+
+def _gitsync_args(kind, name, conn_type):
+    """Validated (kind, name, conn_type) or an error JSONResponse."""
+    kind = _clean_str(kind)
+    name = _clean_str(name)
+    conn_type = _clean_str(conn_type)
+    if kind not in ("query", "dashboard") or not name or (kind == "query" and not conn_type):
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": "kind ('query'|'dashboard'), name and (for queries) conn_type are required",
+            },
+            status_code=400,
+        )
+    return kind, name, conn_type or None
+
+
+@app.get("/api/git/status")
+async def git_status():
+    return {"configured": gitsync.configured()}
+
+
+@app.post("/api/git/store")
+async def git_store(request: Request):
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    args = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
+    if isinstance(args, JSONResponse):
+        return args
+    kind, name, conn_type = args
+    try:
+        r = await gitsync.store(kind, name, conn_type, _clean_str(b.get("message")) or None)
+    except gitsync.GitSyncError as e:
+        return JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+    return {"ok": True, **r}
+
+
+@app.get("/api/git/history")
+async def git_history(request: Request):
+    q = request.query_params
+    args = _gitsync_args(q.get("kind"), q.get("name"), q.get("conn_type"))
+    if isinstance(args, JSONResponse):
+        return args
+    kind, name, conn_type = args
+    try:
+        limit = max(1, min(int(q.get("limit") or 10), 100))
+    except ValueError:
+        limit = 10
+    try:
+        r = await gitsync.history(kind, name, conn_type, q.get("before") or None, limit)
+    except gitsync.GitSyncError as e:
+        return JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+    return {"ok": True, **r}
+
+
+@app.post("/api/git/restore")
+async def git_restore(request: Request):
+    body = await _read_json(request)
+    b = body if isinstance(body, dict) else {}
+    args = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
+    if isinstance(args, JSONResponse):
+        return args
+    kind, name, conn_type = args
+    try:
+        r = await gitsync.restore(kind, name, conn_type, _clean_str(b.get("ref")) or None)
+    except gitsync.GitSyncError as e:
+        return JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+    return {"ok": True, **r}
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
