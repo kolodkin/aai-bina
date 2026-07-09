@@ -219,7 +219,10 @@ function DashboardView({
           kind="dashboard"
           name={name}
           disabled={!name}
-          onRestored={() => setReloadNonce((n) => n + 1)}
+          onRestored={() => {
+            setLocalPush(null)
+            setReloadNonce((n) => n + 1)
+          }}
         />
       </div>
 

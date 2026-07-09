@@ -95,6 +95,7 @@ export default function GitSyncControls({ kind, name, connType, disabled, onRest
 
   async function restore(sha: string) {
     if (!window.confirm(`Overwrite local '${name}' with this version?`)) return
+    setError('')
     const r = await gitRestore(kind, name, sha, connType)
     if (!r.ok) {
       setError(r.message ?? 'restore failed')
