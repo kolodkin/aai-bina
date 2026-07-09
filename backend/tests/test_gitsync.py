@@ -180,3 +180,15 @@ def test_store_custom_message(git_env):
     _run(save_predefined_query("gs msg", "clickhouse", "SELECT 3"))
     _run(gitsync.store("query", "gs msg", "clickhouse", message="before migration"))
     assert "before migration" in _remote_log(git_env)
+
+
+def test_store_unreachable_remote_raises_without_init(tmp_path, monkeypatch):
+    from queryview.queries import save_predefined_query
+
+    monkeypatch.setenv("GIT_SYNC_REMOTE", str(tmp_path / "does-not-exist.git"))
+    monkeypatch.setenv("GIT_SYNC_DIR", str(tmp_path / "clone"))
+    _run(save_predefined_query("gs unreachable", "clickhouse", "SELECT 1"))
+    with pytest.raises(GitSyncError) as e:
+        _run(gitsync.store("query", "gs unreachable", "clickhouse"))
+    assert e.value.status == 502
+    assert not (tmp_path / "clone" / ".git").exists()  # no spurious local repo

@@ -201,8 +201,20 @@ async def _ensure_repo() -> Path:
     wd.parent.mkdir(parents=True, exist_ok=True)
     try:
         await _git("clone", "--branch", branch, remote, str(wd))
-    except GitSyncError:
+    except GitSyncError as clone_err:
+        # Clone can fail either because the branch genuinely doesn't exist yet
+        # on an empty remote (the only case we should paper over with a local
+        # init) or because the remote itself is unreachable/misconfigured. Ask
+        # the remote directly to tell the two apart.
+        try:
+            heads = await _git("ls-remote", "--heads", remote, branch)
+        except GitSyncError as probe_err:
+            raise GitSyncError(f"git remote unreachable: {probe_err}") from probe_err
+        if heads.strip():
+            raise clone_err
         # Empty remote (branch doesn't exist yet): start locally, attach remote.
+        if wd.exists():
+            shutil.rmtree(wd)  # clean up any partial clone before init
         await _git("init", "-b", branch, str(wd))
         await _git("remote", "add", "origin", remote, cwd=wd)
     await _git("config", "user.name", "queryview", cwd=wd)
