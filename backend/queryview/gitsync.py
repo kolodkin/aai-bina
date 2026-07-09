@@ -316,20 +316,27 @@ async def history(
         head = await _origin_head(wd)
         if head is None:
             return {"revisions": [], "has_more": False}
-        start = f"{before}^" if before else head
-        try:
-            out = await _git(
-                "log",
-                f"--max-count={limit + 1}",
-                "--format=%H%x1f%ct%x1f%s",
-                start,
-                "--",
-                relpath,
-                cwd=wd,
-            )
-        except GitSyncError:
-            # `before` was the oldest commit: <sha>^ doesn't resolve.
-            return {"revisions": [], "has_more": False}
+        start = head
+        if before:
+            try:
+                await _git("rev-parse", "--verify", "--quiet", f"{before}^{{commit}}", cwd=wd)
+            except GitSyncError:
+                raise GitSyncError(f"unknown revision {before!r}", status=404)
+            try:
+                await _git("rev-parse", "--verify", "--quiet", f"{before}^", cwd=wd)
+            except GitSyncError:
+                # `before` is the oldest commit: <sha>^ doesn't resolve.
+                return {"revisions": [], "has_more": False}
+            start = f"{before}^"
+        out = await _git(
+            "log",
+            f"--max-count={limit + 1}",
+            "--format=%H%x1f%ct%x1f%s",
+            start,
+            "--",
+            relpath,
+            cwd=wd,
+        )
     revisions = []
     for line in out.splitlines():
         sha, ct, subject = line.split("\x1f", 2)

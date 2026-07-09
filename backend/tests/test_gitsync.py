@@ -236,6 +236,13 @@ def test_history_pages_newest_first(git_env):
     assert page3 == {"revisions": [], "has_more": False}
 
 
+def test_history_garbage_before_is_404(git_env):
+    _store_query_versions("gs badbefore", ["SELECT 1"])
+    with pytest.raises(GitSyncError) as e:
+        _run(gitsync.history("query", "gs badbefore", "clickhouse", before="not-a-sha"))
+    assert e.value.status == 404
+
+
 def test_history_only_sees_own_entity(git_env):
     _store_query_versions("gs mine", ["SELECT 1"])
     _store_query_versions("gs other", ["SELECT 9"])
