@@ -162,3 +162,94 @@ async def push_dashboard(
         "message": message,
         "database": remote.session_database(session_id),
     }
+
+
+@mcp.tool()
+async def git_store(
+    kind: str,
+    name: str,
+    conn_type: str | None = None,
+    message: str | None = None,
+) -> dict[str, Any]:
+    """Back up one predefined query or dashboard to the configured git remote.
+
+    Exports the entity's saved DB state as files, makes one commit, and pushes.
+    Requires the server to be configured with GIT_SYNC_REMOTE. Versions are git
+    commits — use git_history to list them and git_restore to roll back.
+
+    Args:
+        kind: "query" or "dashboard".
+        name: The entity's name.
+        conn_type: The query's connection type (e.g. "clickhouse"); required
+            for kind="query", ignored for dashboards.
+        message: Optional commit message (default: "store {kind} {name}").
+
+    Returns {ok, committed, sha, message}; committed=False with "no changes"
+    when the repo already matches the DB.
+    """
+    from . import gitsync
+
+    try:
+        return {"ok": True, **(await gitsync.store(kind, name, conn_type, message))}
+    except gitsync.GitSyncError as e:
+        return {"ok": False, "message": str(e)}
+
+
+@mcp.tool()
+async def git_history(
+    kind: str,
+    name: str,
+    conn_type: str | None = None,
+    before: str | None = None,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """List an entity's backup revisions (commits touching it), newest first.
+
+    Args:
+        kind: "query" or "dashboard".
+        name: The entity's name.
+        conn_type: The query's connection type; required for kind="query".
+        before: A sha from a previous page; returns strictly older revisions.
+        limit: Page size (default 10).
+
+    Returns {ok, revisions: [{sha, date, message}], has_more}; date is unix ms.
+    Pass a sha to git_restore's `ref` to restore that revision.
+    """
+    from . import gitsync
+
+    try:
+        return {
+            "ok": True,
+            **(await gitsync.history(kind, name, conn_type, before, limit)),
+        }
+    except gitsync.GitSyncError as e:
+        return {"ok": False, "message": str(e)}
+
+
+@mcp.tool()
+async def git_restore(
+    kind: str,
+    name: str,
+    conn_type: str | None = None,
+    ref: str | None = None,
+) -> dict[str, Any]:
+    """Overwrite the local DB copy of one query/dashboard with a git revision.
+
+    Reads the entity's files at `ref` (default: the remote branch head) and
+    upserts them into the store. Git history is untouched — HEAD never moves;
+    a later git_store simply commits on top.
+
+    Args:
+        kind: "query" or "dashboard".
+        name: The entity's name.
+        conn_type: The query's connection type; required for kind="query".
+        ref: A sha from git_history (default: latest backup).
+
+    Returns {ok, restored, sha} or {ok: False, message}.
+    """
+    from . import gitsync
+
+    try:
+        return {"ok": True, **(await gitsync.restore(kind, name, conn_type, ref))}
+    except gitsync.GitSyncError as e:
+        return {"ok": False, "message": str(e)}
