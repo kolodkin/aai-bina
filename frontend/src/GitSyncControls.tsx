@@ -35,6 +35,15 @@ export default function GitSyncControls({ kind, name, connType, disabled, onRest
     void gitStatus().then(setConfigured)
   }, [])
 
+  // The picker's rows belong to one entity — switching entities while it is
+  // open must not leave another entity's revisions clickable.
+  useEffect(() => {
+    setOpen(false)
+    setRevisions([])
+    setHasMore(false)
+    setError('')
+  }, [kind, name, connType])
+
   const off = disabled || !name.trim() || configured !== true
   const tooltip =
     configured === false ? 'Git sync is not configured (set GIT_SYNC_REMOTE)' : undefined
