@@ -192,3 +192,99 @@ def test_store_unreachable_remote_raises_without_init(tmp_path, monkeypatch):
         _run(gitsync.store("query", "gs unreachable", "clickhouse"))
     assert e.value.status == 502
     assert not (tmp_path / "clone" / ".git").exists()  # no spurious local repo
+
+
+def _clone_head() -> str:
+    import os
+
+    wd = os.environ["GIT_SYNC_DIR"]
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=wd,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _store_query_versions(name: str, sqls: list[str]) -> list[str]:
+    """Save+store the query once per SQL; returns the commit shas in order."""
+    from queryview.queries import save_predefined_query
+
+    shas = []
+    for sql in sqls:
+        _run(save_predefined_query(name, "clickhouse", sql))
+        shas.append(_run(gitsync.store("query", name, "clickhouse"))["sha"])
+    return shas
+
+
+def test_history_pages_newest_first(git_env):
+    shas = _store_query_versions("gs hist", ["SELECT 1", "SELECT 2", "SELECT 3"])
+    page1 = _run(gitsync.history("query", "gs hist", "clickhouse", limit=2))
+    assert [r["sha"] for r in page1["revisions"]] == [shas[2], shas[1]]
+    assert page1["has_more"] is True
+    assert all(isinstance(r["date"], int) and r["message"] for r in page1["revisions"])
+    page2 = _run(
+        gitsync.history("query", "gs hist", "clickhouse", before=shas[1], limit=2)
+    )
+    assert [r["sha"] for r in page2["revisions"]] == [shas[0]]
+    assert page2["has_more"] is False
+    # Paging past the oldest commit yields an empty page, not an error.
+    page3 = _run(
+        gitsync.history("query", "gs hist", "clickhouse", before=shas[0], limit=2)
+    )
+    assert page3 == {"revisions": [], "has_more": False}
+
+
+def test_history_only_sees_own_entity(git_env):
+    _store_query_versions("gs mine", ["SELECT 1"])
+    _store_query_versions("gs other", ["SELECT 9"])
+    h = _run(gitsync.history("query", "gs mine", "clickhouse"))
+    assert len(h["revisions"]) == 1
+
+
+def test_restore_old_version_overwrites_db_without_moving_head(git_env):
+    from queryview.queries import list_predefined_queries
+
+    shas = _store_query_versions("gs restore", ["SELECT 1", "SELECT 2"])
+    head_before = _clone_head()
+    r = _run(gitsync.restore("query", "gs restore", "clickhouse", ref=shas[0]))
+    assert r["restored"] is True
+    rows = _run(list_predefined_queries("clickhouse"))
+    row = next(x for x in rows if x["query_name"] == "gs restore")
+    assert row["query"] == "SELECT 1"
+    assert _clone_head() == head_before  # HEAD never moves
+
+
+def test_restore_default_ref_is_remote_head(git_env):
+    from queryview.queries import list_predefined_queries, save_predefined_query
+
+    _store_query_versions("gs latest", ["SELECT 1", "SELECT 2"])
+    _run(save_predefined_query("gs latest", "clickhouse", "SELECT 999"))  # local drift
+    _run(gitsync.restore("query", "gs latest", "clickhouse"))
+    rows = _run(list_predefined_queries("clickhouse"))
+    row = next(x for x in rows if x["query_name"] == "gs latest")
+    assert row["query"] == "SELECT 2"
+
+
+def test_restore_dashboard_round_trip(git_env):
+    from queryview.dashboards import get_dashboard, upsert_dashboard
+
+    _run(upsert_dashboard("gs rdash", "prod", "<html>v1</html>", {"q": "SELECT 1"}))
+    _run(gitsync.store("dashboard", "gs rdash"))
+    _run(upsert_dashboard("gs rdash", "other", "<html>v2</html>", {"q": "SELECT 2"}))
+    _run(gitsync.restore("dashboard", "gs rdash"))
+    d = _run(get_dashboard("gs rdash"))
+    assert d == {
+        "name": "gs rdash",
+        "connection": "prod",
+        "html": "<html>v1</html>",
+        "queries": {"q": "SELECT 1"},
+    }
+
+
+def test_restore_missing_at_ref_is_404(git_env):
+    _store_query_versions("gs exists", ["SELECT 1"])
+    with pytest.raises(GitSyncError) as e:
+        _run(gitsync.restore("query", "never stored", "clickhouse"))
+    assert e.value.status == 404

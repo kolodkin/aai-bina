@@ -298,3 +298,103 @@ async def store(
         await _git("push", "origin", _branch(), cwd=wd)
         sha = (await _git("rev-parse", "HEAD", cwd=wd)).strip()
         return {"committed": True, "sha": sha, "message": "stored"}
+
+
+async def history(
+    kind: str,
+    name: str,
+    conn_type: str | None = None,
+    before: str | None = None,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Commits touching the entity's path, newest first. `before=<sha>` pages
+    strictly older commits. Reads objects only — never touches the working tree."""
+    _remote()
+    relpath = entity_relpath(kind, name, conn_type)
+    async with _lock():
+        wd = await _ensure_repo()
+        head = await _origin_head(wd)
+        if head is None:
+            return {"revisions": [], "has_more": False}
+        start = f"{before}^" if before else head
+        try:
+            out = await _git(
+                "log",
+                f"--max-count={limit + 1}",
+                "--format=%H%x1f%ct%x1f%s",
+                start,
+                "--",
+                relpath,
+                cwd=wd,
+            )
+        except GitSyncError:
+            # `before` was the oldest commit: <sha>^ doesn't resolve.
+            return {"revisions": [], "has_more": False}
+    revisions = []
+    for line in out.splitlines():
+        sha, ct, subject = line.split("\x1f", 2)
+        revisions.append({"sha": sha, "date": int(ct) * 1000, "message": subject})
+    return {"revisions": revisions[:limit], "has_more": len(revisions) > limit}
+
+
+async def restore(
+    kind: str,
+    name: str,
+    conn_type: str | None = None,
+    ref: str | None = None,
+) -> dict[str, Any]:
+    """Overwrite the local DB row with the entity's content at `ref` (default:
+    the remote branch head). Reads via `git show` — HEAD never moves, history
+    is never rewritten. Parses fully before writing, so the DB row is either
+    untouched or fully replaced."""
+    _remote()
+    relpath = entity_relpath(kind, name, conn_type)
+    async with _lock():
+        wd = await _ensure_repo()
+        head = await _origin_head(wd)
+        resolved = ref if ref and ref != "HEAD" else head
+        if resolved is None:
+            raise GitSyncError(f"{kind} {name!r} not found in git", status=404)
+
+        async def _show(path: str) -> str:
+            return await _git("show", f"{resolved}:{path}", cwd=wd)
+
+        if kind == "query":
+            try:
+                text = await _show(relpath)
+            except GitSyncError:
+                raise GitSyncError(
+                    f"query {name!r} not found at {resolved}", status=404
+                ) from None
+            data = query_from_yaml(text)
+        else:
+            files: dict[str, str] = {}
+            for fname in ("meta.yaml", "dashboard.html", "queries.yaml"):
+                try:
+                    files[fname] = await _show(f"{relpath}/{fname}")
+                except GitSyncError:
+                    if fname == "meta.yaml":
+                        raise GitSyncError(
+                            f"dashboard {name!r} not found at {resolved}", status=404
+                        ) from None
+            data = dashboard_from_files(files)
+
+    # DB upsert happens outside the git lock — it doesn't touch the workdir.
+    if kind == "query":
+        from .queries import save_predefined_query
+
+        await save_predefined_query(
+            data["query_name"],
+            conn_type or "",
+            data["query"],
+            data["cell_view"],
+            data["order_by"],
+            data["fields"],
+        )
+    else:
+        from .dashboards import upsert_dashboard
+
+        await upsert_dashboard(
+            data["name"], data["connection"], data["html"], data["queries"]
+        )
+    return {"restored": True, "sha": resolved}
