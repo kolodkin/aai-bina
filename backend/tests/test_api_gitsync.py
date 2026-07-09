@@ -4,29 +4,16 @@ history -> restore round trip against a local bare repo."""
 from __future__ import annotations
 
 import asyncio
-import subprocess
 
-import pytest
 from fastapi.testclient import TestClient
 
 from queryview.main import app
 
+# The git_env fixture (bare repo + GIT_SYNC_* env vars) lives in conftest.py.
+
 
 def _run(coro):
     return asyncio.run(coro)
-
-
-@pytest.fixture
-def git_env(tmp_path, monkeypatch):
-    remote = tmp_path / "remote.git"
-    subprocess.run(
-        ["git", "init", "--bare", "-b", "main", str(remote)],
-        check=True,
-        capture_output=True,
-    )
-    monkeypatch.setenv("GIT_SYNC_REMOTE", str(remote))
-    monkeypatch.setenv("GIT_SYNC_DIR", str(tmp_path / "clone"))
-    return remote
 
 
 def test_status_reports_unconfigured(monkeypatch):

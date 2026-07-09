@@ -33,9 +33,6 @@ Sketch, to be designed properly when picked up:
 
 Small improvements noted in the git-sync final review, none blocking:
 
-- MCP `git_store`/`git_history`/`git_restore` lack the REST layer's up-front
-  validation — a typo'd `kind` falls through to dashboard treatment and a
-  missing `conn_type` surfaces as a generic 404 instead of a clear message.
 - `restore` treats only a missing `meta.yaml` at a ref as 404; missing
   `dashboard.html`/`queries.yaml` silently default (unreachable today because
   store writes all three files in one commit — remove or document the

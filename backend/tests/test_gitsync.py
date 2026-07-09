@@ -91,19 +91,7 @@ def test_dashboard_from_files_rejects_malformed_meta():
         )
 
 
-@pytest.fixture
-def git_env(tmp_path, monkeypatch):
-    """A local bare repo as the remote + a fresh clone dir, via env vars."""
-    remote = tmp_path / "remote.git"
-    subprocess.run(
-        ["git", "init", "--bare", "-b", "main", str(remote)],
-        check=True,
-        capture_output=True,
-    )
-    monkeypatch.setenv("GIT_SYNC_REMOTE", str(remote))
-    monkeypatch.setenv("GIT_SYNC_DIR", str(tmp_path / "clone"))
-    monkeypatch.delenv("GIT_SYNC_BRANCH", raising=False)
-    return remote
+# The git_env fixture (bare repo + GIT_SYNC_* env vars) lives in conftest.py.
 
 
 def _remote_log(remote) -> str:
@@ -122,6 +110,20 @@ def test_store_unconfigured_is_409(monkeypatch):
         _run(gitsync.store("query", "anything", "clickhouse"))
     assert e.value.status == 409
     assert "not configured" in str(e.value)
+
+
+def test_unknown_kind_is_400():
+    with pytest.raises(GitSyncError) as e:
+        _run(gitsync.store("quert", "x", "clickhouse"))
+    assert e.value.status == 400
+    assert "kind" in str(e.value)
+
+
+def test_query_without_conn_type_is_400():
+    with pytest.raises(GitSyncError) as e:
+        _run(gitsync.history("query", "x"))
+    assert e.value.status == 400
+    assert "conn_type" in str(e.value)
 
 
 def test_store_missing_entity_is_404(git_env):

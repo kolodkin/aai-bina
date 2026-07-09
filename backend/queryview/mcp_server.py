@@ -8,7 +8,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from . import remote
+from . import gitsync, remote
 from .dashboards import _push_dashboard
 from .queries import list_predefined_queries_view
 
@@ -164,6 +164,15 @@ async def push_dashboard(
     }
 
 
+async def _git_tool(coro) -> dict[str, Any]:
+    """Await a gitsync operation, mapping its result (or GitSyncError) to the
+    tool result — the one place the git-tool error contract lives."""
+    try:
+        return {"ok": True, **(await coro)}
+    except gitsync.GitSyncError as e:
+        return {"ok": False, "message": str(e)}
+
+
 @mcp.tool()
 async def git_store(
     kind: str,
@@ -188,12 +197,7 @@ async def git_store(
     Returns {ok, committed, sha, message}; committed=False with "no changes"
     when the repo already matches the DB.
     """
-    from . import gitsync
-
-    try:
-        return {"ok": True, **(await gitsync.store(kind, name, conn_type, message))}
-    except gitsync.GitSyncError as e:
-        return {"ok": False, "message": str(e)}
+    return await _git_tool(gitsync.store(kind, name, conn_type, message))
 
 
 @mcp.tool()
@@ -216,15 +220,7 @@ async def git_history(
     Returns {ok, revisions: [{sha, date, message}], has_more}; date is unix ms.
     Pass a sha to git_restore's `ref` to restore that revision.
     """
-    from . import gitsync
-
-    try:
-        return {
-            "ok": True,
-            **(await gitsync.history(kind, name, conn_type, before, limit)),
-        }
-    except gitsync.GitSyncError as e:
-        return {"ok": False, "message": str(e)}
+    return await _git_tool(gitsync.history(kind, name, conn_type, before, limit))
 
 
 @mcp.tool()
@@ -248,9 +244,4 @@ async def git_restore(
 
     Returns {ok, restored, sha} or {ok: False, message}.
     """
-    from . import gitsync
-
-    try:
-        return {"ok": True, **(await gitsync.restore(kind, name, conn_type, ref))}
-    except gitsync.GitSyncError as e:
-        return {"ok": False, "message": str(e)}
+    return await _git_tool(gitsync.restore(kind, name, conn_type, ref))

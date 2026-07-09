@@ -237,16 +237,26 @@ async def _origin_head(wd: Path) -> str | None:
 # --- Entities --------------------------------------------------------------
 
 
+def _check_kind(kind: str, conn_type: str | None) -> None:
+    """Validate kind/conn_type here so every caller (REST, MCP, future ones)
+    inherits it instead of each layer re-implementing the check."""
+    if kind not in ("query", "dashboard"):
+        raise GitSyncError(
+            f"unknown kind {kind!r} (expected 'query' or 'dashboard')", status=400
+        )
+    if kind == "query" and not conn_type:
+        raise GitSyncError("conn_type is required for queries", status=400)
+
+
 def entity_relpath(kind: str, name: str, conn_type: str | None) -> str:
     return query_relpath(conn_type or "", name) if kind == "query" else dashboard_reldir(name)
 
 
 async def _load_entity(kind: str, name: str, conn_type: str | None) -> dict[str, Any]:
     if kind == "query":
-        from .queries import list_predefined_queries
+        from .queries import get_predefined_query
 
-        rows = await list_predefined_queries(conn_type or "")
-        row = next((r for r in rows if r["query_name"] == name), None)
+        row = await get_predefined_query(conn_type or "", name)
         if row is None:
             raise GitSyncError(f"query {name!r} not found", status=404)
         return row
@@ -271,6 +281,7 @@ async def store(
     The workdir is reset to the remote head first — exports are deterministic
     from the DB and each commit touches one entity, so this is always safe and
     avoids push rejections."""
+    _check_kind(kind, conn_type)
     _remote()  # unconfigured -> 409 before any DB/entity lookup
     entity = await _load_entity(kind, name, conn_type)
     async with _lock():
@@ -309,6 +320,7 @@ async def history(
 ) -> dict[str, Any]:
     """Commits touching the entity's path, newest first. `before=<sha>` pages
     strictly older commits. Reads objects only — never touches the working tree."""
+    _check_kind(kind, conn_type)
     _remote()
     relpath = entity_relpath(kind, name, conn_type)
     async with _lock():
@@ -354,6 +366,7 @@ async def restore(
     the remote branch head). Reads via `git show` — HEAD never moves, history
     is never rewritten. Parses fully before writing, so the DB row is either
     untouched or fully replaced."""
+    _check_kind(kind, conn_type)
     _remote()
     relpath = entity_relpath(kind, name, conn_type)
     async with _lock():

@@ -18,13 +18,20 @@ export type GitHistoryResult = {
   message?: string
 }
 
-export async function gitStatus(): Promise<boolean> {
-  try {
-    const r = await (await fetch('/api/git/status')).json()
-    return Boolean(r.configured)
-  } catch {
-    return false
-  }
+// Whether git sync is configured is server env config — fetch it once and
+// share the promise across every GitSyncControls instance.
+let statusCache: Promise<boolean> | undefined
+
+export function gitStatus(): Promise<boolean> {
+  statusCache ??= (async () => {
+    try {
+      const r = await (await fetch('/api/git/status')).json()
+      return Boolean(r.configured)
+    } catch {
+      return false
+    }
+  })()
+  return statusCache
 }
 
 export async function gitStore(
