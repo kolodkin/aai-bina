@@ -1,7 +1,7 @@
 """Git sync: per-entity backup/restore of predefined queries and dashboards to
 a configured git remote. Versions are git commits — store makes one commit per
 entity, restore reads objects at a ref (git show) and upserts the DB row; HEAD
-never moves. Spec: docs/superpowers/specs/2026-07-08-git-sync-design.md."""
+never moves. Docs: docs/gitsync.md."""
 
 from __future__ import annotations
 
