@@ -4,6 +4,7 @@ in later tests, store/history/restore against a local bare repo (no network)."""
 from __future__ import annotations
 
 import asyncio
+import subprocess
 
 import pytest
 
@@ -88,3 +89,94 @@ def test_dashboard_from_files_rejects_malformed_meta():
         dashboard_from_files(
             {"meta.yaml": "connection: x", "dashboard.html": "", "queries.yaml": ""}
         )
+
+
+@pytest.fixture
+def git_env(tmp_path, monkeypatch):
+    """A local bare repo as the remote + a fresh clone dir, via env vars."""
+    remote = tmp_path / "remote.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(remote)],
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.setenv("GIT_SYNC_REMOTE", str(remote))
+    monkeypatch.setenv("GIT_SYNC_DIR", str(tmp_path / "clone"))
+    monkeypatch.delenv("GIT_SYNC_BRANCH", raising=False)
+    return remote
+
+
+def _remote_log(remote) -> str:
+    return subprocess.run(
+        ["git", "log", "--format=%H %s", "main"],
+        cwd=remote,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+
+def test_store_unconfigured_is_409(monkeypatch):
+    monkeypatch.delenv("GIT_SYNC_REMOTE", raising=False)
+    with pytest.raises(GitSyncError) as e:
+        _run(gitsync.store("query", "anything", "clickhouse"))
+    assert e.value.status == 409
+    assert "not configured" in str(e.value)
+
+
+def test_store_missing_entity_is_404(git_env):
+    with pytest.raises(GitSyncError) as e:
+        _run(gitsync.store("query", "no such query xyz", "clickhouse"))
+    assert e.value.status == 404
+
+
+def test_store_query_commits_and_pushes(git_env):
+    from queryview.queries import save_predefined_query
+
+    _run(save_predefined_query("gs top", "clickhouse", "SELECT 1"))
+    r = _run(gitsync.store("query", "gs top", "clickhouse"))
+    assert r["committed"] is True and r["sha"]
+    log = _remote_log(git_env)
+    assert r["sha"] in log
+    assert "store query clickhouse/gs top" in log
+
+
+def test_store_no_change_makes_no_commit(git_env):
+    from queryview.queries import save_predefined_query
+
+    _run(save_predefined_query("gs same", "clickhouse", "SELECT 2"))
+    r1 = _run(gitsync.store("query", "gs same", "clickhouse"))
+    r2 = _run(gitsync.store("query", "gs same", "clickhouse"))
+    assert r1["committed"] is True
+    assert r2 == {"committed": False, "sha": None, "message": "no changes"}
+    assert _remote_log(git_env).count("\n") == 1  # exactly one commit
+
+
+def test_store_dashboard_touches_only_its_dir(git_env):
+    from queryview.dashboards import upsert_dashboard
+
+    _run(upsert_dashboard("gs dash", "prod", "<html>v1</html>", {"q": "SELECT 1"}))
+    r = _run(gitsync.store("dashboard", "gs dash"))
+    assert r["committed"] is True
+    out = subprocess.run(
+        ["git", "show", "--name-only", "--format=", r["sha"]],
+        cwd=git_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    files = [line for line in out.splitlines() if line.strip()]
+    assert files and all(f.startswith("dashboards/gs dash/") for f in files)
+    assert set(files) == {
+        "dashboards/gs dash/meta.yaml",
+        "dashboards/gs dash/dashboard.html",
+        "dashboards/gs dash/queries.yaml",
+    }
+
+
+def test_store_custom_message(git_env):
+    from queryview.queries import save_predefined_query
+
+    _run(save_predefined_query("gs msg", "clickhouse", "SELECT 3"))
+    _run(gitsync.store("query", "gs msg", "clickhouse", message="before migration"))
+    assert "before migration" in _remote_log(git_env)

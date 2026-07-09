@@ -5,7 +5,11 @@ never moves. Spec: docs/superpowers/specs/2026-07-08-git-sync-design.md."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import shutil
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -127,3 +131,158 @@ def dashboard_from_files(files: dict[str, str]) -> dict[str, Any]:
         "html": files.get("dashboard.html", ""),
         "queries": queries,
     }
+
+
+# --- Configuration ---------------------------------------------------------
+
+
+def _remote() -> str:
+    remote = os.environ.get("GIT_SYNC_REMOTE")
+    if not remote:
+        raise GitSyncError("git sync is not configured (set GIT_SYNC_REMOTE)", status=409)
+    return remote
+
+
+def _branch() -> str:
+    return os.environ.get("GIT_SYNC_BRANCH", "main")
+
+
+def _workdir() -> Path:
+    env = os.environ.get("GIT_SYNC_DIR")
+    if env:
+        return Path(env)
+    from .connect import _db_path
+
+    return Path(f"{_db_path()}.gitsync")
+
+
+def configured() -> bool:
+    return bool(os.environ.get("GIT_SYNC_REMOTE"))
+
+
+# --- Git plumbing ----------------------------------------------------------
+
+# One git operation at a time; the workdir is shared mutable state. The lock is
+# per event loop (asyncio.Lock binds to the loop that first acquires it, and
+# tests run each operation under a fresh asyncio.run loop); production has a
+# single loop, so this is one lock there.
+_locks: dict[int, asyncio.Lock] = {}
+
+
+def _lock() -> asyncio.Lock:
+    key = id(asyncio.get_running_loop())
+    lock = _locks.get(key)
+    if lock is None:
+        lock = _locks[key] = asyncio.Lock()
+    return lock
+
+
+async def _git(*args: str, cwd: Path | None = None) -> str:
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        cwd=str(cwd) if cwd else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await proc.communicate()
+    if proc.returncode != 0:
+        tail = err.decode("utf-8", "replace").strip()[-500:]
+        raise GitSyncError(f"git {args[0]} failed: {tail}")
+    return out.decode("utf-8", "replace")
+
+
+async def _ensure_repo() -> Path:
+    """The sync clone, cloning (or, for an empty remote, init + remote add) on
+    first use. Idempotent."""
+    remote, branch, wd = _remote(), _branch(), _workdir()
+    if (wd / ".git").exists():
+        return wd
+    wd.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        await _git("clone", "--branch", branch, remote, str(wd))
+    except GitSyncError:
+        # Empty remote (branch doesn't exist yet): start locally, attach remote.
+        await _git("init", "-b", branch, str(wd))
+        await _git("remote", "add", "origin", remote, cwd=wd)
+    await _git("config", "user.name", "queryview", cwd=wd)
+    await _git("config", "user.email", "queryview@localhost", cwd=wd)
+    return wd
+
+
+async def _origin_head(wd: Path) -> str | None:
+    """Fetch, then the remote branch ref if it exists (None on an empty remote).
+    Network/auth failures raise."""
+    await _git("fetch", "origin", cwd=wd)
+    ref = f"origin/{_branch()}"
+    try:
+        await _git("rev-parse", "--verify", ref, cwd=wd)
+    except GitSyncError:
+        return None
+    return ref
+
+
+# --- Entities --------------------------------------------------------------
+
+
+def entity_relpath(kind: str, name: str, conn_type: str | None) -> str:
+    return query_relpath(conn_type or "", name) if kind == "query" else dashboard_reldir(name)
+
+
+async def _load_entity(kind: str, name: str, conn_type: str | None) -> dict[str, Any]:
+    if kind == "query":
+        from .queries import list_predefined_queries
+
+        rows = await list_predefined_queries(conn_type or "")
+        row = next((r for r in rows if r["query_name"] == name), None)
+        if row is None:
+            raise GitSyncError(f"query {name!r} not found", status=404)
+        return row
+    from .dashboards import get_dashboard
+
+    d = await get_dashboard(name)
+    if d is None:
+        raise GitSyncError(f"dashboard {name!r} not found", status=404)
+    return d
+
+
+# --- Operations ------------------------------------------------------------
+
+
+async def store(
+    kind: str,
+    name: str,
+    conn_type: str | None = None,
+    message: str | None = None,
+) -> dict[str, Any]:
+    """Export one entity's saved DB state into the clone, commit, push.
+    The workdir is reset to the remote head first — exports are deterministic
+    from the DB and each commit touches one entity, so this is always safe and
+    avoids push rejections."""
+    _remote()  # unconfigured -> 409 before any DB/entity lookup
+    entity = await _load_entity(kind, name, conn_type)
+    async with _lock():
+        wd = await _ensure_repo()
+        head = await _origin_head(wd)
+        if head:
+            await _git("reset", "--hard", head, cwd=wd)
+        relpath = entity_relpath(kind, name, conn_type)
+        if kind == "query":
+            path = wd / relpath
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(query_to_yaml(entity), encoding="utf-8")
+        else:
+            ddir = wd / relpath
+            if ddir.exists():
+                shutil.rmtree(ddir)
+            ddir.mkdir(parents=True, exist_ok=True)
+            for fname, content in dashboard_to_files(entity).items():
+                (ddir / fname).write_text(content, encoding="utf-8")
+        await _git("add", "-A", "--", relpath, cwd=wd)
+        if not (await _git("status", "--porcelain", "--", relpath, cwd=wd)).strip():
+            return {"committed": False, "sha": None, "message": "no changes"}
+        label = f"{conn_type}/{name}" if kind == "query" else name
+        await _git("commit", "-m", message or f"store {kind} {label}", cwd=wd)
+        await _git("push", "origin", _branch(), cwd=wd)
+        sha = (await _git("rev-parse", "HEAD", cwd=wd)).strip()
+        return {"committed": True, "sha": sha, "message": "stored"}
