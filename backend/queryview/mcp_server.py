@@ -182,7 +182,8 @@ async def git_store(
         name: The entity's name.
         conn_type: The query's connection type (e.g. "clickhouse"); required
             for kind="query", ignored for dashboards.
-        message: Optional commit message (default: "store {kind} {name}").
+        message: Optional commit message (default: "store query {conn_type}/{name}"
+            for queries, "store dashboard {name}" for dashboards).
 
     Returns {ok, committed, sha, message}; committed=False with "no changes"
     when the repo already matches the DB.
