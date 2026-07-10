@@ -29,6 +29,7 @@ def test_fresh_db_is_migrated_to_head():
             "connections",
             "predefined_queries",
             "dashboards",
+            "workspaces",
             "alembic_version",
         } <= names, f"missing tables, got {sorted(names)}"
 
@@ -82,6 +83,54 @@ def test_config_blob_migration_backfills_existing_clickhouse_row():
         con.close()
     data = json.loads(_decrypt_str(blob))
     assert data == {"host": "h", "port": 8123, "username": "u", "password": "pw"}
+
+
+def test_workspaces_migration_seeds_default_and_backfills(tmp_path, monkeypatch):
+    """Upgrading from the pre-workspace schema creates the workspaces table,
+    seeds 'default' from GIT_SYNC_REMOTE/GIT_SYNC_BRANCH (remote encrypted),
+    and backfills existing entity rows into it. Runs on a private DB so the
+    shared session DB is never downgraded across the workspace boundary."""
+    from alembic import command
+
+    import queryview.connect as _c
+    from queryview.connect import _alembic_config, _db_path, _decrypt_str
+
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "mig.db"))
+    monkeypatch.setenv("DB_KEY_PATH", str(tmp_path / "mig.db.key"))
+    monkeypatch.setattr(_c, "_engine", None)
+    monkeypatch.setattr(_c, "_schema_ready", False)
+    monkeypatch.setattr(_c, "_key", None)
+
+    cfg = _alembic_config()
+    command.upgrade(cfg, "b2c3d4e5f6a7")  # build the pre-workspace schema fresh
+
+    con = sqlite3.connect(_db_path())
+    try:
+        con.execute(
+            "INSERT INTO predefined_queries (query_name, type, query) "
+            "VALUES ('pre ws', 'clickhouse', 'SELECT 1')"
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    monkeypatch.setenv("GIT_SYNC_REMOTE", "https://example.test/repo.git")
+    monkeypatch.setenv("GIT_SYNC_BRANCH", "trunk")
+    command.upgrade(cfg, "head")
+
+    con = sqlite3.connect(_db_path())
+    try:
+        ws = con.execute("SELECT id, name, remote, branch FROM workspaces").fetchall()
+        assert len(ws) == 1
+        wid, name, remote, branch = ws[0]
+        assert name == "default" and branch == "trunk"
+        assert _decrypt_str(remote) == "https://example.test/repo.git"
+        backfilled = con.execute(
+            "SELECT workspace_id FROM predefined_queries WHERE query_name='pre ws'"
+        ).fetchone()[0]
+        assert backfilled == wid
+    finally:
+        con.close()
 
 
 def test_predefined_queries_has_presentation_columns():
