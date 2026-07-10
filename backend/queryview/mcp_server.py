@@ -142,6 +142,27 @@ async def list_queries(
 
 
 @mcp.tool()
+async def list_dashboards(session_id: str | None = None) -> dict[str, Any]:
+    """List the saved dashboards (names + metadata, no HTML/queries payload).
+
+    Use this to discover dashboard names — e.g. to pick a `name` for
+    git_store/git_history/git_restore with kind="dashboard", or to avoid
+    overwriting an existing dashboard when pushing a new one.
+
+    Args:
+        session_id: Optional armed-session id; scopes the list to that
+            session's workspace (default workspace otherwise).
+
+    Returns {"dashboards": [{name, connection, updated_at}]}; updated_at is
+    unix ms.
+    """
+    from .dashboards import list_dashboards as _list_dashboards
+
+    ws = await _session_workspace_rec(session_id)
+    return {"dashboards": await _list_dashboards(ws.id)}
+
+
+@mcp.tool()
 async def push_dashboard(
     session_id: str,
     name: str,

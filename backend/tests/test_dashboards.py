@@ -186,3 +186,25 @@ def test_dashboard_names_distinct_per_workspace(default_ws_id):
     assert _run(get_dashboard("iso d", other))["html"] == "<html>2</html>"
     assert "iso d" in [d["name"] for d in _run(list_dashboards(default_ws_id))]
     assert "iso d" in [d["name"] for d in _run(list_dashboards(other))]
+
+
+def test_mcp_list_dashboards_scopes_by_session_workspace(default_ws_id):
+    from queryview.mcp_server import list_dashboards as mcp_list
+    from queryview.workspaces import create_workspace, resolve
+
+    _run(create_workspace("t-mcp-ld"))
+    other = _run(resolve("t-mcp-ld")).id
+    _run(upsert_dashboard("mcp ld", "c", "<i></i>", {}, workspace_id=other))
+
+    # No session_id -> default workspace: the other workspace's dashboard is absent.
+    names = [d["name"] for d in _run(mcp_list())["dashboards"]]
+    assert "mcp ld" not in names
+
+    # A session reporting the other workspace sees it.
+    rid = remote.register()
+    try:
+        remote.set_session_workspace(rid, "t-mcp-ld")
+        names = [d["name"] for d in _run(mcp_list(session_id=rid))["dashboards"]]
+        assert names == ["mcp ld"]
+    finally:
+        remote.unregister(rid)

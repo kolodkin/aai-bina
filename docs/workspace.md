@@ -41,8 +41,8 @@ localStorage; switching reloads the query and dashboard lists.
 
 MCP is workspace-unaware: no workspace parameter, no workspace tools. The
 armed browser session reports its active workspace (alongside the database);
-`list_queries` and the `git_*` tools take an optional `session_id` and resolve
-the workspace from it, falling back to `default`. The human picks the
+`list_queries`, `list_dashboards`, and the `git_*` tools take an optional
+`session_id` and resolve the workspace from it, falling back to `default`. The human picks the
 workspace; the agent works inside the session it was invited into. Workspace
 CRUD stays API/UI-only because it is admin configuration involving secrets.
 
