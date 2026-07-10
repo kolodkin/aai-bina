@@ -456,21 +456,30 @@ async def dashboards_upsert(request: Request):
             {"ok": False, "message": "name, connection and html are required"},
             status_code=400,
         )
+    ws, err = await _resolve_workspace(b.get("workspace"))
+    if err:
+        return err
     session_id = _clean_str(b.get("session_id"))
     persisted, pushed, message = await _upsert_and_push(
-        name, connection, html, queries, session_id or None
+        name, connection, html, queries, session_id or None, workspace_id=ws.id
     )
     return {"ok": persisted, "persisted": persisted, "pushed": pushed, "message": message}
 
 
 @app.get("/api/dashboards")
-async def dashboards_list():
-    return {"dashboards": await list_dashboards()}
+async def dashboards_list(request: Request):
+    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
+    if err:
+        return err
+    return {"dashboards": await list_dashboards(ws.id)}
 
 
 @app.get("/api/dashboards/{name}")
-async def dashboards_get(name: str):
-    d = await get_dashboard(name)
+async def dashboards_get(name: str, request: Request):
+    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
+    if err:
+        return err
+    d = await get_dashboard(name, ws.id)
     if d is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return d

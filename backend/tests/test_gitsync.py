@@ -164,7 +164,7 @@ def test_store_no_change_makes_no_commit(git_env):
 def test_store_dashboard_touches_only_its_dir(git_env):
     from queryview.dashboards import upsert_dashboard
 
-    _run(upsert_dashboard("gs dash", "prod", "<html>v1</html>", {"q": "SELECT 1"}))
+    _run(upsert_dashboard("gs dash", "prod", "<html>v1</html>", {"q": "SELECT 1"}, workspace_id=_default_ws_id()))
     r = _run(gitsync.store("dashboard", "gs dash"))
     assert r["committed"] is True
     out = subprocess.run(
@@ -286,11 +286,11 @@ def test_restore_default_ref_is_remote_head(git_env):
 def test_restore_dashboard_round_trip(git_env):
     from queryview.dashboards import get_dashboard, upsert_dashboard
 
-    _run(upsert_dashboard("gs rdash", "prod", "<html>v1</html>", {"q": "SELECT 1"}))
+    _run(upsert_dashboard("gs rdash", "prod", "<html>v1</html>", {"q": "SELECT 1"}, workspace_id=_default_ws_id()))
     _run(gitsync.store("dashboard", "gs rdash"))
-    _run(upsert_dashboard("gs rdash", "other", "<html>v2</html>", {"q": "SELECT 2"}))
+    _run(upsert_dashboard("gs rdash", "other", "<html>v2</html>", {"q": "SELECT 2"}, workspace_id=_default_ws_id()))
     _run(gitsync.restore("dashboard", "gs rdash"))
-    d = _run(get_dashboard("gs rdash"))
+    d = _run(get_dashboard("gs rdash", _default_ws_id()))
     assert d == {
         "name": "gs rdash",
         "connection": "prod",

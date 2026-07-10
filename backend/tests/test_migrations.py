@@ -48,18 +48,27 @@ def test_fresh_db_is_migrated_to_head():
     assert versions[0] == head, f"stamped {versions[0]} != head {head}"
 
 
-def test_config_blob_migration_backfills_existing_clickhouse_row():
+def test_config_blob_migration_backfills_existing_clickhouse_row(tmp_path, monkeypatch):
     """A row written at the pre-blob revision is rewrapped into an encrypted
-    JSON config that decrypts back to the original host/port/user/password."""
+    JSON config that decrypts back to the original host/port/user/password.
+    Runs on a private DB: downgrading the shared session DB below the
+    workspaces revision would collide on the restored global-unique names."""
     import json
     import sqlite3
 
     from alembic import command
 
+    import queryview.connect as _c
     from queryview.connect import _alembic_config, _db_path, _decrypt_str, _encrypt_str
 
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "blob.db"))
+    monkeypatch.setenv("DB_KEY_PATH", str(tmp_path / "blob.db.key"))
+    monkeypatch.setattr(_c, "_engine", None)
+    monkeypatch.setattr(_c, "_schema_ready", False)
+    monkeypatch.setattr(_c, "_key", None)
+
     cfg = _alembic_config()
-    command.downgrade(cfg, "9a536b7c0328")  # the per-column schema
+    command.upgrade(cfg, "9a536b7c0328")  # the per-column schema, built fresh
 
     con = sqlite3.connect(_db_path())
     try:

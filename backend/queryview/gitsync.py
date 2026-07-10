@@ -263,8 +263,10 @@ async def _load_entity(kind: str, name: str, conn_type: str | None) -> dict[str,
             raise GitSyncError(f"query {name!r} not found", status=404)
         return row
     from .dashboards import get_dashboard
+    from .workspaces import DEFAULT_WORKSPACE, resolve as resolve_workspace
 
-    d = await get_dashboard(name)
+    ws = await resolve_workspace(DEFAULT_WORKSPACE)  # interim until Task 5
+    d = await get_dashboard(name, ws.id)
     if d is None:
         raise GitSyncError(f"dashboard {name!r} not found", status=404)
     return d
@@ -418,8 +420,14 @@ async def restore(
         )
     else:
         from .dashboards import upsert_dashboard
+        from .workspaces import DEFAULT_WORKSPACE, resolve as resolve_workspace
 
+        ws = await resolve_workspace(DEFAULT_WORKSPACE)  # interim until Task 5
         await upsert_dashboard(
-            data["name"], data["connection"], data["html"], data["queries"]
+            data["name"],
+            data["connection"],
+            data["html"],
+            data["queries"],
+            workspace_id=ws.id,
         )
     return {"restored": True, "sha": resolved}
