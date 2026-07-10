@@ -5,6 +5,7 @@ import { CellViewModal } from './CellViewModal'
 import { ComplexCell } from './ComplexCell'
 import { DRIVERS, type DriverMeta } from './drivers'
 import GitSyncControls from './GitSyncControls'
+import { activeWorkspace } from './workspace'
 import { suggestCompletions, type Suggestion } from './promptSuggestions'
 import { escapeHtml, substituteCellTemplate } from './cellView'
 import { postLock } from './sessionLock'
@@ -822,7 +823,7 @@ function QueryPanel({
   const loadPredefined = useCallback(async (): Promise<PredefinedQuery[]> => {
     try {
       const res = await fetch(
-        `/api/predefined-queries?type=${encodeURIComponent(connectionType)}`,
+        `/api/predefined-queries?type=${encodeURIComponent(connectionType)}&workspace=${encodeURIComponent(activeWorkspace())}`,
       )
       const data = await res.json()
       const list = (data.queries ?? []) as PredefinedQuery[]
@@ -1067,6 +1068,7 @@ function QueryPanel({
           type: connectionType,
           query: sql,
           cell_view: cellViewValue,
+          workspace: activeWorkspace(),
           ...presentationForSave(orderBy, visibleCols),
         }),
       })

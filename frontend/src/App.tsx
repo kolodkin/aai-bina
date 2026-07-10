@@ -12,6 +12,8 @@ import {
 import QueryView, { isReady, type Connection, type QueryPush } from './QueryView'
 import DashboardView, { type DashboardPush } from './DashboardView'
 import { Toast } from './Toast'
+import WorkspaceSwitcher from './WorkspaceSwitcher'
+import { activeWorkspace, setActiveWorkspace } from './workspace'
 
 // App shell: routing, shared connection state, the connection pill + agent
 // popover, and the armed/SSE remote-control channel. Pages: /queries, /dashboard.
@@ -27,6 +29,12 @@ function Shell() {
   const [dashboardPush, setDashboardPush] = useState<DashboardPush | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [dbOpen, setDbOpen] = useState(false)
+  const [workspace, setWorkspace] = useState(activeWorkspace())
+
+  function switchWorkspace(name: string) {
+    setActiveWorkspace(name)
+    setWorkspace(name)
+  }
 
   // The ?connection= deep-link, captured before the `/`→`/queries` redirect
   // rewrites the URL.
@@ -123,16 +131,21 @@ function Shell() {
     setArmed(e.target.checked)
   }
 
-  // Report the active database to the live session so the agent's push_query /
-  // push_dashboard responses can echo it. Fires on arm and on each DB change.
+  // Report the active database and workspace to the live session so the
+  // agent's session-scoped tools resolve against them. Fires on arm and on
+  // each change.
   useEffect(() => {
     if (!armed || !remoteId) return
     void fetch('/api/remote/db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: remoteId, database: connection?.database ?? null }),
+      body: JSON.stringify({
+        session_id: remoteId,
+        database: connection?.database ?? null,
+        workspace,
+      }),
     }).catch(() => {})
-  }, [armed, remoteId, connection?.database])
+  }, [armed, remoteId, connection?.database, workspace])
 
   // Switch the active database for the current connection (via the pill dropdown).
   async function switchDatabase(database: string) {
@@ -272,6 +285,7 @@ function Shell() {
       )}
 
       <nav className="absolute right-4 top-4 flex gap-2" data-testid="nav">
+        <WorkspaceSwitcher workspace={workspace} onSwitch={switchWorkspace} />
         <Link to="/queries" data-testid="nav-queries" className={navLinkClass('/queries')}>
           Queries
         </Link>
@@ -289,6 +303,7 @@ function Shell() {
           path="/queries"
           element={
             <QueryView
+              key={workspace}
               connection={connection}
               setConnection={setConnection}
               pushed={queryPush}
@@ -301,6 +316,7 @@ function Shell() {
           path="/dashboard"
           element={
             <DashboardView
+              key={workspace}
               pushed={dashboardPush}
               onPushConsumed={() => setDashboardPush(null)}
               database={connection?.database ?? null}

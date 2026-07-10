@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import GitSyncControls from './GitSyncControls'
+import { activeWorkspace } from './workspace'
 
 export type DashboardPush = {
   name: string
@@ -55,7 +56,7 @@ function DashboardView({
   // Refetch the dropdown list (also used after a Save to surface a new name).
   async function loadDashboards() {
     try {
-      const d = await (await fetch('/api/dashboards')).json()
+      const d = await (await fetch(`/api/dashboards?workspace=${encodeURIComponent(activeWorkspace())}`)).json()
       setDashboards((d.dashboards ?? []) as DashboardSummary[])
     } catch {
       /* non-fatal; keep the last list */
@@ -77,6 +78,7 @@ function DashboardView({
           connection: active.connection,
           html: active.html,
           queries: active.queries,
+          workspace: activeWorkspace(),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -95,7 +97,7 @@ function DashboardView({
   // Load the dropdown list; refresh on each push so a new dashboard appears.
   useEffect(() => {
     let cancelled = false
-    fetch('/api/dashboards')
+    fetch(`/api/dashboards?workspace=${encodeURIComponent(activeWorkspace())}`)
       .then((r) => r.json())
       .then((d) => {
         if (!cancelled) setDashboards((d.dashboards ?? []) as DashboardSummary[])
@@ -126,7 +128,9 @@ function DashboardView({
     async function loadDashboard(): Promise<DashboardPush | null> {
       if (localPush && localPush.name === name) return localPush
       try {
-        const res = await fetch(`/api/dashboards/${encodeURIComponent(name)}`)
+        const res = await fetch(
+          `/api/dashboards/${encodeURIComponent(name)}?workspace=${encodeURIComponent(activeWorkspace())}`,
+        )
         if (!res.ok) {
           if (!cancelled) setError(`Dashboard “${name}” not found.`)
           return null
