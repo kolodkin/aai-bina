@@ -28,6 +28,16 @@ def git_env(tmp_path, monkeypatch):
     return remote
 
 
+@pytest.fixture
+def default_ws_id() -> int:
+    """The seeded default workspace's id, for store-level calls in tests."""
+    import asyncio
+
+    from queryview.workspaces import DEFAULT_WORKSPACE, resolve
+
+    return asyncio.run(resolve(DEFAULT_WORKSPACE)).id
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _isolated_db(tmp_path_factory: pytest.TempPathFactory):
     tmp: Path = tmp_path_factory.mktemp("qv_backend_tests")

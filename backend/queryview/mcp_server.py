@@ -120,7 +120,10 @@ async def list_queries(conn_type: str = "clickhouse") -> dict[str, Any]:
     cell_view is raw YAML or null. Pass a query_name back as push_query's `name`
     to select that query in the browser (its saved presentation then applies).
     """
-    return {"queries": await list_predefined_queries_view(conn_type)}
+    from .workspaces import DEFAULT_WORKSPACE, resolve
+
+    ws = await resolve(DEFAULT_WORKSPACE)  # interim until Task 7
+    return {"queries": await list_predefined_queries_view(conn_type, ws.id)}
 
 
 @mcp.tool()

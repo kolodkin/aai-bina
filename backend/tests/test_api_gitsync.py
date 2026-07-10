@@ -16,6 +16,12 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def _default_ws_id() -> int:
+    from queryview.workspaces import DEFAULT_WORKSPACE, resolve
+
+    return _run(resolve(DEFAULT_WORKSPACE)).id
+
+
 def test_status_reports_unconfigured(monkeypatch):
     monkeypatch.delenv("GIT_SYNC_REMOTE", raising=False)
     c = TestClient(app)
@@ -50,13 +56,13 @@ def test_store_history_restore_round_trip(git_env):
     from queryview.queries import list_predefined_queries, save_predefined_query
 
     c = TestClient(app)
-    _run(save_predefined_query("api rt", "clickhouse", "SELECT 1"))
+    _run(save_predefined_query("api rt", "clickhouse", "SELECT 1", workspace_id=_default_ws_id()))
     r1 = c.post(
         "/api/git/store",
         json={"kind": "query", "name": "api rt", "conn_type": "clickhouse"},
     ).json()
     assert r1["ok"] is True and r1["committed"] is True
-    _run(save_predefined_query("api rt", "clickhouse", "SELECT 2"))
+    _run(save_predefined_query("api rt", "clickhouse", "SELECT 2", workspace_id=_default_ws_id()))
     c.post(
         "/api/git/store",
         json={"kind": "query", "name": "api rt", "conn_type": "clickhouse"},
@@ -74,7 +80,7 @@ def test_store_history_restore_round_trip(git_env):
         json={"kind": "query", "name": "api rt", "conn_type": "clickhouse", "ref": oldest},
     ).json()
     assert r2["ok"] is True
-    rows = _run(list_predefined_queries("clickhouse"))
+    rows = _run(list_predefined_queries("clickhouse", _default_ws_id()))
     row = next(x for x in rows if x["query_name"] == "api rt")
     assert row["query"] == "SELECT 1"
 

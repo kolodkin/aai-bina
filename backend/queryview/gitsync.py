@@ -255,8 +255,10 @@ def entity_relpath(kind: str, name: str, conn_type: str | None) -> str:
 async def _load_entity(kind: str, name: str, conn_type: str | None) -> dict[str, Any]:
     if kind == "query":
         from .queries import get_predefined_query
+        from .workspaces import DEFAULT_WORKSPACE, resolve as resolve_workspace
 
-        row = await get_predefined_query(conn_type or "", name)
+        ws = await resolve_workspace(DEFAULT_WORKSPACE)  # interim until Task 5
+        row = await get_predefined_query(conn_type or "", name, ws.id)
         if row is None:
             raise GitSyncError(f"query {name!r} not found", status=404)
         return row
@@ -402,7 +404,9 @@ async def restore(
     # DB upsert happens outside the git lock — it doesn't touch the workdir.
     if kind == "query":
         from .queries import save_predefined_query
+        from .workspaces import DEFAULT_WORKSPACE, resolve as resolve_workspace
 
+        ws = await resolve_workspace(DEFAULT_WORKSPACE)  # interim until Task 5
         await save_predefined_query(
             data["query_name"],
             conn_type or "",
@@ -410,6 +414,7 @@ async def restore(
             data["cell_view"],
             data["order_by"],
             data["fields"],
+            workspace_id=ws.id,
         )
     else:
         from .dashboards import upsert_dashboard

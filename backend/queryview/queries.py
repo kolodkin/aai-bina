@@ -1,5 +1,6 @@
-"""Predefined query store: globally-shared, reusable SQL keyed by connection
-type. Reuses the SQLite engine owned by connect.py."""
+"""Predefined query store: reusable SQL keyed by connection type within a
+workspace (names are unique per workspace). Reuses the SQLite engine owned by
+connect.py."""
 
 from __future__ import annotations
 
@@ -13,12 +14,15 @@ from .connect import _engine_for_db, _ensure_schema
 class PredefinedQuery(SQLModel, table=True):
     __tablename__ = "predefined_queries"
     __table_args__ = (
-        UniqueConstraint("type", "query_name", name="uq_predefined_type_name"),
+        UniqueConstraint(
+            "workspace_id", "type", "query_name", name="uq_predefined_ws_type_name"
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
     query_name: str = Field(index=True)
     type: str = Field(index=True)
+    workspace_id: int  # owning workspace (workspaces.id); names unique per workspace
     query: str
     # Raw YAML (column_name -> {type, value}) controlling cell rendering; NULL =
     # none. Never parsed here — interpreted client-side, matched to columns by name.
@@ -29,14 +33,19 @@ class PredefinedQuery(SQLModel, table=True):
     fields: str | None = Field(default=None)
 
 
-async def list_predefined_queries(conn_type: str) -> list[dict[str, str | None]]:
-    """Saved queries for a connection type, ordered by name."""
+async def list_predefined_queries(
+    conn_type: str, workspace_id: int
+) -> list[dict[str, str | None]]:
+    """Saved queries for a connection type within one workspace, ordered by name."""
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
         rows = (
             await s.exec(
                 select(PredefinedQuery)
-                .where(PredefinedQuery.type == conn_type)
+                .where(
+                    PredefinedQuery.type == conn_type,
+                    PredefinedQuery.workspace_id == workspace_id,
+                )
                 .order_by(PredefinedQuery.query_name)
             )
         ).all()
@@ -53,10 +62,10 @@ async def list_predefined_queries(conn_type: str) -> list[dict[str, str | None]]
 
 
 async def get_predefined_query(
-    conn_type: str, query_name: str
+    conn_type: str, query_name: str, workspace_id: int
 ) -> dict[str, str | None] | None:
-    """One saved query by (type, name) — the unique key — in the same row shape
-    as list_predefined_queries items, or None."""
+    """One saved query by (workspace, type, name) — the unique key — in the same
+    row shape as list_predefined_queries items, or None."""
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
         row = (
@@ -64,6 +73,7 @@ async def get_predefined_query(
                 select(PredefinedQuery).where(
                     PredefinedQuery.type == conn_type,
                     PredefinedQuery.query_name == query_name,
+                    PredefinedQuery.workspace_id == workspace_id,
                 )
             )
         ).first()
@@ -78,13 +88,13 @@ async def get_predefined_query(
     }
 
 
-async def list_predefined_queries_view(conn_type: str) -> list[dict]:
+async def list_predefined_queries_view(conn_type: str, workspace_id: int) -> list[dict]:
     """Like list_predefined_queries but with order_by/fields parsed from their
     stored JSON text into values (cell_view stays raw YAML). Shared by the HTTP
     list endpoint and the MCP list_queries tool so both present the same shape."""
     import json
 
-    rows = await list_predefined_queries(conn_type)
+    rows = await list_predefined_queries(conn_type, workspace_id)
     for r in rows:
         ob, fl = r.get("order_by"), r.get("fields")
         r["order_by"] = json.loads(ob) if ob else None
@@ -99,8 +109,10 @@ async def save_predefined_query(
     cell_view: str | None = None,
     order_by: str | None = None,
     fields: str | None = None,
+    *,
+    workspace_id: int,
 ) -> None:
-    """Upsert a predefined query by (type, query_name)."""
+    """Upsert a predefined query by (workspace, type, query_name)."""
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
         row = (
@@ -108,6 +120,7 @@ async def save_predefined_query(
                 select(PredefinedQuery).where(
                     PredefinedQuery.type == conn_type,
                     PredefinedQuery.query_name == query_name,
+                    PredefinedQuery.workspace_id == workspace_id,
                 )
             )
         ).first()
@@ -115,6 +128,7 @@ async def save_predefined_query(
             row = PredefinedQuery(
                 query_name=query_name,
                 type=conn_type,
+                workspace_id=workspace_id,
                 query=query,
                 cell_view=cell_view,
                 order_by=order_by,

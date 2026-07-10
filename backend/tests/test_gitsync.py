@@ -94,6 +94,13 @@ def test_dashboard_from_files_rejects_malformed_meta():
 # The git_env fixture (bare repo + GIT_SYNC_* env vars) lives in conftest.py.
 
 
+
+def _default_ws_id() -> int:
+    from queryview.workspaces import DEFAULT_WORKSPACE, resolve
+
+    return _run(resolve(DEFAULT_WORKSPACE)).id
+
+
 def _remote_log(remote) -> str:
     return subprocess.run(
         ["git", "log", "--format=%H %s", "main"],
@@ -135,7 +142,7 @@ def test_store_missing_entity_is_404(git_env):
 def test_store_query_commits_and_pushes(git_env):
     from queryview.queries import save_predefined_query
 
-    _run(save_predefined_query("gs top", "clickhouse", "SELECT 1"))
+    _run(save_predefined_query("gs top", "clickhouse", "SELECT 1", workspace_id=_default_ws_id()))
     r = _run(gitsync.store("query", "gs top", "clickhouse"))
     assert r["committed"] is True and r["sha"]
     log = _remote_log(git_env)
@@ -146,7 +153,7 @@ def test_store_query_commits_and_pushes(git_env):
 def test_store_no_change_makes_no_commit(git_env):
     from queryview.queries import save_predefined_query
 
-    _run(save_predefined_query("gs same", "clickhouse", "SELECT 2"))
+    _run(save_predefined_query("gs same", "clickhouse", "SELECT 2", workspace_id=_default_ws_id()))
     r1 = _run(gitsync.store("query", "gs same", "clickhouse"))
     r2 = _run(gitsync.store("query", "gs same", "clickhouse"))
     assert r1["committed"] is True
@@ -179,7 +186,7 @@ def test_store_dashboard_touches_only_its_dir(git_env):
 def test_store_custom_message(git_env):
     from queryview.queries import save_predefined_query
 
-    _run(save_predefined_query("gs msg", "clickhouse", "SELECT 3"))
+    _run(save_predefined_query("gs msg", "clickhouse", "SELECT 3", workspace_id=_default_ws_id()))
     _run(gitsync.store("query", "gs msg", "clickhouse", message="before migration"))
     assert "before migration" in _remote_log(git_env)
 
@@ -189,7 +196,7 @@ def test_store_unreachable_remote_raises_without_init(tmp_path, monkeypatch):
 
     monkeypatch.setenv("GIT_SYNC_REMOTE", str(tmp_path / "does-not-exist.git"))
     monkeypatch.setenv("GIT_SYNC_DIR", str(tmp_path / "clone"))
-    _run(save_predefined_query("gs unreachable", "clickhouse", "SELECT 1"))
+    _run(save_predefined_query("gs unreachable", "clickhouse", "SELECT 1", workspace_id=_default_ws_id()))
     with pytest.raises(GitSyncError) as e:
         _run(gitsync.store("query", "gs unreachable", "clickhouse"))
     assert e.value.status == 502
@@ -215,7 +222,7 @@ def _store_query_versions(name: str, sqls: list[str]) -> list[str]:
 
     shas = []
     for sql in sqls:
-        _run(save_predefined_query(name, "clickhouse", sql))
+        _run(save_predefined_query(name, "clickhouse", sql, workspace_id=_default_ws_id()))
         shas.append(_run(gitsync.store("query", name, "clickhouse"))["sha"])
     return shas
 
@@ -259,7 +266,7 @@ def test_restore_old_version_overwrites_db_without_moving_head(git_env):
     head_before = _clone_head()
     r = _run(gitsync.restore("query", "gs restore", "clickhouse", ref=shas[0]))
     assert r["restored"] is True
-    rows = _run(list_predefined_queries("clickhouse"))
+    rows = _run(list_predefined_queries("clickhouse", _default_ws_id()))
     row = next(x for x in rows if x["query_name"] == "gs restore")
     assert row["query"] == "SELECT 1"
     assert _clone_head() == head_before  # HEAD never moves
@@ -269,9 +276,9 @@ def test_restore_default_ref_is_remote_head(git_env):
     from queryview.queries import list_predefined_queries, save_predefined_query
 
     _store_query_versions("gs latest", ["SELECT 1", "SELECT 2"])
-    _run(save_predefined_query("gs latest", "clickhouse", "SELECT 999"))  # local drift
+    _run(save_predefined_query("gs latest", "clickhouse", "SELECT 999", workspace_id=_default_ws_id()))  # local drift
     _run(gitsync.restore("query", "gs latest", "clickhouse"))
-    rows = _run(list_predefined_queries("clickhouse"))
+    rows = _run(list_predefined_queries("clickhouse", _default_ws_id()))
     row = next(x for x in rows if x["query_name"] == "gs latest")
     assert row["query"] == "SELECT 2"
 

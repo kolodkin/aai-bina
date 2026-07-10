@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from . import gitsync, remote
+from . import gitsync, remote, workspaces
 from .validation import presentation_error
 from .mcp_server import mcp
 
@@ -238,11 +238,24 @@ async def db_describe(request: Request):
     return {"ok": True, "fields": r["fields"]}
 
 
-# Predefined queries: global, keyed by connection type.
+async def _resolve_workspace(raw: Any):
+    """(WorkspaceRec, None) or (None, JSONResponse) for a request's optional
+    `workspace` field; empty/missing means the default workspace."""
+    name = _clean_str(raw) or workspaces.DEFAULT_WORKSPACE
+    try:
+        return await workspaces.resolve(name), None
+    except workspaces.WorkspaceError as e:
+        return None, JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+
+
+# Predefined queries: keyed by connection type within a workspace.
 @app.get("/api/predefined-queries")
 async def predefined_queries_list(request: Request):
     conn_type = request.query_params.get("type") or "clickhouse"
-    return {"queries": await list_predefined_queries_view(conn_type)}
+    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
+    if err:
+        return err
+    return {"queries": await list_predefined_queries_view(conn_type, ws.id)}
 
 
 @app.post("/api/predefined-queries")
@@ -272,7 +285,12 @@ async def predefined_queries_save(request: Request):
 
     order_by = json.dumps(order_by_arr) if isinstance(order_by_arr, list) and order_by_arr else None
     fields = json.dumps(fields_arr) if isinstance(fields_arr, list) and fields_arr else None
-    await save_predefined_query(name, conn_type, query, cell_view, order_by, fields)
+    ws, err = await _resolve_workspace(b.get("workspace"))
+    if err:
+        return err
+    await save_predefined_query(
+        name, conn_type, query, cell_view, order_by, fields, workspace_id=ws.id
+    )
     return {"ok": True}
 
 
