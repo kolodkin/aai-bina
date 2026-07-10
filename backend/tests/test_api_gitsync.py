@@ -22,8 +22,8 @@ def _default_ws_id() -> int:
     return _run(resolve(DEFAULT_WORKSPACE)).id
 
 
-def test_status_reports_unconfigured(monkeypatch):
-    monkeypatch.delenv("GIT_SYNC_REMOTE", raising=False)
+def test_status_reports_unconfigured():
+    # Outside git_env the default workspace has no remote configured.
     c = TestClient(app)
     assert c.get("/api/git/status").json() == {"configured": False}
 
@@ -41,15 +41,14 @@ def test_store_validation_400():
     assert c.post("/api/git/store", json={"kind": "query", "name": "x"}).status_code == 400
 
 
-def test_store_unconfigured_409(monkeypatch):
-    monkeypatch.delenv("GIT_SYNC_REMOTE", raising=False)
+def test_store_unconfigured_409():
     c = TestClient(app)
     r = c.post(
         "/api/git/store",
         json={"kind": "query", "name": "x", "conn_type": "clickhouse"},
     )
     assert r.status_code == 409
-    assert "not configured" in r.json()["message"]
+    assert "no git remote" in r.json()["message"]
 
 
 def test_store_history_restore_round_trip(git_env):
@@ -92,3 +91,36 @@ def test_restore_unknown_entity_404(git_env):
         json={"kind": "query", "name": "never stored api", "conn_type": "clickhouse"},
     )
     assert r.status_code == 404
+
+
+def test_api_store_routes_by_workspace(tmp_path, monkeypatch):
+    import subprocess
+
+    from queryview.queries import save_predefined_query
+    from queryview.workspaces import create_workspace, resolve
+
+    monkeypatch.setenv("GIT_SYNC_DIR", str(tmp_path / "clones"))
+    remote = tmp_path / "ws.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(remote)],
+        check=True,
+        capture_output=True,
+    )
+    _run(create_workspace("t5-api", remote=str(remote)))
+    wid = _run(resolve("t5-api")).id
+    _run(save_predefined_query("api ws", "clickhouse", "SELECT 1", workspace_id=wid))
+
+    c = TestClient(app)
+    assert c.get("/api/git/status", params={"workspace": "t5-api"}).json() == {
+        "configured": True
+    }
+    r = c.post(
+        "/api/git/store",
+        json={"kind": "query", "name": "api ws", "conn_type": "clickhouse", "workspace": "t5-api"},
+    ).json()
+    assert r["ok"] is True and r["committed"] is True
+    h = c.get(
+        "/api/git/history",
+        params={"kind": "query", "name": "api ws", "conn_type": "clickhouse", "workspace": "t5-api"},
+    ).json()
+    assert len(h["revisions"]) == 1

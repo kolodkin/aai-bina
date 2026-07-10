@@ -516,8 +516,11 @@ async def _gitsync_json(coro):
 
 
 @app.get("/api/git/status")
-async def git_status():
-    return {"configured": gitsync.configured()}
+async def git_status(request: Request):
+    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
+    if err:
+        return err
+    return {"configured": gitsync.configured(ws)}
 
 
 @app.post("/api/git/store")
@@ -527,8 +530,11 @@ async def git_store(request: Request):
     kind, name, conn_type, err = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
     if err:
         return err
+    ws, werr = await _resolve_workspace(b.get("workspace"))
+    if werr:
+        return werr
     message = _clean_str(b.get("message")) or None
-    return await _gitsync_json(gitsync.store(kind, name, conn_type, message))
+    return await _gitsync_json(gitsync.store(ws, kind, name, conn_type, message))
 
 
 @app.get("/api/git/history")
@@ -541,8 +547,11 @@ async def git_history(request: Request):
         limit = max(1, min(int(q.get("limit") or 10), 100))
     except ValueError:
         limit = 10
+    ws, werr = await _resolve_workspace(q.get("workspace"))
+    if werr:
+        return werr
     return await _gitsync_json(
-        gitsync.history(kind, name, conn_type, q.get("before") or None, limit)
+        gitsync.history(ws, kind, name, conn_type, q.get("before") or None, limit)
     )
 
 
@@ -553,7 +562,12 @@ async def git_restore(request: Request):
     kind, name, conn_type, err = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
     if err:
         return err
-    return await _gitsync_json(gitsync.restore(kind, name, conn_type, _clean_str(b.get("ref")) or None))
+    ws, werr = await _resolve_workspace(b.get("workspace"))
+    if werr:
+        return werr
+    return await _gitsync_json(
+        gitsync.restore(ws, kind, name, conn_type, _clean_str(b.get("ref")) or None)
+    )
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

@@ -200,7 +200,10 @@ async def git_store(
     Returns {ok, committed, sha, message}; committed=False with "no changes"
     when the repo already matches the DB.
     """
-    return await _git_tool(gitsync.store(kind, name, conn_type, message))
+    from .workspaces import DEFAULT_WORKSPACE, resolve
+
+    ws = await resolve(DEFAULT_WORKSPACE)  # interim until Task 7
+    return await _git_tool(gitsync.store(ws, kind, name, conn_type, message))
 
 
 @mcp.tool()
@@ -223,7 +226,10 @@ async def git_history(
     Returns {ok, revisions: [{sha, date, message}], has_more}; date is unix ms.
     Pass a sha to git_restore's `ref` to restore that revision.
     """
-    return await _git_tool(gitsync.history(kind, name, conn_type, before, limit))
+    from .workspaces import DEFAULT_WORKSPACE, resolve
+
+    ws = await resolve(DEFAULT_WORKSPACE)  # interim until Task 7
+    return await _git_tool(gitsync.history(ws, kind, name, conn_type, before, limit))
 
 
 @mcp.tool()
@@ -247,4 +253,7 @@ async def git_restore(
 
     Returns {ok, restored, sha} or {ok: False, message}.
     """
-    return await _git_tool(gitsync.restore(kind, name, conn_type, ref))
+    from .workspaces import DEFAULT_WORKSPACE, resolve
+
+    ws = await resolve(DEFAULT_WORKSPACE)  # interim until Task 7
+    return await _git_tool(gitsync.restore(ws, kind, name, conn_type, ref))

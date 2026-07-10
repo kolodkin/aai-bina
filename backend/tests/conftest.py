@@ -15,17 +15,23 @@ import pytest
 
 @pytest.fixture
 def git_env(tmp_path, monkeypatch):
-    """A local bare repo as the git-sync remote + a fresh clone dir, via env vars."""
+    """A local bare repo as the default workspace's git-sync remote + a fresh
+    per-workspace clone base dir. Resets the default workspace to 'no remote'
+    on teardown so unconfigured-state tests stay valid."""
+    import asyncio
+
+    from queryview.workspaces import DEFAULT_WORKSPACE, update_workspace
+
     remote = tmp_path / "remote.git"
     subprocess.run(
         ["git", "init", "--bare", "-b", "main", str(remote)],
         check=True,
         capture_output=True,
     )
-    monkeypatch.setenv("GIT_SYNC_REMOTE", str(remote))
-    monkeypatch.setenv("GIT_SYNC_DIR", str(tmp_path / "clone"))
-    monkeypatch.delenv("GIT_SYNC_BRANCH", raising=False)
-    return remote
+    monkeypatch.setenv("GIT_SYNC_DIR", str(tmp_path / "clones"))
+    asyncio.run(update_workspace(DEFAULT_WORKSPACE, remote=str(remote)))
+    yield remote
+    asyncio.run(update_workspace(DEFAULT_WORKSPACE, remote=None))
 
 
 @pytest.fixture
