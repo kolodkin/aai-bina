@@ -1,16 +1,12 @@
-"""The /api/workspaces surface: CRUD, no-secret listing, delete-non-empty 409."""
+"""The /api/workspaces surface: CRUD round trip and no-secret listing.
+Store-level rules (delete-non-empty 409, name validation details) are covered
+in test_workspaces.py."""
 
 from __future__ import annotations
-
-import asyncio
 
 from fastapi.testclient import TestClient
 
 from queryview.main import app
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def test_list_includes_default():
@@ -47,15 +43,3 @@ def test_create_validation_and_conflict():
     c.post("/api/workspaces", json={"name": "t6-dup"})
     assert c.post("/api/workspaces", json={"name": "t6-dup"}).status_code == 409
 
-
-def test_delete_non_empty_409(default_ws_id):
-    from queryview.queries import save_predefined_query
-    from queryview.workspaces import resolve
-
-    c = TestClient(app)
-    c.post("/api/workspaces", json={"name": "t6-full"})
-    wid = _run(resolve("t6-full")).id
-    _run(save_predefined_query("holder", "clickhouse", "SELECT 1", workspace_id=wid))
-    r = c.delete("/api/workspaces/t6-full")
-    assert r.status_code == 409
-    assert "contains" in r.json()["message"]
