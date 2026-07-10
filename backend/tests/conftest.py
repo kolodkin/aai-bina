@@ -7,9 +7,25 @@ module-level engine/schema state in `queryview.connect` before tests run."""
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture
+def git_env(tmp_path, monkeypatch):
+    """A local bare repo as the git-sync remote + a fresh clone dir, via env vars."""
+    remote = tmp_path / "remote.git"
+    subprocess.run(
+        ["git", "init", "--bare", "-b", "main", str(remote)],
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.setenv("GIT_SYNC_REMOTE", str(remote))
+    monkeypatch.setenv("GIT_SYNC_DIR", str(tmp_path / "clone"))
+    monkeypatch.delenv("GIT_SYNC_BRANCH", raising=False)
+    return remote
 
 
 @pytest.fixture(scope="session", autouse=True)

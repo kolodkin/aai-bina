@@ -52,6 +52,32 @@ async def list_predefined_queries(conn_type: str) -> list[dict[str, str | None]]
     ]
 
 
+async def get_predefined_query(
+    conn_type: str, query_name: str
+) -> dict[str, str | None] | None:
+    """One saved query by (type, name) — the unique key — in the same row shape
+    as list_predefined_queries items, or None."""
+    await _ensure_schema()
+    async with AsyncSession(_engine_for_db()) as s:
+        row = (
+            await s.exec(
+                select(PredefinedQuery).where(
+                    PredefinedQuery.type == conn_type,
+                    PredefinedQuery.query_name == query_name,
+                )
+            )
+        ).first()
+    if row is None:
+        return None
+    return {
+        "query_name": row.query_name,
+        "query": row.query,
+        "cell_view": row.cell_view,
+        "order_by": row.order_by,
+        "fields": row.fields,
+    }
+
+
 async def list_predefined_queries_view(conn_type: str) -> list[dict]:
     """Like list_predefined_queries but with order_by/fields parsed from their
     stored JSON text into values (cell_view stays raw YAML). Shared by the HTTP

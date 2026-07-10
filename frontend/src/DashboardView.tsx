@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import GitSyncControls from './GitSyncControls'
+
 export type DashboardPush = {
   name: string
   connection: string
@@ -46,6 +48,9 @@ function DashboardView({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Bumped after a git restore to re-trigger the load effect below without
+  // otherwise changing its dependencies.
+  const [reloadNonce, setReloadNonce] = useState(0)
 
   // Refetch the dropdown list (also used after a Save to surface a new name).
   async function loadDashboards() {
@@ -167,7 +172,7 @@ function DashboardView({
     return () => {
       cancelled = true
     }
-  }, [name, localPush, database])
+  }, [name, localPush, database, reloadNonce])
 
   const srcDoc = useMemo(
     () => (active && results ? buildSrcDoc(active.html, results) : null),
@@ -210,6 +215,15 @@ function DashboardView({
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
+        <GitSyncControls
+          kind="dashboard"
+          name={name}
+          disabled={!name}
+          onRestored={() => {
+            setLocalPush(null)
+            setReloadNonce((n) => n + 1)
+          }}
+        />
       </div>
 
       {!name && (

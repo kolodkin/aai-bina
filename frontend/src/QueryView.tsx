@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { CellViewModal } from './CellViewModal'
 import { ComplexCell } from './ComplexCell'
 import { DRIVERS, type DriverMeta } from './drivers'
+import GitSyncControls from './GitSyncControls'
 import { suggestCompletions, type Suggestion } from './promptSuggestions'
 import { escapeHtml, substituteCellTemplate } from './cellView'
 import { postLock } from './sessionLock'
@@ -815,15 +816,21 @@ function QueryPanel({
     })
   }, [paramDefs])
 
-  const loadPredefined = useCallback(async () => {
+  // Returns the fetched list (not just the state setter) so a caller that needs
+  // the fresh rows right away — e.g. re-seeding the editor after a git restore —
+  // doesn't have to wait a render for `predefined` state to catch up.
+  const loadPredefined = useCallback(async (): Promise<PredefinedQuery[]> => {
     try {
       const res = await fetch(
         `/api/predefined-queries?type=${encodeURIComponent(connectionType)}`,
       )
       const data = await res.json()
-      setPredefined((data.queries ?? []) as PredefinedQuery[])
+      const list = (data.queries ?? []) as PredefinedQuery[]
+      setPredefined(list)
+      return list
     } catch {
       // missing list is non-fatal; leave the selector empty
+      return []
     }
   }, [connectionType])
 
@@ -1015,6 +1022,13 @@ function QueryPanel({
     }
   }
 
+  // Load a predefined query's SQL/presentation into the editor.
+  function applyPredefined(q: PredefinedQuery) {
+    setSql(q.query)
+    setOrderBy(q.order_by ?? [])
+    setVisibleCols(q.fields ?? []) // [] = show all (matches pushed-fields semantics)
+  }
+
   function onSelectName(value: string) {
     if (value === NEW_NAME_OPTION) {
       const name = window.prompt('Save query as (name):', selectedName || '')?.trim()
@@ -1024,11 +1038,17 @@ function QueryPanel({
     setSelectedName(value)
     setPushedCellView(null) // selecting a query reverts to its saved cell view
     const q = predefined.find((p) => p.query_name === value)
-    if (q) {
-      setSql(q.query)
-      setOrderBy(q.order_by ?? [])
-      setVisibleCols(q.fields ?? []) // [] = show all (matches pushed-fields semantics)
-    }
+    if (q) applyPredefined(q)
+  }
+
+  // After a git restore overwrites the stored row, refetch the list and
+  // re-seed the editor from the (now-current) row for the selected name —
+  // using the freshly-fetched list directly rather than the `predefined`
+  // state, which wouldn't have caught up yet.
+  async function onQueryRestored() {
+    const list = await loadPredefined()
+    const q = list.find((p) => p.query_name === selectedName)
+    if (q) applyPredefined(q)
   }
 
   // SQL-only saves (top button) re-persist the existing cell_view; the modal
@@ -1163,6 +1183,13 @@ function QueryPanel({
         >
           Save
         </button>
+        <GitSyncControls
+          kind="query"
+          name={selectedName}
+          connType={connectionType}
+          disabled={busy || !selectedName.trim()}
+          onRestored={() => void onQueryRestored()}
+        />
       </div>
 
       {paramDefs.length > 0 && (

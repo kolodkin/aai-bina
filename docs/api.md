@@ -40,6 +40,22 @@ hubs the matching REST endpoints call. See [remote.md](./remote.md) and
 Connections are stored in SQLite via SQLModel. See [connect.md](./connect.md)
 for the schema and the session / auto-connect model.
 
+## Git sync
+
+Predefined queries and dashboards can be backed up to (and restored from) a
+git repository, per entity. Connections are never written to the repo. See
+[gitsync.md](./gitsync.md) for configuration, repository layout, and the UI.
+
+| Method | Path              | Body                                            | Description |
+| ------ | ----------------- | ------------------------------------------------ | ----------- |
+| GET    | `/api/git/status`  | —                                                | Whether git sync is configured. `{configured}`. |
+| POST   | `/api/git/store`   | `{kind, name, conn_type?, message?}`             | Commit the entity's saved DB state and push. `{ok, committed, sha, message}`. |
+| GET    | `/api/git/history` | `?kind=&name=&conn_type=&before=&limit=10`       | The entity's revisions, newest first. `{ok, revisions: [{sha, date, message}], has_more}`. |
+| POST   | `/api/git/restore` | `{kind, name, conn_type?, ref?}`                 | Overwrite the local DB row with the entity's content at `ref`. `{ok, restored, sha}`. |
+
+`kind` is `"query"` or `"dashboard"`; `conn_type` is required for queries. MCP
+tools `git_store`, `git_history`, `git_restore` mirror the same surface.
+
 ## Related docs
 
 - [queryview.md](./queryview.md) — the single-prompt page concept.
@@ -47,3 +63,4 @@ for the schema and the session / auto-connect model.
 - [query.md](./query.md) — running queries: pagination, predefined queries, CSV.
 - [remote.md](./remote.md) — pushing queries to a live session over MCP.
 - [dashboard.md](./dashboard.md) — the dashboard page, `upsert_dashboard`, and the `window.queries` contract.
+- [gitsync.md](./gitsync.md) — backing up and restoring queries and dashboards via git.

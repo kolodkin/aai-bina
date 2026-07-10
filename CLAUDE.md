@@ -10,6 +10,14 @@
 
 # Conventions
 
+## Docs
+
+- **Remove superpowers plans and designs once implemented.** Files under
+  `docs/superpowers/plans/` and `docs/superpowers/specs/` exist only while the
+  work is pending; when a plan ships, delete its plan and spec in the same
+  change (the feature's page under `docs/` is the doc of record) and fix any
+  links that pointed at them.
+
 ## Python
 
 - **Avoid `__all__`.** Don't declare `__all__` in modules or packages. Keep the
