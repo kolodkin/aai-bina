@@ -75,8 +75,11 @@ the remote, branch, clone, and history are all per-workspace.
   `git/store|history|restore|status` — accept an optional `workspace` (name)
   defaulting to `"default"`. `git/status` reports `{configured}` for the given
   workspace.
-- MCP tools mirror the API: existing tools gain the optional `workspace`
-  parameter; new workspace CRUD tools match the endpoints.
+- MCP: existing tools gain the optional `workspace` parameter, plus one
+  read-only `list_workspaces` tool (names + configured flag) so agents can
+  discover valid names. No workspace CRUD via MCP — like connections, it's
+  admin configuration involving secrets (the remote URL embeds a token) and
+  belongs to the API/UI only.
 
 ## Frontend
 
