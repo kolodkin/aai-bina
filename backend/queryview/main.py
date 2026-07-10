@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from . import gitsync, remote
+from . import gitsync, remote, workspaces
 from .validation import presentation_error
 from .mcp_server import mcp
 
@@ -238,11 +238,24 @@ async def db_describe(request: Request):
     return {"ok": True, "fields": r["fields"]}
 
 
-# Predefined queries: global, keyed by connection type.
+async def _resolve_workspace(raw: Any):
+    """(WorkspaceRec, None) or (None, JSONResponse) for a request's optional
+    `workspace` field; empty/missing means the default workspace."""
+    name = _clean_str(raw) or workspaces.DEFAULT_WORKSPACE
+    try:
+        return await workspaces.resolve(name), None
+    except workspaces.WorkspaceError as e:
+        return None, JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+
+
+# Predefined queries: keyed by connection type within a workspace.
 @app.get("/api/predefined-queries")
 async def predefined_queries_list(request: Request):
     conn_type = request.query_params.get("type") or "clickhouse"
-    return {"queries": await list_predefined_queries_view(conn_type)}
+    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
+    if err:
+        return err
+    return {"queries": await list_predefined_queries_view(conn_type, ws.id)}
 
 
 @app.post("/api/predefined-queries")
@@ -272,7 +285,12 @@ async def predefined_queries_save(request: Request):
 
     order_by = json.dumps(order_by_arr) if isinstance(order_by_arr, list) and order_by_arr else None
     fields = json.dumps(fields_arr) if isinstance(fields_arr, list) and fields_arr else None
-    await save_predefined_query(name, conn_type, query, cell_view, order_by, fields)
+    ws, err = await _resolve_workspace(b.get("workspace"))
+    if err:
+        return err
+    await save_predefined_query(
+        name, conn_type, query, cell_view, order_by, fields, workspace_id=ws.id
+    )
     return {"ok": True}
 
 
@@ -375,6 +393,11 @@ async def remote_db(request: Request):
             {"ok": False, "message": "session_id required"}, status_code=400
         )
     ok = remote.set_session_database(session_id, database)
+    if "workspace" in b:
+        raw_ws = b.get("workspace")
+        remote.set_session_workspace(
+            session_id, raw_ws if isinstance(raw_ws, str) and raw_ws else None
+        )
     return {"ok": ok}
 
 
@@ -438,21 +461,30 @@ async def dashboards_upsert(request: Request):
             {"ok": False, "message": "name, connection and html are required"},
             status_code=400,
         )
+    ws, err = await _resolve_workspace(b.get("workspace"))
+    if err:
+        return err
     session_id = _clean_str(b.get("session_id"))
     persisted, pushed, message = await _upsert_and_push(
-        name, connection, html, queries, session_id or None
+        name, connection, html, queries, session_id or None, workspace_id=ws.id
     )
     return {"ok": persisted, "persisted": persisted, "pushed": pushed, "message": message}
 
 
 @app.get("/api/dashboards")
-async def dashboards_list():
-    return {"dashboards": await list_dashboards()}
+async def dashboards_list(request: Request):
+    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
+    if err:
+        return err
+    return {"dashboards": await list_dashboards(ws.id)}
 
 
 @app.get("/api/dashboards/{name}")
-async def dashboards_get(name: str):
-    d = await get_dashboard(name)
+async def dashboards_get(name: str, request: Request):
+    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
+    if err:
+        return err
+    d = await get_dashboard(name, ws.id)
     if d is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return d
@@ -489,8 +521,11 @@ async def _gitsync_json(coro):
 
 
 @app.get("/api/git/status")
-async def git_status():
-    return {"configured": gitsync.configured()}
+async def git_status(request: Request):
+    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
+    if err:
+        return err
+    return {"configured": gitsync.configured(ws)}
 
 
 @app.post("/api/git/store")
@@ -500,8 +535,11 @@ async def git_store(request: Request):
     kind, name, conn_type, err = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
     if err:
         return err
+    ws, werr = await _resolve_workspace(b.get("workspace"))
+    if werr:
+        return werr
     message = _clean_str(b.get("message")) or None
-    return await _gitsync_json(gitsync.store(kind, name, conn_type, message))
+    return await _gitsync_json(gitsync.store(ws, kind, name, conn_type, message))
 
 
 @app.get("/api/git/history")
@@ -514,8 +552,11 @@ async def git_history(request: Request):
         limit = max(1, min(int(q.get("limit") or 10), 100))
     except ValueError:
         limit = 10
+    ws, werr = await _resolve_workspace(q.get("workspace"))
+    if werr:
+        return werr
     return await _gitsync_json(
-        gitsync.history(kind, name, conn_type, q.get("before") or None, limit)
+        gitsync.history(ws, kind, name, conn_type, q.get("before") or None, limit)
     )
 
 
@@ -526,7 +567,69 @@ async def git_restore(request: Request):
     kind, name, conn_type, err = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
     if err:
         return err
-    return await _gitsync_json(gitsync.restore(kind, name, conn_type, _clean_str(b.get("ref")) or None))
+    ws, werr = await _resolve_workspace(b.get("workspace"))
+    if werr:
+        return werr
+    return await _gitsync_json(
+        gitsync.restore(ws, kind, name, conn_type, _clean_str(b.get("ref")) or None)
+    )
+
+
+# --- Workspaces (see docs/workspace.md) ------------------------------------
+# Admin configuration with secrets (the remote URL may embed a token): exposed
+# over REST/UI only, deliberately not over MCP.
+
+
+def _workspace_error(e: workspaces.WorkspaceError) -> JSONResponse:
+    return JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+
+
+@app.get("/api/workspaces")
+async def workspaces_list():
+    return {"workspaces": await workspaces.list_workspaces()}
+
+
+@app.post("/api/workspaces")
+async def workspaces_create(request: Request):
+    b = await _read_json(request)
+    b = b if isinstance(b, dict) else {}
+    name = _clean_str(b.get("name"))
+    if not name:
+        return JSONResponse({"ok": False, "message": "name is required"}, status_code=400)
+    remote_url = _clean_str(b.get("remote")) or None
+    branch = _clean_str(b.get("branch")) or "main"
+    try:
+        await workspaces.create_workspace(name, remote_url, branch)
+    except workspaces.WorkspaceError as e:
+        return _workspace_error(e)
+    return {"ok": True}
+
+
+@app.patch("/api/workspaces/{name}")
+async def workspaces_update(name: str, request: Request):
+    b = await _read_json(request)
+    b = b if isinstance(b, dict) else {}
+    kwargs: dict[str, Any] = {}
+    if "name" in b:
+        kwargs["new_name"] = _clean_str(b.get("name")) or None
+    if "remote" in b:  # present-but-null clears; absent leaves as-is
+        kwargs["remote"] = _clean_str(b.get("remote")) or None
+    if "branch" in b:
+        kwargs["branch"] = _clean_str(b.get("branch")) or None
+    try:
+        await workspaces.update_workspace(name, **kwargs)
+    except workspaces.WorkspaceError as e:
+        return _workspace_error(e)
+    return {"ok": True}
+
+
+@app.delete("/api/workspaces/{name}")
+async def workspaces_delete(name: str):
+    try:
+        await workspaces.delete_workspace(name)
+    except workspaces.WorkspaceError as e:
+        return _workspace_error(e)
+    return {"ok": True}
 
 
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])

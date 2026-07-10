@@ -246,3 +246,17 @@ def test_push_query_return_includes_database():
         assert out["ok"] is True and out["database"] == "acme_db"
     finally:
         _remote.unregister(rid)
+
+
+def test_session_workspace_report_and_read():
+    from queryview import remote
+
+    rid = remote.register()
+    try:
+        assert remote.session_workspace(rid) is None
+        assert remote.set_session_workspace(rid, "team-a") is True
+        assert remote.session_workspace(rid) == "team-a"
+        assert remote.set_session_workspace("nope", "x") is False
+        assert remote.session_workspace("nope") is None
+    finally:
+        remote.unregister(rid)

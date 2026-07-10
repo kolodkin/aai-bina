@@ -109,18 +109,57 @@ async def run_query(
     }
 
 
+async def _session_workspace_rec(session_id: str | None):
+    """The workspace the given armed session is on (reported by the browser),
+    else the default workspace. MCP is deliberately workspace-unaware: the
+    human picks the workspace in the UI; the agent works in session scope."""
+    from . import workspaces
+
+    name = remote.session_workspace(session_id) if session_id else None
+    return await workspaces.resolve(name or workspaces.DEFAULT_WORKSPACE)
+
+
 @mcp.tool()
-async def list_queries(conn_type: str = "clickhouse") -> dict[str, Any]:
+async def list_queries(
+    conn_type: str = "clickhouse", session_id: str | None = None
+) -> dict[str, Any]:
     """List the saved (predefined) queries for a connection type.
 
-    These are reusable queries a human has saved, shared globally per connection
-    type (default "clickhouse"). Returns
+    These are reusable queries a human has saved, shared per connection type
+    (default "clickhouse") within a workspace. Returns
     {"queries": [{query_name, query, cell_view, order_by, fields}]}, where
     order_by is [{"name","dir"}] or null, fields is ["col", ...] or null, and
     cell_view is raw YAML or null. Pass a query_name back as push_query's `name`
     to select that query in the browser (its saved presentation then applies).
+
+    Args:
+        conn_type: Connection type to list queries for.
+        session_id: Optional armed-session id; scopes the list to that
+            session's workspace (default workspace otherwise).
     """
-    return {"queries": await list_predefined_queries_view(conn_type)}
+    ws = await _session_workspace_rec(session_id)
+    return {"queries": await list_predefined_queries_view(conn_type, ws.id)}
+
+
+@mcp.tool()
+async def list_dashboards(session_id: str | None = None) -> dict[str, Any]:
+    """List the saved dashboards (names + metadata, no HTML/queries payload).
+
+    Use this to discover dashboard names — e.g. to pick a `name` for
+    git_store/git_history/git_restore with kind="dashboard", or to avoid
+    overwriting an existing dashboard when pushing a new one.
+
+    Args:
+        session_id: Optional armed-session id; scopes the list to that
+            session's workspace (default workspace otherwise).
+
+    Returns {"dashboards": [{name, connection, updated_at}]}; updated_at is
+    unix ms.
+    """
+    from .dashboards import list_dashboards as _list_dashboards
+
+    ws = await _session_workspace_rec(session_id)
+    return {"dashboards": await _list_dashboards(ws.id)}
 
 
 @mcp.tool()
@@ -179,12 +218,13 @@ async def git_store(
     name: str,
     conn_type: str | None = None,
     message: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
-    """Back up one predefined query or dashboard to the configured git remote.
+    """Back up one predefined query or dashboard to its workspace's git remote.
 
     Exports the entity's saved DB state as files, makes one commit, and pushes.
-    Requires the server to be configured with GIT_SYNC_REMOTE. Versions are git
-    commits — use git_history to list them and git_restore to roll back.
+    Requires the target workspace to have a git remote configured. Versions are
+    git commits — use git_history to list them and git_restore to roll back.
 
     Args:
         kind: "query" or "dashboard".
@@ -193,11 +233,14 @@ async def git_store(
             for kind="query", ignored for dashboards.
         message: Optional commit message (default: "store query {conn_type}/{name}"
             for queries, "store dashboard {name}" for dashboards).
+        session_id: Optional armed-session id; the operation runs in that
+            session's workspace (default workspace otherwise).
 
     Returns {ok, committed, sha, message}; committed=False with "no changes"
     when the repo already matches the DB.
     """
-    return await _git_tool(gitsync.store(kind, name, conn_type, message))
+    ws = await _session_workspace_rec(session_id)
+    return await _git_tool(gitsync.store(ws, kind, name, conn_type, message))
 
 
 @mcp.tool()
@@ -207,6 +250,7 @@ async def git_history(
     conn_type: str | None = None,
     before: str | None = None,
     limit: int = 10,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """List an entity's backup revisions (commits touching it), newest first.
 
@@ -216,11 +260,14 @@ async def git_history(
         conn_type: The query's connection type; required for kind="query".
         before: A sha from a previous page; returns strictly older revisions.
         limit: Page size (default 10).
+        session_id: Optional armed-session id; the operation runs in that
+            session's workspace (default workspace otherwise).
 
     Returns {ok, revisions: [{sha, date, message}], has_more}; date is unix ms.
     Pass a sha to git_restore's `ref` to restore that revision.
     """
-    return await _git_tool(gitsync.history(kind, name, conn_type, before, limit))
+    ws = await _session_workspace_rec(session_id)
+    return await _git_tool(gitsync.history(ws, kind, name, conn_type, before, limit))
 
 
 @mcp.tool()
@@ -229,6 +276,7 @@ async def git_restore(
     name: str,
     conn_type: str | None = None,
     ref: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Overwrite the local DB copy of one query/dashboard with a git revision.
 
@@ -241,7 +289,10 @@ async def git_restore(
         name: The entity's name.
         conn_type: The query's connection type; required for kind="query".
         ref: A sha from git_history (default: latest backup).
+        session_id: Optional armed-session id; the operation runs in that
+            session's workspace (default workspace otherwise).
 
     Returns {ok, restored, sha} or {ok: False, message}.
     """
-    return await _git_tool(gitsync.restore(kind, name, conn_type, ref))
+    ws = await _session_workspace_rec(session_id)
+    return await _git_tool(gitsync.restore(ws, kind, name, conn_type, ref))

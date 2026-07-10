@@ -22,52 +22,52 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def test_upsert_creates_then_updates_by_name():
-    _run(upsert_dashboard("d1", "conn-a", "<h1>v1</h1>", {"q": "SELECT 1"}))
-    got = _run(get_dashboard("d1"))
+def test_upsert_creates_then_updates_by_name(default_ws_id):
+    _run(upsert_dashboard("d1", "conn-a", "<h1>v1</h1>", {"q": "SELECT 1"}, workspace_id=default_ws_id))
+    got = _run(get_dashboard("d1", default_ws_id))
     assert got["connection"] == "conn-a"
     assert got["html"] == "<h1>v1</h1>"
     assert got["queries"] == {"q": "SELECT 1"}
 
-    _run(upsert_dashboard("d1", "conn-b", "<h1>v2</h1>", {"q": "SELECT 2"}))
-    got = _run(get_dashboard("d1"))
+    _run(upsert_dashboard("d1", "conn-b", "<h1>v2</h1>", {"q": "SELECT 2"}, workspace_id=default_ws_id))
+    got = _run(get_dashboard("d1", default_ws_id))
     assert got["connection"] == "conn-b"
     assert got["html"] == "<h1>v2</h1>"
     assert got["queries"] == {"q": "SELECT 2"}
 
 
-def test_get_dashboard_round_trips_queries_dict():
+def test_get_dashboard_round_trips_queries_dict(default_ws_id):
     queries = {"sales": "SELECT * FROM sales", "users": "SELECT count() FROM users"}
-    _run(upsert_dashboard("multi", "c", "<div></div>", queries))
-    assert _run(get_dashboard("multi"))["queries"] == queries
+    _run(upsert_dashboard("multi", "c", "<div></div>", queries, workspace_id=default_ws_id))
+    assert _run(get_dashboard("multi", default_ws_id))["queries"] == queries
 
 
-def test_get_missing_dashboard_is_none():
-    assert _run(get_dashboard("does-not-exist")) is None
+def test_get_missing_dashboard_is_none(default_ws_id):
+    assert _run(get_dashboard("does-not-exist", default_ws_id)) is None
 
 
-def test_list_dashboards_orders_by_name_and_omits_payload():
-    _run(upsert_dashboard("zeta", "c", "<i></i>", {"q": "SELECT 1"}))
-    _run(upsert_dashboard("alpha", "c", "<i></i>", {"q": "SELECT 1"}))
-    names = [d["name"] for d in _run(list_dashboards())]
+def test_list_dashboards_orders_by_name_and_omits_payload(default_ws_id):
+    _run(upsert_dashboard("zeta", "c", "<i></i>", {"q": "SELECT 1"}, workspace_id=default_ws_id))
+    _run(upsert_dashboard("alpha", "c", "<i></i>", {"q": "SELECT 1"}, workspace_id=default_ws_id))
+    names = [d["name"] for d in _run(list_dashboards(default_ws_id))]
     assert names.index("alpha") < names.index("zeta")
-    row = next(d for d in _run(list_dashboards()) if d["name"] == "alpha")
+    row = next(d for d in _run(list_dashboards(default_ws_id)) if d["name"] == "alpha")
     assert set(row) == {"name", "connection", "updated_at"}
 
 
-def test_upsert_and_push_persists_without_session():
+def test_upsert_and_push_persists_without_session(default_ws_id):
     persisted, pushed, _ = _run(
-        _upsert_and_push("np", "c", "<p></p>", {"q": "SELECT 1"}, None)
+        _upsert_and_push("np", "c", "<p></p>", {"q": "SELECT 1"}, None, workspace_id=default_ws_id)
     )
     assert persisted is True and pushed is False
-    assert _run(get_dashboard("np")) is not None
+    assert _run(get_dashboard("np", default_ws_id)) is not None
 
 
-def test_upsert_and_push_delivers_to_registered_session():
+def test_upsert_and_push_delivers_to_registered_session(default_ws_id):
     rid = remote.register()
     try:
         persisted, pushed, _ = _run(
-            _upsert_and_push("pushed", "c", "<p>x</p>", {"q": "SELECT 1"}, rid)
+            _upsert_and_push("pushed", "c", "<p>x</p>", {"q": "SELECT 1"}, rid, workspace_id=default_ws_id)
         )
         assert persisted is True and pushed is True
         msg = _run(remote.next_message(rid, 1.0))
@@ -159,7 +159,7 @@ def test_dashboards_upsert_pushes_to_registered_session():
         remote.unregister(rid)
 
 
-def test_mcp_upsert_dashboard_pushes_draft_without_persisting():
+def test_mcp_upsert_dashboard_pushes_draft_without_persisting(default_ws_id):
     from queryview.mcp_server import push_dashboard as mcp_push
 
     rid = remote.register()
@@ -167,8 +167,44 @@ def test_mcp_upsert_dashboard_pushes_draft_without_persisting():
         out = _run(mcp_push(rid, "draftdash", "c", "<p>d</p>", {"q": "SELECT 1"}))
         assert out["pushed"] is True
         # Draft: the agent push must NOT persist — only the user's Save does.
-        assert _run(get_dashboard("draftdash")) is None
+        assert _run(get_dashboard("draftdash", default_ws_id)) is None
         msg = _run(remote.next_message(rid, 1.0))
         assert msg["type"] == "dashboard" and msg["name"] == "draftdash"
+    finally:
+        remote.unregister(rid)
+
+
+def test_dashboard_names_distinct_per_workspace(default_ws_id):
+    from queryview.workspaces import create_workspace, resolve
+
+    _run(create_workspace("t4-iso"))
+    other = _run(resolve("t4-iso")).id
+    _run(upsert_dashboard("iso d", "prod", "<html>1</html>", {"q": "SELECT 1"}, workspace_id=default_ws_id))
+    _run(upsert_dashboard("iso d", "prod", "<html>2</html>", {"q": "SELECT 2"}, workspace_id=other))
+
+    assert _run(get_dashboard("iso d", default_ws_id))["html"] == "<html>1</html>"
+    assert _run(get_dashboard("iso d", other))["html"] == "<html>2</html>"
+    assert "iso d" in [d["name"] for d in _run(list_dashboards(default_ws_id))]
+    assert "iso d" in [d["name"] for d in _run(list_dashboards(other))]
+
+
+def test_mcp_list_dashboards_scopes_by_session_workspace(default_ws_id):
+    from queryview.mcp_server import list_dashboards as mcp_list
+    from queryview.workspaces import create_workspace, resolve
+
+    _run(create_workspace("t-mcp-ld"))
+    other = _run(resolve("t-mcp-ld")).id
+    _run(upsert_dashboard("mcp ld", "c", "<i></i>", {}, workspace_id=other))
+
+    # No session_id -> default workspace: the other workspace's dashboard is absent.
+    names = [d["name"] for d in _run(mcp_list())["dashboards"]]
+    assert "mcp ld" not in names
+
+    # A session reporting the other workspace sees it.
+    rid = remote.register()
+    try:
+        remote.set_session_workspace(rid, "t-mcp-ld")
+        names = [d["name"] for d in _run(mcp_list(session_id=rid))["dashboards"]]
+        assert names == ["mcp ld"]
     finally:
         remote.unregister(rid)

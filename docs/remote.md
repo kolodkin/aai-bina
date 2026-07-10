@@ -55,6 +55,12 @@ backend registers an in-memory channel keyed by a random public id (never the
 enqueue onto that channel; the SSE stream delivers the payload and the panel
 fills `query` / `limit` / `offset` / `order_by` / selected `fields` and runs.
 
+While armed, the browser also reports its selected database and active
+workspace (`POST /api/remote/db` with `{session_id, database, workspace}`,
+re-sent on every change), so push responses can echo the database and
+session-scoped MCP tools resolve the workspace (see
+[workspace.md](./workspace.md)).
+
 State is in-memory and per-process (like the active-connection session map): a
 backend restart drops channels; the browser reconnects while armed and gets a
 new id.

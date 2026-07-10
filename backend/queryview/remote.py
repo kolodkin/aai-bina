@@ -26,6 +26,9 @@ class _Channel:
     # The database this browser session currently targets, reported by the UI so
     # push_query/push_dashboard can echo it back to the agent.
     database: str | None = None
+    # The workspace this browser session is on, reported by the UI like
+    # `database`, so session-scoped MCP tools resolve against it.
+    workspace: str | None = None
 
 
 # remote_id -> channel. Module-level, like connect.py's _sessions.
@@ -94,6 +97,22 @@ def session_database(remote_id: str) -> str | None:
     """The database a live session targets, or None if unknown/unreported."""
     channel = _channels.get(remote_id)
     return channel.database if channel else None
+
+
+def set_session_workspace(remote_id: str, workspace: str | None) -> bool:
+    """Record the workspace a live session is on (reported by the UI). Returns
+    False for an unknown/inactive session."""
+    channel = _channels.get(remote_id)
+    if channel is None:
+        return False
+    channel.workspace = workspace
+    return True
+
+
+def session_workspace(remote_id: str) -> str | None:
+    """The workspace a live session is on, or None if unknown/unreported."""
+    channel = _channels.get(remote_id)
+    return channel.workspace if channel else None
 
 
 def push(remote_id: str, payload: dict[str, Any]) -> tuple[bool, str]:

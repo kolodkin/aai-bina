@@ -1,7 +1,8 @@
 """Git sync: per-entity backup/restore of predefined queries and dashboards to
-a configured git remote. Versions are git commits — store makes one commit per
-entity, restore reads objects at a ref (git show) and upserts the DB row; HEAD
-never moves. Docs: docs/gitsync.md."""
+each workspace's git remote. Operations take a resolved workspaces.WorkspaceRec;
+every workspace has its own clone and lock. Versions are git commits — store
+makes one commit per entity, restore reads objects at a ref (git show) and
+upserts the DB row; HEAD never moves. Docs: docs/gitsync.md, docs/workspace.md."""
 
 from __future__ import annotations
 
@@ -10,9 +11,12 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from .workspaces import WorkspaceRec
 
 
 class GitSyncError(Exception):
@@ -134,43 +138,45 @@ def dashboard_from_files(files: dict[str, str]) -> dict[str, Any]:
 
 
 # --- Configuration ---------------------------------------------------------
+# Runtime config lives on the workspace row (GIT_SYNC_REMOTE/GIT_SYNC_BRANCH
+# are read once, by the workspaces migration, to seed the default workspace).
 
 
-def _remote() -> str:
-    remote = os.environ.get("GIT_SYNC_REMOTE")
-    if not remote:
-        raise GitSyncError("git sync is not configured (set GIT_SYNC_REMOTE)", status=409)
-    return remote
+def _require_remote(ws: "WorkspaceRec") -> str:
+    if not ws.remote:
+        raise GitSyncError(
+            f"workspace {ws.name!r} has no git remote configured", status=409
+        )
+    return ws.remote
 
 
-def _branch() -> str:
-    return os.environ.get("GIT_SYNC_BRANCH", "main")
-
-
-def _workdir() -> Path:
+def _workdir(ws: "WorkspaceRec") -> Path:
+    """This workspace's clone: {base}/{workspace id}. Keyed by id so renaming
+    a workspace never orphans its clone. GIT_SYNC_DIR overrides the base."""
     env = os.environ.get("GIT_SYNC_DIR")
     if env:
-        return Path(env)
+        return Path(env) / str(ws.id)
     from .connect import _db_path
 
-    return Path(f"{_db_path()}.gitsync")
+    return Path(f"{_db_path()}.gitsync") / str(ws.id)
 
 
-def configured() -> bool:
-    return bool(os.environ.get("GIT_SYNC_REMOTE"))
+def configured(ws: "WorkspaceRec") -> bool:
+    return bool(ws.remote)
 
 
 # --- Git plumbing ----------------------------------------------------------
 
-# One git operation at a time; the workdir is shared mutable state. The lock is
-# per event loop (asyncio.Lock binds to the loop that first acquires it, and
-# tests run each operation under a fresh asyncio.run loop); production has a
-# single loop, so this is one lock there.
-_locks: dict[int, asyncio.Lock] = {}
+# One git operation at a time per workspace; each workdir is shared mutable
+# state, but different workspaces' clones are independent, so their syncs
+# don't serialize each other. The lock is per (event loop, workspace):
+# asyncio.Lock binds to the loop that first acquires it, and tests run each
+# operation under a fresh asyncio.run loop; production has a single loop.
+_locks: dict[tuple[int, int], asyncio.Lock] = {}
 
 
-def _lock() -> asyncio.Lock:
-    key = id(asyncio.get_running_loop())
+def _lock(ws: "WorkspaceRec") -> asyncio.Lock:
+    key = (id(asyncio.get_running_loop()), ws.id)
     lock = _locks.get(key)
     if lock is None:
         lock = _locks[key] = asyncio.Lock()
@@ -192,10 +198,10 @@ async def _git(*args: str, cwd: Path | None = None) -> str:
     return out.decode("utf-8", "replace")
 
 
-async def _ensure_repo() -> Path:
-    """The sync clone, cloning (or, for an empty remote, init + remote add) on
-    first use. Idempotent."""
-    remote, branch, wd = _remote(), _branch(), _workdir()
+async def _ensure_repo(ws: "WorkspaceRec") -> Path:
+    """The workspace's sync clone, cloning (or, for an empty remote, init +
+    remote add) on first use. Idempotent."""
+    remote, branch, wd = _require_remote(ws), ws.branch, _workdir(ws)
     if (wd / ".git").exists():
         return wd
     wd.parent.mkdir(parents=True, exist_ok=True)
@@ -222,11 +228,11 @@ async def _ensure_repo() -> Path:
     return wd
 
 
-async def _origin_head(wd: Path) -> str | None:
+async def _origin_head(wd: Path, ws: "WorkspaceRec") -> str | None:
     """Fetch, then the remote branch ref if it exists (None on an empty remote).
     Network/auth failures raise."""
     await _git("fetch", "origin", cwd=wd)
-    ref = f"origin/{_branch()}"
+    ref = f"origin/{ws.branch}"
     try:
         await _git("rev-parse", "--verify", ref, cwd=wd)
     except GitSyncError:
@@ -252,17 +258,19 @@ def entity_relpath(kind: str, name: str, conn_type: str | None) -> str:
     return query_relpath(conn_type or "", name) if kind == "query" else dashboard_reldir(name)
 
 
-async def _load_entity(kind: str, name: str, conn_type: str | None) -> dict[str, Any]:
+async def _load_entity(
+    ws: "WorkspaceRec", kind: str, name: str, conn_type: str | None
+) -> dict[str, Any]:
     if kind == "query":
         from .queries import get_predefined_query
 
-        row = await get_predefined_query(conn_type or "", name)
+        row = await get_predefined_query(conn_type or "", name, ws.id)
         if row is None:
             raise GitSyncError(f"query {name!r} not found", status=404)
         return row
     from .dashboards import get_dashboard
 
-    d = await get_dashboard(name)
+    d = await get_dashboard(name, ws.id)
     if d is None:
         raise GitSyncError(f"dashboard {name!r} not found", status=404)
     return d
@@ -272,6 +280,7 @@ async def _load_entity(kind: str, name: str, conn_type: str | None) -> dict[str,
 
 
 async def store(
+    ws: "WorkspaceRec",
     kind: str,
     name: str,
     conn_type: str | None = None,
@@ -282,11 +291,11 @@ async def store(
     from the DB and each commit touches one entity, so this is always safe and
     avoids push rejections."""
     _check_kind(kind, conn_type)
-    _remote()  # unconfigured -> 409 before any DB/entity lookup
-    entity = await _load_entity(kind, name, conn_type)
-    async with _lock():
-        wd = await _ensure_repo()
-        head = await _origin_head(wd)
+    _require_remote(ws)  # unconfigured -> 409 before any DB/entity lookup
+    entity = await _load_entity(ws, kind, name, conn_type)
+    async with _lock(ws):
+        wd = await _ensure_repo(ws)
+        head = await _origin_head(wd, ws)
         if head:
             await _git("reset", "--hard", head, cwd=wd)
         relpath = entity_relpath(kind, name, conn_type)
@@ -306,12 +315,13 @@ async def store(
             return {"committed": False, "sha": None, "message": "no changes"}
         label = f"{conn_type}/{name}" if kind == "query" else name
         await _git("commit", "-m", message or f"store {kind} {label}", cwd=wd)
-        await _git("push", "origin", _branch(), cwd=wd)
+        await _git("push", "origin", ws.branch, cwd=wd)
         sha = (await _git("rev-parse", "HEAD", cwd=wd)).strip()
         return {"committed": True, "sha": sha, "message": "stored"}
 
 
 async def history(
+    ws: "WorkspaceRec",
     kind: str,
     name: str,
     conn_type: str | None = None,
@@ -321,11 +331,11 @@ async def history(
     """Commits touching the entity's path, newest first. `before=<sha>` pages
     strictly older commits. Reads objects only — never touches the working tree."""
     _check_kind(kind, conn_type)
-    _remote()
+    _require_remote(ws)
     relpath = entity_relpath(kind, name, conn_type)
-    async with _lock():
-        wd = await _ensure_repo()
-        head = await _origin_head(wd)
+    async with _lock(ws):
+        wd = await _ensure_repo(ws)
+        head = await _origin_head(wd, ws)
         if head is None:
             return {"revisions": [], "has_more": False}
         start = head
@@ -357,6 +367,7 @@ async def history(
 
 
 async def restore(
+    ws: "WorkspaceRec",
     kind: str,
     name: str,
     conn_type: str | None = None,
@@ -367,11 +378,11 @@ async def restore(
     is never rewritten. Parses fully before writing, so the DB row is either
     untouched or fully replaced."""
     _check_kind(kind, conn_type)
-    _remote()
+    _require_remote(ws)
     relpath = entity_relpath(kind, name, conn_type)
-    async with _lock():
-        wd = await _ensure_repo()
-        head = await _origin_head(wd)
+    async with _lock(ws):
+        wd = await _ensure_repo(ws)
+        head = await _origin_head(wd, ws)
         resolved = ref if ref and ref != "HEAD" else head
         if resolved is None:
             raise GitSyncError(f"{kind} {name!r} not found in git", status=404)
@@ -410,11 +421,16 @@ async def restore(
             data["cell_view"],
             data["order_by"],
             data["fields"],
+            workspace_id=ws.id,
         )
     else:
         from .dashboards import upsert_dashboard
 
         await upsert_dashboard(
-            data["name"], data["connection"], data["html"], data["queries"]
+            data["name"],
+            data["connection"],
+            data["html"],
+            data["queries"],
+            workspace_id=ws.id,
         )
     return {"restored": True, "sha": resolved}
