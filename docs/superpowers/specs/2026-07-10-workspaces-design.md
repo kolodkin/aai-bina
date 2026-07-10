@@ -23,10 +23,13 @@ the remote, branch, clone, and history are all per-workspace.
 - **Connections stay global** — they are server-level credentials, never
   synced to git; any workspace can use any connection. Workspace-scoped
   connections are a future.md follow-up.
-- **Requests name the workspace explicitly**: scoped endpoints and MCP tools
-  take an optional `workspace` parameter defaulting to `"default"`, so
-  existing clients keep working unchanged. No server-side "current workspace"
-  state.
+- **API requests name the workspace explicitly**: scoped endpoints take an
+  optional `workspace` parameter defaulting to `"default"`, so existing
+  clients keep working unchanged. No server-side "current workspace" state.
+- **MCP is workspace-unaware**: the agent works in session scope. The armed
+  browser session reports its active workspace (like it reports `database`),
+  and tools that touch persisted entities resolve the workspace from an
+  optional `session_id` — falling back to `"default"` when omitted.
 - **Delete refuses on non-empty** (409). Since entity deletion doesn't exist
   yet (future.md's "edit/delete predefined queries"), non-empty workspaces are
   effectively undeletable in v1; that entry unlocks it.
@@ -75,11 +78,17 @@ the remote, branch, clone, and history are all per-workspace.
   `git/store|history|restore|status` — accept an optional `workspace` (name)
   defaulting to `"default"`. `git/status` reports `{configured}` for the given
   workspace.
-- MCP: existing tools gain the optional `workspace` parameter, plus one
-  read-only `list_workspaces` tool (names + configured flag) so agents can
-  discover valid names. No workspace CRUD via MCP — like connections, it's
-  admin configuration involving secrets (the remote URL embeds a token) and
-  belongs to the API/UI only.
+- MCP stays **workspace-unaware**: no `workspace` parameter and no workspace
+  tools. The MCP is session-oriented — the browser session has the active
+  workspace and reports it through `remote.py` alongside `database`.
+  `push_query`/`push_dashboard`/`run_query` are unchanged. `list_queries` and
+  `git_store`/`git_history`/`git_restore` gain an optional `session_id`: when
+  given, the workspace is resolved from that armed session's reported state;
+  when omitted, they fall back to the `"default"` workspace. Consequence (by
+  design): an agent reaches a non-default workspace only through an armed
+  session that's on it — the human picks the workspace, the agent works
+  inside it. Workspace CRUD stays API/UI-only; like connections, it's admin
+  configuration involving secrets (the remote URL embeds a token).
 
 ## Frontend
 
@@ -87,6 +96,9 @@ the remote, branch, clone, and history are all per-workspace.
   dialog (create, rename, set/clear remote, delete). The active workspace
   persists in localStorage; every scoped API call passes it; switching
   reloads the query and dashboard lists.
+- When remote control is armed, the browser reports its active workspace to
+  the backend the same way it reports the selected database (and re-reports on
+  switch), so session-scoped MCP tools resolve against it.
 - `GitSyncControls` disabled state becomes per-workspace, driven by the active
   workspace's `configured` status.
 
@@ -95,7 +107,8 @@ the remote, branch, clone, and history are all per-workspace.
 - Backend: workspace CRUD; per-workspace name uniqueness; migration backfill
   (existing rows land in `default` with the env remote); gitsync against two
   loopback remotes — a commit in workspace A never appears in B; no-remote
-  409; delete-non-empty 409.
+  409; delete-non-empty 409; session-scoped MCP resolution (armed session on
+  workspace B → `git_store` lands in B's remote; no `session_id` → default).
 - e2e: extend the existing loopback-git-daemon test to two workspaces.
 
 ## Docs
