@@ -570,6 +570,63 @@ async def git_restore(request: Request):
     )
 
 
+# --- Workspaces (see docs/workspace.md) ------------------------------------
+# Admin configuration with secrets (the remote URL may embed a token): exposed
+# over REST/UI only, deliberately not over MCP.
+
+
+def _workspace_error(e: workspaces.WorkspaceError) -> JSONResponse:
+    return JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+
+
+@app.get("/api/workspaces")
+async def workspaces_list():
+    return {"workspaces": await workspaces.list_workspaces()}
+
+
+@app.post("/api/workspaces")
+async def workspaces_create(request: Request):
+    b = await _read_json(request)
+    b = b if isinstance(b, dict) else {}
+    name = _clean_str(b.get("name"))
+    if not name:
+        return JSONResponse({"ok": False, "message": "name is required"}, status_code=400)
+    remote_url = _clean_str(b.get("remote")) or None
+    branch = _clean_str(b.get("branch")) or "main"
+    try:
+        await workspaces.create_workspace(name, remote_url, branch)
+    except workspaces.WorkspaceError as e:
+        return _workspace_error(e)
+    return {"ok": True}
+
+
+@app.patch("/api/workspaces/{name}")
+async def workspaces_update(name: str, request: Request):
+    b = await _read_json(request)
+    b = b if isinstance(b, dict) else {}
+    kwargs: dict[str, Any] = {}
+    if "name" in b:
+        kwargs["new_name"] = _clean_str(b.get("name")) or None
+    if "remote" in b:  # present-but-null clears; absent leaves as-is
+        kwargs["remote"] = _clean_str(b.get("remote")) or None
+    if "branch" in b:
+        kwargs["branch"] = _clean_str(b.get("branch")) or None
+    try:
+        await workspaces.update_workspace(name, **kwargs)
+    except workspaces.WorkspaceError as e:
+        return _workspace_error(e)
+    return {"ok": True}
+
+
+@app.delete("/api/workspaces/{name}")
+async def workspaces_delete(name: str):
+    try:
+        await workspaces.delete_workspace(name)
+    except workspaces.WorkspaceError as e:
+        return _workspace_error(e)
+    return {"ok": True}
+
+
 @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def api_not_found(rest: str):
     return JSONResponse({"error": "not found"}, status_code=404)
