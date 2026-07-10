@@ -6,11 +6,18 @@ written to the repo (their config is encrypted credentials).
 
 ## Configuration
 
-| Env var           | Meaning                                   | Default              |
-| ----------------- | ----------------------------------------- | -------------------- |
-| `GIT_SYNC_REMOTE` | Remote URL (https with token, or ssh)     | unset ⇒ disabled     |
-| `GIT_SYNC_BRANCH` | Branch to commit/push to                  | `main`               |
-| `GIT_SYNC_DIR`    | Local clone path                          | `{db_path}.gitsync/` |
+Each workspace (see [workspace.md](./workspace.md)) carries its own remote URL
+and branch, managed in the UI/API and encrypted at rest. A workspace without a
+remote has git sync disabled.
+
+| Env var           | Meaning                                                            | Default              |
+| ----------------- | ------------------------------------------------------------------ | -------------------- |
+| `GIT_SYNC_REMOTE` | Seed for the default workspace's remote (read once, at migration)  | unset ⇒ none         |
+| `GIT_SYNC_BRANCH` | Seed for the default workspace's branch (read once, at migration)  | `main`               |
+| `GIT_SYNC_DIR`    | Base dir for per-workspace clones                                  | `{db_path}.gitsync/` |
+
+Clones live at `{base}/{workspace id}/`; the repository layout inside each
+clone is unchanged by workspaces.
 
 ## Repository layout
 
@@ -37,20 +44,23 @@ Next to each entity's existing **Save** button (query panel and dashboard
 page): **Commit** pushes the saved DB state to the remote; **Restore** opens
 the entity's revision list (newest first, 10 at a time, scroll for more) and
 overwrites the local copy with the picked revision after confirmation. Both
-are disabled when `GIT_SYNC_REMOTE` is unset.
+are disabled when the active workspace has no remote configured.
 
 ## API
 
-- `GET /api/git/status` → `{configured}`
-- `POST /api/git/store` `{kind, name, conn_type?, message?}` → `{ok, committed, sha, message}`
-- `GET /api/git/history?kind=&name=&conn_type=&before=&limit=10` → `{ok, revisions: [{sha, date, message}], has_more}`
-- `POST /api/git/restore` `{kind, name, conn_type?, ref?}` → `{ok, restored, sha}`
+- `GET /api/git/status?workspace=` → `{configured}`
+- `POST /api/git/store` `{kind, name, conn_type?, message?, workspace?}` → `{ok, committed, sha, message}`
+- `GET /api/git/history?kind=&name=&conn_type=&before=&limit=10&workspace=` → `{ok, revisions: [{sha, date, message}], has_more}`
+- `POST /api/git/restore` `{kind, name, conn_type?, ref?, workspace?}` → `{ok, restored, sha}`
 
-`kind` is `"query"` or `"dashboard"`; `conn_type` is required for queries.
-MCP tools `git_store`, `git_history`, `git_restore` mirror the same surface.
+`kind` is `"query"` or `"dashboard"`; `conn_type` is required for queries;
+`workspace` defaults to `default`. MCP tools `git_store`, `git_history`,
+`git_restore` mirror the same surface, resolving the workspace from an
+optional `session_id` (see [workspace.md](./workspace.md)).
 
 ## Related docs
 
+- [workspace.md](./workspace.md) — workspaces: per-workspace remotes.
 - [query.md](./query.md) — predefined queries.
 - [dashboard.md](./dashboard.md) — dashboards.
 - [api.md](./api.md) — backend JSON API.
