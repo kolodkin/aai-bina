@@ -393,6 +393,11 @@ async def remote_db(request: Request):
             {"ok": False, "message": "session_id required"}, status_code=400
         )
     ok = remote.set_session_database(session_id, database)
+    if "workspace" in b:
+        raw_ws = b.get("workspace")
+        remote.set_session_workspace(
+            session_id, raw_ws if isinstance(raw_ws, str) and raw_ws else None
+        )
     return {"ok": ok}
 
 
