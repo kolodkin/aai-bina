@@ -94,6 +94,12 @@ function QueryView({
   const [acDismissed, setAcDismissed] = useState(false)
   const [connNames, setConnNames] = useState<string[]>([])
   const promptRef = useRef<HTMLInputElement>(null)
+  // Saved queries surfaced next to the title on the landing screen, so they're
+  // reachable without first typing `query`. Scoped like the panel's dropdown.
+  const [landingQueries, setLandingQueries] = useState<PredefinedQuery[]>([])
+  // A query synthesized from a landing pick, fed through the same `pushed` path
+  // the agent uses — so the panel opens and auto-runs it, no duplicate logic.
+  const [localPush, setLocalPush] = useState<QueryPush | null>(null)
 
   // Saved connection names power `connect <name>` autocomplete; refresh on mount
   // and whenever the set may have changed (new connection created).
@@ -121,6 +127,53 @@ function QueryView({
       setShowQuery(true)
     }
   }, [pushed, ready])
+
+  // Load saved queries for the landing dropdown once a connection is ready.
+  // Scoped to the connection type + active workspace, mirroring the panel. The
+  // list is only shown while `ready`, so a stale set need not be cleared here.
+  useEffect(() => {
+    if (!ready || !connection) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/predefined-queries?type=${encodeURIComponent(connection.type)}` +
+            `&workspace=${encodeURIComponent(activeWorkspace())}`,
+        )
+        const data = await res.json()
+        if (!cancelled) setLandingQueries((data.queries ?? []) as PredefinedQuery[])
+      } catch {
+        /* leave the last known list in place on a failed refresh */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [ready, connection])
+
+  // Landing-dropdown pick: open the panel and run the chosen query by routing it
+  // through the same `pushed` channel used for agent pushes.
+  function pickPredefined(name: string) {
+    const q = landingQueries.find((p) => p.query_name === name)
+    if (!q) return
+    setFormType(null)
+    setHint(null)
+    setShowQuery(true)
+    setLocalPush({
+      query: q.query,
+      order_by: q.order_by ?? undefined,
+      fields: q.fields ?? undefined,
+      cell_view: q.cell_view,
+      name: q.query_name,
+    })
+  }
+
+  // Clear the local push once the panel has consumed it, then forward to the
+  // shell's handler for any agent-originated push.
+  const handlePushConsumed = () => {
+    setLocalPush(null)
+    onPushConsumed?.()
+  }
 
   async function openSaved(name: string) {
     try {
@@ -356,9 +409,31 @@ function QueryView({
 
   return (
     <div className={`w-full ${inQueryMode ? 'max-w-[80vw]' : 'max-w-md'}`}>
-      <h1 className="mb-6 text-center text-3xl font-bold tracking-tight text-white [text-shadow:0_2px_30px_rgba(129,140,248,0.45)]">
-        QueryView
-      </h1>
+      <div className="mb-6 flex items-center justify-center gap-4">
+        <h1 className="text-3xl font-bold tracking-tight text-white [text-shadow:0_2px_30px_rgba(129,140,248,0.45)]">
+          QueryView
+        </h1>
+        {!inQueryMode && ready && landingQueries.length > 0 && (
+          <select
+            data-testid="landing-predefined-select"
+            aria-label="Predefined queries"
+            value=""
+            onChange={(e) => {
+              if (e.target.value) pickPredefined(e.target.value)
+            }}
+            className="glass-input px-3 py-2 text-sm"
+          >
+            <option value="" disabled>
+              Saved queries…
+            </option>
+            {landingQueries.map((p) => (
+              <option key={p.query_name} value={p.query_name}>
+                {p.query_name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
 
       {!inQueryMode && promptInput}
 
@@ -381,8 +456,8 @@ function QueryView({
         <QueryPanel
           connectionType={connection.type}
           promptSlot={promptInput}
-          pushed={pushed}
-          onPushConsumed={onPushConsumed}
+          pushed={pushed ?? localPush}
+          onPushConsumed={handlePushConsumed}
           remoteId={remoteId}
         />
       )}
