@@ -59,6 +59,19 @@ class DuckDBDriver:
         # No picker: queries run directly against the file (schema-qualify in SQL).
         return True, []
 
+    async def list_tables(self, config: DuckConfig,
+                          database: str | None) -> tuple[bool, list[str] | str]:
+        def _work():
+            con = _open(config.path)
+            try:
+                return [r[0] for r in con.execute("SHOW TABLES").fetchall()]
+            finally:
+                con.close()
+        try:
+            return True, await asyncio.to_thread(_work)
+        except Exception as e:  # noqa: BLE001
+            return False, str(e)
+
     async def run_query(self, config: DuckConfig, sql: str, database: str | None,
                         limit: int, offset: int,
                         order_by: list[dict[str, Any]] | None, fmt: str) -> QueryResult:

@@ -107,6 +107,21 @@ class PostgresDriver:
         except Exception as e:  # noqa: BLE001
             return False, str(e) or "connection failed"
 
+    async def list_tables(self, config: PgConfig,
+                          database: str | None) -> tuple[bool, list[str] | str]:
+        # Tables and views of the public schema — what an unqualified name in
+        # the explorer's generated SELECT resolves to under the default
+        # search_path. Other schemas need explicit SQL on the query page.
+        try:
+            async with _connect(config, database) as conn:
+                rows = await conn.fetch(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'public' ORDER BY table_name"
+                )
+                return True, [r["table_name"] for r in rows]
+        except Exception as e:  # noqa: BLE001
+            return False, str(e) or "connection failed"
+
     async def run_query(self, config: PgConfig, sql: str, database: str | None,
                         limit: int, offset: int,
                         order_by: list[dict[str, Any]] | None, fmt: str) -> QueryResult:

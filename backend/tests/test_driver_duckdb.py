@@ -37,6 +37,11 @@ def test_list_databases_is_empty(duck_path):
     assert _run(d.list_databases(DuckConfig(duck_path))) == (True, [])
 
 
+def test_list_tables_names_seeded_table(duck_path):
+    d = DuckDBDriver()
+    assert _run(d.list_tables(DuckConfig(duck_path), None)) == (True, ["items"])
+
+
 def test_run_query_paginates_and_serializes(duck_path):
     d = DuckDBDriver()
     r = _run(d.run_query(DuckConfig(duck_path), "SELECT id, name FROM items ORDER BY id",

@@ -80,6 +80,13 @@ class ClickHouseDriver:
             return False, r.value
         return True, [s.strip() for s in r.value.split("\n") if s.strip()]
 
+    async def list_tables(self, config: ChConfig,
+                          database: str | None) -> tuple[bool, list[str] | str]:
+        r = await ch_query(config, "SHOW TABLES", database=database)
+        if not r.ok:
+            return False, r.value
+        return True, [s.strip() for s in r.value.split("\n") if s.strip()]
+
     async def run_query(self, config: ChConfig, sql: str, database: str | None,
                         limit: int, offset: int,
                         order_by: list[dict[str, Any]] | None, fmt: str) -> QueryResult:

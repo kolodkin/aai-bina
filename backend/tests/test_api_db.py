@@ -23,3 +23,13 @@ def test_connect_validation_error_is_400():
 def test_old_clickhouse_path_is_gone():
     c = TestClient(app)
     assert c.post("/api/clickhouse/connect", json={}).status_code == 404
+
+
+def test_tables_without_session_is_409():
+    c = TestClient(app)
+    # Disconnect first: it marks this cookie disconnected, so the auto-reconnect
+    # of a connection saved by an earlier test can't turn this into a 200.
+    c.post("/api/db/disconnect")
+    r = c.get("/api/db/tables")
+    assert r.status_code == 409
+    assert r.json()["ok"] is False

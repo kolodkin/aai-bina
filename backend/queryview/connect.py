@@ -386,6 +386,21 @@ async def describe_query(sid: str, sql: str) -> dict[str, Any]:
     return {"ok": True, "fields": result}
 
 
+async def list_tables(sid: str) -> dict[str, Any]:
+    """List the tables of this session's selected database (the Explorer page's
+    sidebar). Drivers that expose no databases (e.g. DuckDB) skip the gate."""
+    await _ensure_session(sid)
+    s = _get_session_entry(sid)
+    if s is None:
+        return {"ok": False, "message": "not connected", "reason": "no-session"}
+    if DRIVERS[s.type].requires_database and not s.database:
+        return {"ok": False, "message": "select a database first", "reason": "no-database"}
+    ok, result = await DRIVERS[s.type].list_tables(s.config, s.database)
+    if not ok:
+        return {"ok": False, "message": result}
+    return {"ok": True, "tables": result}
+
+
 async def run_query(
     sid: str,
     sql: str,

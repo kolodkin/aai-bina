@@ -25,6 +25,7 @@ from .connect import (
     disconnect,
     get_session,
     list_connection_names,
+    list_tables,
     open_saved,
     run_query,
     select_database,
@@ -220,6 +221,16 @@ async def db_query(request: Request):
         status = 409 if r.get("reason") == "no-session" else 200
         return JSONResponse({"ok": False, "message": r["message"]}, status_code=status)
     return {"ok": True, "output": r["output"]}
+
+
+# Tables of this session's selected database (the Explorer page's sidebar).
+@app.get("/api/db/tables")
+async def db_tables(request: Request):
+    r = await list_tables(request.state.sid)
+    if not r["ok"]:
+        status = 409 if r.get("reason") in ("no-session", "no-database") else 200
+        return JSONResponse({"ok": False, "message": r["message"]}, status_code=status)
+    return {"ok": True, "tables": r["tables"]}
 
 
 # Describe a query's output columns (name + type) without scanning data.

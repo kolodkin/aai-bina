@@ -29,6 +29,13 @@ describe('command completion', () => {
     expect(labels('q', { ready: true })).toEqual(['query'])
   })
 
+  test('explorer only appears when ready', () => {
+    expect(labels('e')).toEqual([])
+    expect(labels('e', { ready: true })).toEqual(['explorer'])
+    // A no-arg command accepts without a trailing space.
+    expect(values('exp', { ready: true })).toEqual(['explorer'])
+  })
+
   test('disconnect only appears when connected', () => {
     expect(labels('d')).toEqual(['dashboard'])
     expect(labels('d', { connected: true })).toEqual(['dashboard', 'disconnect'])

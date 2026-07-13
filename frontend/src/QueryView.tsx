@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 
 import { CellViewModal } from './CellViewModal'
 import { ComplexCell } from './ComplexCell'
+import { FieldPickers, type Field, type OrderCol } from './FieldPickers'
+import { parseTsv } from './tsv'
 import { DRIVERS, type DriverMeta } from './drivers'
 import GitSyncControls from './GitSyncControls'
 import { activeWorkspace } from './workspace'
@@ -46,10 +48,6 @@ type PredefinedQuery = {
 
 type CellView = { type: string; value: string }
 type CellViewMap = Record<string, CellView>
-
-type Field = { name: string; type: string }
-
-export type OrderCol = { name: string; dir: 'ASC' | 'DESC' }
 
 export type QueryPush = {
   query: string
@@ -232,6 +230,10 @@ function QueryView({
       void disconnect()
       return
     }
+    if (lower === 'explorer') {
+      navigate('/explorer')
+      return
+    }
     if (lower === 'dashboard') {
       navigate('/dashboard')
       return
@@ -254,7 +256,7 @@ function QueryView({
     setShowQuery(false)
     setHint(
       `Unknown command “${raw}”. Try “new ${Object.keys(DRIVERS).join('|')}”, ` +
-        `“connect <name>”, “dashboard <name>” or “disconnect”.`,
+        `“connect <name>”, “explorer”, “dashboard <name>” or “disconnect”.`,
     )
   }
 
@@ -616,13 +618,6 @@ function DatabasePicker({
       </div>
     </section>
   )
-}
-
-function parseTsv(text: string): { columns: string[]; rows: string[][] } {
-  // TabSeparatedWithNames: the first line is the column names, the rest are rows.
-  if (text === '') return { columns: [], rows: [] }
-  const lines = text.split('\n')
-  return { columns: lines[0].split('\t'), rows: lines.slice(1).map((l) => l.split('\t')) }
 }
 
 // First column of each data row in a TabSeparatedWithNames result — the dropdown
@@ -1182,28 +1177,6 @@ function QueryPanel({
     .map((_, i) => i)
     .filter((i) => !fieldNames.has(columns[i]) || visible.has(columns[i]))
 
-  function toggleField(name: string) {
-    setVisibleCols((prev) =>
-      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name],
-    )
-  }
-
-  function toggleOrder(name: string) {
-    setOrderBy((prev) =>
-      prev.some((o) => o.name === name)
-        ? prev.filter((o) => o.name !== name)
-        : [...prev, { name, dir: 'ASC' }],
-    )
-  }
-
-  function flipDir(name: string) {
-    setOrderBy((prev) =>
-      prev.map((o) =>
-        o.name === name ? { ...o, dir: o.dir === 'ASC' ? 'DESC' : 'ASC' } : o,
-      ),
-    )
-  }
-
   const sizes: [string, number, string][] = [
     ['Min', 0, 'query-size-min'],
     ['S', 4, 'query-size-s'],
@@ -1423,54 +1396,14 @@ function QueryPanel({
       </div>
 
       {fields.length > 0 && (
-        <div
-          data-testid="field-pickers"
-          className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3"
-        >
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-200">Select fields</span>
-              <button
-                type="button"
-                data-testid="fields-select-all"
-                onClick={() => setVisibleCols(fields.map((f) => f.name))}
-                className="glass-btn px-2 py-0.5 text-xs"
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                data-testid="fields-clear"
-                onClick={() => setVisibleCols([])}
-                className="glass-btn px-2 py-0.5 text-xs"
-              >
-                Clear all
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {fields.map((f) => {
-                const on = visibleCols.includes(f.name)
-                return (
-                  <button
-                    key={f.name}
-                    type="button"
-                    onClick={() => toggleField(f.name)}
-                    data-testid="field-toggle"
-                    data-col={f.name}
-                    data-on={on}
-                    title={f.type}
-                    className={`glass-toggle px-2.5 py-1 text-xs ${on ? 'is-active' : ''}`}
-                  >
-                    {f.name}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <span className="text-sm font-medium text-slate-200">Order by</span>
+        <FieldPickers
+          fields={fields}
+          visibleCols={visibleCols}
+          orderBy={orderBy}
+          onVisibleColsChange={setVisibleCols}
+          onOrderByChange={setOrderBy}
+          orderHeaderExtra={
+            <>
               <button
                 type="button"
                 data-testid="orderby-run"
@@ -1481,59 +1414,9 @@ function QueryPanel({
                 Run
               </button>
               <span className="text-xs text-slate-400">(re-runs the query)</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {fields.map((f) => {
-                const on = orderBy.some((o) => o.name === f.name)
-                return (
-                  <button
-                    key={f.name}
-                    type="button"
-                    onClick={() => toggleOrder(f.name)}
-                    data-testid="orderby-add"
-                    data-col={f.name}
-                    data-on={on}
-                    className={`glass-toggle px-2.5 py-1 text-xs ${on ? 'is-active-soft' : ''}`}
-                  >
-                    {f.name}
-                  </button>
-                )
-              })}
-            </div>
-            {orderBy.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {orderBy.map((o, i) => (
-                  <span
-                    key={o.name}
-                    data-testid="orderby-chip"
-                    data-col={o.name}
-                    className="flex items-center gap-1 rounded-md border border-indigo-400/40 bg-white/[0.06] px-2 py-1 text-xs"
-                  >
-                    <span className="text-slate-400">{i + 1}.</span>
-                    <span className="font-medium">{o.name}</span>
-                    <button
-                      type="button"
-                      data-testid="orderby-dir"
-                      onClick={() => flipDir(o.name)}
-                      className="rounded bg-white/10 px-1.5 py-0.5 font-mono hover:bg-white/20"
-                    >
-                      {o.dir}
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="orderby-remove"
-                      onClick={() => toggleOrder(o.name)}
-                      aria-label={`remove ${o.name}`}
-                      className="text-slate-400 hover:text-red-400"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+            </>
+          }
+        />
       )}
 
       {output !== null && (

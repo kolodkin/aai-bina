@@ -28,3 +28,20 @@ def test_run_query_builds_clickhouse_sql(monkeypatch):
     assert seen["query"] == "SELECT * FROM (\nSELECT 1\n) ORDER BY `a` DESC LIMIT 100 OFFSET 0"
     assert seen["fmt"] == "TabSeparatedWithNames"
     assert seen["database"] == "db"
+
+
+def test_list_tables_shows_tables_in_database(monkeypatch):
+    d = ClickHouseDriver()
+    seen = {}
+
+    async def fake_ch_query(c, query, database=None, fmt=None):
+        from queryview.drivers.clickhouse import ChResult
+        seen["query"] = query
+        seen["database"] = database
+        return ChResult(True, "events\nitems")
+
+    monkeypatch.setattr("queryview.drivers.clickhouse.ch_query", fake_ch_query)
+    ok, tables = asyncio.run(d.list_tables(ChConfig("h", 1, "u", ""), "db"))
+    assert ok and tables == ["events", "items"]
+    assert seen["query"] == "SHOW TABLES"
+    assert seen["database"] == "db"

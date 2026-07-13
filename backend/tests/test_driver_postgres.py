@@ -48,3 +48,26 @@ def test_run_query_builds_aliased_double_quoted_sql(monkeypatch):
     assert captured["sql"] == (
         'SELECT * FROM (\nSELECT name FROM t\n) AS _qv ORDER BY "name" ASC LIMIT 50 OFFSET 10'
     )
+
+
+def test_list_tables_queries_public_schema(monkeypatch):
+    d = PostgresDriver()
+    captured = {}
+
+    class _Conn:
+        async def fetch(self, sql):
+            captured["sql"] = sql
+            return [{"table_name": "items"}, {"table_name": "users"}]
+
+        async def close(self):
+            pass
+
+    async def fake_connect(c, database):
+        captured["database"] = database
+        return _Conn()
+
+    monkeypatch.setattr("queryview.drivers.postgres._raw_connect", fake_connect)
+    ok, tables = asyncio.run(d.list_tables(PgConfig("h", 5432, "u", ""), "mydb"))
+    assert ok and tables == ["items", "users"]
+    assert captured["database"] == "mydb"
+    assert "table_schema = 'public'" in captured["sql"]

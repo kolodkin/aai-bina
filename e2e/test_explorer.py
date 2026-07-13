@@ -1,0 +1,60 @@
+"""The explorer page: table sidebar -> rows with the field/order-by selects and
+pagination, parameterized across every driver (same seeds as test_drivers)."""
+from __future__ import annotations
+
+import re
+
+import pytest
+from playwright.sync_api import Page, expect
+
+from test_drivers import CASES, DriverCase, _connect
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda c: c.id)
+def test_explorer_browse_order_fields_paginate(
+    case: DriverCase, request, page: Page, shot
+) -> None:
+    seed = request.getfixturevalue(case.seed_fixture)
+    _connect(page, case, seed)
+
+    page.get_by_test_id("nav-explorer").click()
+    expect(page.get_by_test_id("explorer-tables")).to_be_visible()
+    shot(f"{case.id} explorer table list")
+
+    # Clicking a table selects it into the URL and loads its rows.
+    page.locator('[data-testid="explorer-table"][data-table="items"]').click()
+    expect(page).to_have_url(re.compile("table=items"))
+    output = page.get_by_test_id("explorer-output")
+    expect(output).to_be_visible()
+    expect(output.locator("table thead th")).to_contain_text(["id", "name"])
+    expect(output).to_contain_text("alpha")
+    expect(output).to_contain_text("gamma")
+    shot(f"{case.id} explorer rows")
+
+    # The pickers come pre-populated from an automatic describe.
+    expect(page.get_by_test_id("field-pickers")).to_be_visible()
+    expect(page.locator('[data-testid="field-toggle"]')).to_have_count(2)
+
+    # Order by id, flipped to DESC, re-runs immediately: gamma (id 3) first.
+    page.locator('[data-testid="orderby-add"][data-col="id"]').click()
+    chip = page.locator('[data-testid="orderby-chip"][data-col="id"]')
+    expect(chip).to_be_visible()
+    chip.get_by_test_id("orderby-dir").click()
+    expect(output.locator("tbody tr").first).to_contain_text("gamma")
+    shot(f"{case.id} explorer ordered desc")
+
+    # Hiding a field is client-side column visibility — no re-run.
+    page.locator('[data-testid="field-toggle"][data-col="id"]').click()
+    expect(output.locator("table thead th")).to_have_count(1)
+    page.locator('[data-testid="field-toggle"][data-col="id"]').click()
+    expect(output.locator("table thead th")).to_have_count(2)
+
+    # Pagination under the DESC order: limit 2 (applies on blur) shows
+    # gamma, beta; the next page holds only alpha.
+    page.get_by_test_id("explorer-limit").fill("2")
+    page.keyboard.press("Tab")
+    expect(output).not_to_contain_text("alpha")
+    page.get_by_test_id("explorer-next").click()
+    expect(output).to_contain_text("alpha")
+    expect(output).not_to_contain_text("gamma")
+    shot(f"{case.id} explorer page 2")

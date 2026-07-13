@@ -1,4 +1,4 @@
-import type { OrderCol } from './QueryView'
+import type { OrderCol } from './FieldPickers'
 
 // Saved presentation payload: empty selections persist as null ("no selection"),
 // matching the backend's nullable columns.
