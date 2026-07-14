@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { FieldPickers, type Field, type OrderCol } from './FieldPickers'
 import { isReady, type Connection } from './QueryView'
-import { formatCompact } from './compactNumber'
+import { formatBytes, formatCompact } from './compactNumber'
 import { tableSelectSql } from './explorerSql'
 import { parseTsv } from './tsv'
 
@@ -11,11 +11,11 @@ import { parseTsv } from './tsv'
 // when the engine doesn't track them (views, DuckDB's missing byte size).
 type TableInfo = { name: string; rows: number | null; bytes: number | null }
 
-// The "1.2K rows · 3.4M" subline, or null when the engine knows neither.
+// The "1.2K rows · 3.4MB" subline, or null when the engine knows neither.
 function tableMeta(t: TableInfo): string | null {
   const parts = [
     t.rows != null ? `${formatCompact(t.rows)} rows` : null,
-    t.bytes != null ? formatCompact(t.bytes) : null,
+    t.bytes != null ? formatBytes(t.bytes) : null,
   ].filter(Boolean)
   return parts.length ? parts.join(' · ') : null
 }

@@ -15,3 +15,19 @@ export function formatCompact(n: number): string {
   if (rounded >= 1000 && i < units.length - 1) return `1${units[i + 1]}`
   return `${rounded}${units[i]}`
 }
+
+// Same abbreviation for byte sizes, but on the binary ladder: 1024 steps a
+// unit, labeled KB/MB/GB/TB/PB, so 262144 -> "256KB".
+export function formatBytes(n: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  if (i === 0) return `${n}B`
+  const rounded = v < 10 ? Math.round(v * 10) / 10 : Math.round(v)
+  if (rounded >= 1024 && i < units.length - 1) return `1${units[i + 1]}`
+  return `${rounded}${units[i]}`
+}

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { formatCompact } from './compactNumber'
+import { formatBytes, formatCompact } from './compactNumber'
 
 test('below 1000 stays verbatim', () => {
   expect(formatCompact(0)).toBe('0')
@@ -25,4 +25,19 @@ test('each power of 1000 steps a suffix: K M G T P', () => {
 test('rounding up to 1000 carries into the next suffix', () => {
   expect(formatCompact(999_999)).toBe('1M')
   expect(formatCompact(999_950_000)).toBe('1G')
+})
+
+test('bytes step units at powers of 1024: B KB MB GB TB', () => {
+  expect(formatBytes(0)).toBe('0B')
+  expect(formatBytes(512)).toBe('512B')
+  expect(formatBytes(1024)).toBe('1KB')
+  expect(formatBytes(262144)).toBe('256KB')
+  expect(formatBytes(1536)).toBe('1.5KB')
+  expect(formatBytes(26 * 1024 * 1024)).toBe('26MB')
+  expect(formatBytes(5.5 * 1024 ** 3)).toBe('5.5GB')
+  expect(formatBytes(3 * 1024 ** 4)).toBe('3TB')
+})
+
+test('bytes rounding up to 1024 carries into the next unit', () => {
+  expect(formatBytes(1024 * 1024 - 1)).toBe('1MB')
 })
