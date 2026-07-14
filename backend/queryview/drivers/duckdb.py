@@ -60,11 +60,21 @@ class DuckDBDriver:
         return True, []
 
     async def list_tables(self, config: DuckConfig,
-                          database: str | None) -> tuple[bool, list[str] | str]:
+                          database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
+        # SHOW TABLES for the name set, joined with duckdb_tables()'s estimated
+        # row count (absent for views). DuckDB has no per-table byte size.
         def _work():
             con = _open(config.path)
             try:
-                return [r[0] for r in con.execute("SHOW TABLES").fetchall()]
+                names = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
+                est = dict(
+                    con.execute(
+                        "SELECT table_name, estimated_size FROM duckdb_tables()"
+                    ).fetchall()
+                )
+                return [
+                    {"name": n, "rows": est.get(n), "bytes": None} for n in names
+                ]
             finally:
                 con.close()
         try:

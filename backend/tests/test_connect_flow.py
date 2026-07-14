@@ -39,7 +39,7 @@ class _FakeDriver:
         return True, [{"name": "x", "type": "int"}]
 
     async def list_tables(self, c, database):
-        return True, [f"t-of-{database}"]
+        return True, [{"name": f"t-of-{database}", "rows": 1, "bytes": None}]
 
 
 def test_run_query_skips_db_gate_when_no_databases(monkeypatch):
@@ -79,7 +79,7 @@ def test_list_tables_routes_to_driver_and_skips_db_gate(monkeypatch):
     sid = "s-tables"
     _run(connect.connect_new(sid, "f", {"v": 1}, "fake"))
     out = _run(connect.list_tables(sid))
-    assert out["ok"] and out["tables"] == ["t-of-None"]
+    assert out["ok"] and out["tables"] == [{"name": "t-of-None", "rows": 1, "bytes": None}]
 
 
 def test_run_query_requires_database_when_picker_present(monkeypatch):
@@ -113,4 +113,4 @@ def test_list_tables_requires_database_when_picker_present(monkeypatch):
     # Selecting a database opens the gate; the driver sees the selection.
     _run(connect.select_database(sid, "a"))
     out = _run(connect.list_tables(sid))
-    assert out["ok"] and out["tables"] == ["t-of-a"]
+    assert out["ok"] and out["tables"] == [{"name": "t-of-a", "rows": 1, "bytes": None}]

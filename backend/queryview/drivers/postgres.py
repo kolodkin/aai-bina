@@ -108,17 +108,27 @@ class PostgresDriver:
             return False, str(e) or "connection failed"
 
     async def list_tables(self, config: PgConfig,
-                          database: str | None) -> tuple[bool, list[str] | str]:
+                          database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
         # Tables and views of the public schema — what an unqualified name in
         # the explorer's generated SELECT resolves to under the default
         # search_path. Other schemas need explicit SQL on the query page.
+        # Row counts are the planner's reltuples estimate (-1 = never analyzed
+        # -> NULL, e.g. a freshly created table); size is on-disk relation size.
         try:
             async with _connect(config, database) as conn:
                 rows = await conn.fetch(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = 'public' ORDER BY table_name"
+                    "SELECT c.relname AS name, "
+                    "CASE WHEN c.reltuples < 0 THEN NULL "
+                    "ELSE c.reltuples::bigint END AS rows, "
+                    "pg_total_relation_size(c.oid) AS bytes "
+                    "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm') "
+                    "ORDER BY c.relname"
                 )
-                return True, [r["table_name"] for r in rows]
+                return True, [
+                    {"name": r["name"], "rows": r["rows"], "bytes": r["bytes"]}
+                    for r in rows
+                ]
         except Exception as e:  # noqa: BLE001
             return False, str(e) or "connection failed"
 

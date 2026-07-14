@@ -81,11 +81,31 @@ class ClickHouseDriver:
         return True, [s.strip() for s in r.value.split("\n") if s.strip()]
 
     async def list_tables(self, config: ChConfig,
-                          database: str | None) -> tuple[bool, list[str] | str]:
-        r = await ch_query(config, "SHOW TABLES", database=database)
+                          database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
+        # Same set SHOW TABLES yields, plus the engine's stored row/byte counts
+        # (NULL — serialized as \N — for views and engines that don't track them).
+        r = await ch_query(
+            config,
+            "SELECT name, total_rows, total_bytes FROM system.tables "
+            "WHERE database = currentDatabase() ORDER BY name",
+            database=database,
+            fmt="TabSeparated",
+        )
         if not r.ok:
             return False, r.value
-        return True, [s.strip() for s in r.value.split("\n") if s.strip()]
+        tables: list[dict[str, Any]] = []
+        for line in r.value.split("\n"):
+            if not line.strip():
+                continue
+            cols = line.split("\t")
+            if len(cols) < 3:
+                continue
+            tables.append({
+                "name": cols[0],
+                "rows": None if cols[1] == "\\N" else int(cols[1]),
+                "bytes": None if cols[2] == "\\N" else int(cols[2]),
+            })
+        return True, tables
 
     async def run_query(self, config: ChConfig, sql: str, database: str | None,
                         limit: int, offset: int,

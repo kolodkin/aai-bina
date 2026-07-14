@@ -30,7 +30,7 @@ def test_run_query_builds_clickhouse_sql(monkeypatch):
     assert seen["database"] == "db"
 
 
-def test_list_tables_shows_tables_in_database(monkeypatch):
+def test_list_tables_parses_rows_and_bytes_with_nulls(monkeypatch):
     d = ClickHouseDriver()
     seen = {}
 
@@ -38,10 +38,14 @@ def test_list_tables_shows_tables_in_database(monkeypatch):
         from queryview.drivers.clickhouse import ChResult
         seen["query"] = query
         seen["database"] = database
-        return ChResult(True, "events\nitems")
+        # A MergeTree table with stats and a view (\N for both counters).
+        return ChResult(True, "items\t3\t245\nv_items\t\\N\t\\N")
 
     monkeypatch.setattr("queryview.drivers.clickhouse.ch_query", fake_ch_query)
     ok, tables = asyncio.run(d.list_tables(ChConfig("h", 1, "u", ""), "db"))
-    assert ok and tables == ["events", "items"]
-    assert seen["query"] == "SHOW TABLES"
+    assert ok and tables == [
+        {"name": "items", "rows": 3, "bytes": 245},
+        {"name": "v_items", "rows": None, "bytes": None},
+    ]
+    assert "system.tables" in seen["query"]
     assert seen["database"] == "db"

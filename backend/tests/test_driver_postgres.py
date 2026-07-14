@@ -50,14 +50,17 @@ def test_run_query_builds_aliased_double_quoted_sql(monkeypatch):
     )
 
 
-def test_list_tables_queries_public_schema(monkeypatch):
+def test_list_tables_queries_public_schema_with_estimates(monkeypatch):
     d = PostgresDriver()
     captured = {}
 
     class _Conn:
         async def fetch(self, sql):
             captured["sql"] = sql
-            return [{"table_name": "items"}, {"table_name": "users"}]
+            return [
+                {"name": "items", "rows": 3, "bytes": 16384},
+                {"name": "fresh", "rows": None, "bytes": 8192},  # never analyzed
+            ]
 
         async def close(self):
             pass
@@ -68,6 +71,10 @@ def test_list_tables_queries_public_schema(monkeypatch):
 
     monkeypatch.setattr("queryview.drivers.postgres._raw_connect", fake_connect)
     ok, tables = asyncio.run(d.list_tables(PgConfig("h", 5432, "u", ""), "mydb"))
-    assert ok and tables == ["items", "users"]
+    assert ok and tables == [
+        {"name": "items", "rows": 3, "bytes": 16384},
+        {"name": "fresh", "rows": None, "bytes": 8192},
+    ]
     assert captured["database"] == "mydb"
-    assert "table_schema = 'public'" in captured["sql"]
+    assert "nspname = 'public'" in captured["sql"]
+    assert "reltuples" in captured["sql"] and "pg_total_relation_size" in captured["sql"]

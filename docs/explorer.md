@@ -25,8 +25,12 @@ order-by select the query panel uses.
 ```
 
 - **Sidebar** — the tables of the session's selected database, from
-  `GET /api/db/tables`. It refreshes when the active database changes (via the
-  connection pill); a selected table that no longer exists is deselected.
+  `GET /api/db/tables`. Each entry shows the engine's row-count and size
+  estimates as a subline (e.g. `1.2K rows · 3.4M`), abbreviated with K/M/G/T/P
+  at each power of 1000; an estimate the engine doesn't track (views, DuckDB's
+  per-table size, a never-analyzed Postgres table) is simply omitted. The list
+  refreshes when the active database changes (via the connection pill); a
+  selected table that no longer exists is deselected.
 - **Rows panel** — the selected table's rows. The selection lives in the URL
   (`/explorer?table=<name>`), so reloads and links land on the same table.
 - Without a ready connection the page shows a hint to connect on the Queries
@@ -51,13 +55,15 @@ the identifier quoting every driver accepts.
 
 ## Table listing per driver
 
-`GET /api/db/tables` lists via the driver's `list_tables`:
+`GET /api/db/tables` lists `{name, rows, bytes}` per table via the driver's
+`list_tables`. Rows and bytes are cheap engine estimates — never a `COUNT(*)`
+scan — and null when the engine doesn't track them:
 
-| Driver     | Source                                                     |
-| ---------- | ---------------------------------------------------------- |
-| ClickHouse | `SHOW TABLES` in the selected database                      |
-| Postgres   | `information_schema.tables` for the `public` schema (tables and views — what an unqualified name resolves to under the default `search_path`; other schemas need explicit SQL on the query page) |
-| DuckDB     | `SHOW TABLES` against the file (no database picker)         |
+| Driver     | Names                                                       | Estimates |
+| ---------- | ----------------------------------------------------------- | --------- |
+| ClickHouse | `system.tables` for the selected database (same set as `SHOW TABLES`) | `total_rows` / `total_bytes` (null for views) |
+| Postgres   | `pg_class` for the `public` schema, tables and views — what an unqualified name resolves to under the default `search_path`; other schemas need explicit SQL on the query page | planner's `reltuples` (null until first ANALYZE/VACUUM) / `pg_total_relation_size` |
+| DuckDB     | `SHOW TABLES` against the file (no database picker)          | `duckdb_tables()`'s `estimated_size` rows; no per-table bytes |
 
 Like `/api/db/query` and `/api/db/describe`, the endpoint is session-scoped and
 gated: no active connection or (for drivers with a picker) no selected database

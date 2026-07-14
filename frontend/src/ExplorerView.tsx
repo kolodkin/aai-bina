@@ -3,8 +3,22 @@ import { useSearchParams } from 'react-router-dom'
 
 import { FieldPickers, type Field, type OrderCol } from './FieldPickers'
 import { isReady, type Connection } from './QueryView'
+import { formatCompact } from './compactNumber'
 import { tableSelectSql } from './explorerSql'
 import { parseTsv } from './tsv'
+
+// Sidebar entry from /api/db/tables. rows/bytes are engine estimates; null
+// when the engine doesn't track them (views, DuckDB's missing byte size).
+type TableInfo = { name: string; rows: number | null; bytes: number | null }
+
+// The "1.2K rows · 3.4M" subline, or null when the engine knows neither.
+function tableMeta(t: TableInfo): string | null {
+  const parts = [
+    t.rows != null ? `${formatCompact(t.rows)} rows` : null,
+    t.bytes != null ? formatCompact(t.bytes) : null,
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : null
+}
 
 // The classical table-navigator page (`/explorer?table=x`): a sidebar lists the
 // active database's tables; picking one browses its rows with the same field
@@ -17,7 +31,7 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const table = searchParams.get('table') ?? ''
 
-  const [tables, setTables] = useState<string[]>([])
+  const [tables, setTables] = useState<TableInfo[]>([])
   const [tablesError, setTablesError] = useState<string | null>(null)
   const [fields, setFields] = useState<Field[]>([])
   const [visibleCols, setVisibleCols] = useState<string[]>([])
@@ -39,10 +53,12 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
         const data = await res.json()
         if (cancelled) return
         if (data.ok) {
-          const list = (data.tables ?? []) as string[]
+          const list = (data.tables ?? []) as TableInfo[]
           setTables(list)
           setTablesError(null)
-          if (table && !list.includes(table)) setSearchParams({}, { replace: true })
+          if (table && !list.some((t) => t.name === table)) {
+            setSearchParams({}, { replace: true })
+          }
         } else {
           setTables([])
           setTablesError((data.message as string) ?? 'failed to list tables')
@@ -167,7 +183,7 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
 
   return (
     <div className="flex w-full max-w-[85vw] items-start gap-4">
-      <aside data-testid="explorer-tables" className="glass-panel w-56 shrink-0 p-4">
+      <aside data-testid="explorer-tables" className="glass-panel w-64 shrink-0 p-4">
         <h2 className="text-sm font-semibold text-slate-200">Tables</h2>
         {tablesError && (
           <p data-testid="explorer-tables-error" className="mt-2 text-sm text-red-300">
@@ -175,20 +191,33 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
           </p>
         )}
         <div className="mt-2 max-h-[70vh] space-y-1 overflow-auto">
-          {tables.map((t) => (
-            <button
-              key={t}
-              type="button"
-              data-testid="explorer-table"
-              data-table={t}
-              onClick={() => setSearchParams({ table: t })}
-              className={`block w-full truncate rounded px-2 py-1.5 text-left text-sm hover:bg-white/10 ${
-                t === table ? 'bg-white/10 font-medium text-indigo-200' : 'text-slate-200'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
+          {tables.map((t) => {
+            const meta = tableMeta(t)
+            return (
+              <button
+                key={t.name}
+                type="button"
+                data-testid="explorer-table"
+                data-table={t.name}
+                onClick={() => setSearchParams({ table: t.name })}
+                className={`block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-white/10 ${
+                  t.name === table
+                    ? 'bg-white/10 font-medium text-indigo-200'
+                    : 'text-slate-200'
+                }`}
+              >
+                <span className="block truncate">{t.name}</span>
+                {meta && (
+                  <span
+                    data-testid="explorer-table-meta"
+                    className="block truncate text-xs font-normal text-slate-400"
+                  >
+                    {meta}
+                  </span>
+                )}
+              </button>
+            )
+          })}
           {tables.length === 0 && !tablesError && (
             <p className="text-sm text-slate-400">No tables.</p>
           )}

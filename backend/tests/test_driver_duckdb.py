@@ -37,9 +37,12 @@ def test_list_databases_is_empty(duck_path):
     assert _run(d.list_databases(DuckConfig(duck_path))) == (True, [])
 
 
-def test_list_tables_names_seeded_table(duck_path):
+def test_list_tables_names_seeded_table_with_row_estimate(duck_path):
     d = DuckDBDriver()
-    assert _run(d.list_tables(DuckConfig(duck_path), None)) == (True, ["items"])
+    # rows is duckdb_tables()'s estimated_size; DuckDB has no per-table bytes.
+    assert _run(d.list_tables(DuckConfig(duck_path), None)) == (
+        True, [{"name": "items", "rows": 3, "bytes": None}],
+    )
 
 
 def test_run_query_paginates_and_serializes(duck_path):
