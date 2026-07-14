@@ -27,8 +27,8 @@ order-by select the query panel uses.
 - **Sidebar** — the tables of the session's selected database, from
   `GET /api/db/tables`. Each entry shows the engine's row-count and size
   estimates as a subline (e.g. `1.2K rows · 3.4M`), abbreviated with K/M/G/T/P
-  at each power of 1000; an estimate the engine doesn't track (views, DuckDB's
-  per-table size, a never-analyzed Postgres table) is simply omitted. The list
+  at each power of 1000; an estimate the engine doesn't track (views, a
+  never-analyzed Postgres table) is simply omitted. The list
   refreshes when the active database changes (via the connection pill); a
   selected table that no longer exists is deselected.
 - **Rows panel** — the selected table's rows. The selection lives in the URL
@@ -63,7 +63,7 @@ scan — and null when the engine doesn't track them:
 | ---------- | ----------------------------------------------------------- | --------- |
 | ClickHouse | `system.tables` for the selected database (same set as `SHOW TABLES`) | `total_rows` / `total_bytes` (null for views) |
 | Postgres   | `pg_class` for the `public` schema, tables and views — what an unqualified name resolves to under the default `search_path`; other schemas need explicit SQL on the query page | planner's `reltuples` (null until first ANALYZE/VACUUM) / `pg_total_relation_size` |
-| DuckDB     | `SHOW TABLES` against the file (no database picker)          | `duckdb_tables()`'s `estimated_size` rows; no per-table bytes |
+| DuckDB     | `SHOW TABLES` against the file (no database picker)          | `duckdb_tables()`'s `estimated_size` rows; bytes = distinct `pragma_storage_info` blocks × block size (null for views / `:memory:`) |
 
 Like `/api/db/query` and `/api/db/describe`, the endpoint is session-scoped and
 gated: no active connection or (for drivers with a picker) no selected database
