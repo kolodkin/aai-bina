@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { FieldPickers, type Field, type OrderCol } from './FieldPickers'
 import { isReady, type Connection } from './QueryView'
+import { ResultsTable } from './ResultsTable'
+import { shownColumnIndices } from './presentation'
 import { formatBytes, formatCompact } from './compactNumber'
-import { tableSelectSql } from './explorerSql'
 import { parseTsv } from './tsv'
 
-// Sidebar entry from /api/db/tables. rows/bytes are engine estimates; null
-// when the engine doesn't track them (views, DuckDB's missing byte size).
-type TableInfo = { name: string; rows: number | null; bytes: number | null }
+// Sidebar entry from /api/db/tables. rows/bytes are engine estimates — null
+// when the engine doesn't track them (views, never-analyzed Postgres tables);
+// query is the ready-to-run browse SELECT, quoted server-side with the
+// driver's identifier quote.
+type TableInfo = { name: string; rows: number | null; bytes: number | null; query: string }
 
 // The "1.2K rows · 3.4MB" subline, or null when the engine knows neither.
 function tableMeta(t: TableInfo): string | null {
@@ -22,9 +25,8 @@ function tableMeta(t: TableInfo): string | null {
 
 // The classical table-navigator page (`/explorer?table=x`): a sidebar lists the
 // active database's tables; picking one browses its rows with the same field
-// select / order-by select as the query panel. The generated SQL is always
-// `SELECT * FROM "<table>"` — field selection is client-side column visibility,
-// order-by and pagination go to the server.
+// select / order-by select as the query panel. Field selection is client-side
+// column visibility, order-by and pagination go to the server.
 function ExplorerView({ connection }: { connection: Connection | null }) {
   const ready = isReady(connection)
   const database = connection?.database ?? null
@@ -41,6 +43,14 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
   const [output, setOutput] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // The limit the current output was fetched with, so a no-op blur of the
+  // Limit input doesn't refetch the page.
+  const appliedLimit = useRef(100)
+
+  // The sidebar entry the URL selects, once the list has it. Row loading keys
+  // off this: nothing fires until the table is confirmed present, so a stale
+  // selection (e.g. after a database switch) never issues doomed queries.
+  const selected = tables.find((t) => t.name === table)
 
   // Load the sidebar whenever the active database changes; a selected table
   // that vanished (database switch) is dropped from the URL.
@@ -77,7 +87,7 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
   }, [ready, database])
 
   const runQuery = useCallback(
-    async (t: string, lim: number, off: number, ord: OrderCol[]) => {
+    async (sql: string, lim: number, off: number, ord: OrderCol[]) => {
       setBusy(true)
       setError(null)
       try {
@@ -85,7 +95,7 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            query: tableSelectSql(t),
+            query: sql,
             limit: lim,
             offset: off,
             format: 'text',
@@ -96,6 +106,7 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
         if (data.ok) {
           setOutput(data.output as string)
           setOffset(off)
+          appliedLimit.current = lim
         } else {
           setError((data.message as string) ?? 'query failed')
         }
@@ -108,10 +119,12 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
     [],
   )
 
-  // Selecting a table (or switching database with one selected): reset the
-  // presentation, describe it for the pickers, and load the first page.
+  // A confirmed selection (also after a database switch reloads the list):
+  // reset the presentation, then describe and load the first page — the two
+  // requests are independent, so they run concurrently.
   useEffect(() => {
-    if (!ready || !table) return
+    if (!ready || !selected) return
+    const sql = selected.query
     let cancelled = false
     /* eslint-disable react-hooks/set-state-in-effect */
     setOutput(null)
@@ -126,7 +139,7 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
         const res = await fetch('/api/db/describe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: tableSelectSql(table) }),
+          body: JSON.stringify({ query: sql }),
         })
         const data = await res.json()
         if (!cancelled && data.ok) {
@@ -134,30 +147,40 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
           setFields(next)
           setVisibleCols(next.map((f) => f.name))
         }
-        // A failed describe isn't fatal: the run below reports the real error.
+        // A failed describe isn't fatal: the run reports the real error.
       } catch {
         /* ditto */
       }
-      if (!cancelled) void runQuery(table, limit, 0, [])
     })()
+    void runQuery(sql, limit, 0, [])
     return () => {
       cancelled = true
     }
     // limit is intentionally not a dependency: changing it re-runs via its own
-    // handler; it must not reset the field/order selections.
+    // handler; it must not reset the field/order selections. `tables` (via
+    // `selected`) is: a database switch refreshes the list and reloads the rows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, table, database, runQuery])
+  }, [ready, selected, runQuery])
 
   // Order-by changes re-run immediately — browsing wants instant feedback, and
   // the query is the cheap paginated SELECT the server already ran.
   function changeOrder(next: OrderCol[]) {
     setOrderBy(next)
-    if (table) void runQuery(table, limit, offset, next)
+    if (selected) void runQuery(selected.query, limit, offset, next)
   }
 
   function page(nextOffset: number) {
-    if (table) void runQuery(table, limit, Math.max(0, nextOffset), orderBy)
+    if (selected) void runQuery(selected.query, limit, Math.max(0, nextOffset), orderBy)
   }
+
+  const { columns, rows } = useMemo(
+    () => (output !== null ? parseTsv(output) : { columns: [], rows: [] }),
+    [output],
+  )
+  const shownIdx = useMemo(
+    () => shownColumnIndices(columns, fields, visibleCols),
+    [columns, fields, visibleCols],
+  )
 
   if (!ready) {
     return (
@@ -171,15 +194,6 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
       </div>
     )
   }
-
-  const { columns, rows } = output !== null ? parseTsv(output) : { columns: [], rows: [] }
-  // Same stale-safety as the query panel: a column the describe didn't cover
-  // always shows, so the visibility filter can't blank the table.
-  const fieldNames = new Set(fields.map((f) => f.name))
-  const visible = new Set(visibleCols)
-  const shownIdx = columns
-    .map((_, i) => i)
-    .filter((i) => !fieldNames.has(columns[i]) || visible.has(columns[i]))
 
   return (
     // mt-10 keeps the panels clear of the absolutely-positioned connection
@@ -247,7 +261,9 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
                   value={limit}
                   min={1}
                   onChange={(e) => setLimit(Number(e.target.value) || 1)}
-                  onBlur={() => page(0)}
+                  onBlur={() => {
+                    if (limit !== appliedLimit.current) page(0)
+                  }}
                   aria-label="Limit"
                   data-testid="explorer-limit"
                   className="glass-input ml-1 w-20 px-3 py-2"
@@ -290,39 +306,12 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
             )}
 
             {output !== null && (
-              <div
-                data-testid="explorer-output"
-                className="max-h-[65vh] overflow-auto rounded-xl border border-white/10"
-              >
-                <table className="min-w-full border-collapse text-left text-sm">
-                  <thead className="sticky top-0 bg-[rgba(16,20,36,0.62)] backdrop-blur-lg">
-                    <tr>
-                      {shownIdx.map((i) => (
-                        <th
-                          key={i}
-                          className="border-b border-white/10 px-3 py-2 font-semibold text-slate-200"
-                        >
-                          {columns[i]}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, i) => (
-                      <tr key={i} className="odd:bg-transparent even:bg-white/[0.03]">
-                        {shownIdx.map((j) => (
-                          <td
-                            key={j}
-                            className="whitespace-pre border-b border-white/5 px-3 py-1 font-mono text-slate-200"
-                          >
-                            {row[j]}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ResultsTable
+                columns={columns}
+                rows={rows}
+                shownIdx={shownIdx}
+                testid="explorer-output"
+              />
             )}
             {error && (
               <p data-testid="explorer-error" className="text-sm text-red-300">

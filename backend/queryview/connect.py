@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from alembic.config import Config
 
 from .drivers import DRIVERS
-from .drivers.base import DriverConfig
+from .drivers.base import DriverConfig, select_all_sql
 
 # --- Storage (SQLite, lazily opened) --------------------------------------
 
@@ -371,15 +371,26 @@ async def select_database(sid: str, database: str) -> dict[str, Any]:
     return {"ok": True}
 
 
-async def describe_query(sid: str, sql: str) -> dict[str, Any]:
-    """Describe a query's output columns against this session's selected database.
-    Drivers that expose no databases (e.g. DuckDB) skip the selection gate."""
+async def _gated_session(sid: str) -> tuple[_SessionState | None, dict[str, Any] | None]:
+    """This session's state, or the error dict shared by every query-shaped
+    operation (query/describe/tables): not connected, or — for drivers with a
+    picker — no database selected yet."""
     await _ensure_session(sid)
     s = _get_session_entry(sid)
     if s is None:
-        return {"ok": False, "message": "not connected", "reason": "no-session"}
+        return None, {"ok": False, "message": "not connected", "reason": "no-session"}
     if DRIVERS[s.type].requires_database and not s.database:
-        return {"ok": False, "message": "select a database first", "reason": "no-database"}
+        return None, {
+            "ok": False, "message": "select a database first", "reason": "no-database",
+        }
+    return s, None
+
+
+async def describe_query(sid: str, sql: str) -> dict[str, Any]:
+    """Describe a query's output columns against this session's selected database."""
+    s, err = await _gated_session(sid)
+    if s is None:
+        return err  # type: ignore[return-value]
     ok, result = await DRIVERS[s.type].describe_query(s.config, sql, s.database)
     if not ok:
         return {"ok": False, "message": result}
@@ -388,17 +399,19 @@ async def describe_query(sid: str, sql: str) -> dict[str, Any]:
 
 async def list_tables(sid: str) -> dict[str, Any]:
     """List the tables of this session's selected database (the Explorer page's
-    sidebar). Drivers that expose no databases (e.g. DuckDB) skip the gate."""
-    await _ensure_session(sid)
-    s = _get_session_entry(sid)
+    sidebar), each with the ready-to-run browse SELECT — built here with the
+    driver's identifier quote, so the frontend never guesses dialect quoting."""
+    s, err = await _gated_session(sid)
     if s is None:
-        return {"ok": False, "message": "not connected", "reason": "no-session"}
-    if DRIVERS[s.type].requires_database and not s.database:
-        return {"ok": False, "message": "select a database first", "reason": "no-database"}
-    ok, result = await DRIVERS[s.type].list_tables(s.config, s.database)
+        return err  # type: ignore[return-value]
+    driver = DRIVERS[s.type]
+    ok, result = await driver.list_tables(s.config, s.database)
     if not ok:
         return {"ok": False, "message": result}
-    return {"ok": True, "tables": result}
+    tables = [
+        {**t, "query": select_all_sql(t["name"], driver.ident_quote)} for t in result
+    ]
+    return {"ok": True, "tables": tables}
 
 
 async def run_query(
@@ -411,12 +424,9 @@ async def run_query(
 ) -> dict[str, Any]:
     """Run a paginated SQL query against this session's selected database. The
     driver owns pagination/quoting; `fmt` is the logical 'tsv'/'csv'."""
-    await _ensure_session(sid)
-    s = _get_session_entry(sid)
+    s, err = await _gated_session(sid)
     if s is None:
-        return {"ok": False, "message": "not connected", "reason": "no-session"}
-    if DRIVERS[s.type].requires_database and not s.database:
-        return {"ok": False, "message": "select a database first", "reason": "no-database"}
+        return err  # type: ignore[return-value]
     r = await DRIVERS[s.type].run_query(
         s.config, sql, s.database, limit, offset, order_by, fmt
     )

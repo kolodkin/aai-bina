@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { CellViewModal } from './CellViewModal'
 import { ComplexCell } from './ComplexCell'
 import { FieldPickers, type Field, type OrderCol } from './FieldPickers'
+import { ResultsTable } from './ResultsTable'
+import { shownColumnIndices } from './presentation'
 import { parseTsv } from './tsv'
 import { DRIVERS, type DriverMeta } from './drivers'
 import GitSyncControls from './GitSyncControls'
@@ -1167,15 +1169,7 @@ function QueryPanel({
 
   const { columns, rows: resultRows } =
     output !== null ? parseTsv(output) : { columns: [], rows: [] }
-
-  // Filter table columns by visibility. Columns not among the described fields
-  // (e.g. SQL edited since the last describe) always show, so a stale field list
-  // can't blank the table.
-  const fieldNames = new Set(fields.map((f) => f.name))
-  const visible = new Set(visibleCols)
-  const shownIdx = columns
-    .map((_, i) => i)
-    .filter((i) => !fieldNames.has(columns[i]) || visible.has(columns[i]))
+  const shownIdx = shownColumnIndices(columns, fields, visibleCols)
 
   const sizes: [string, number, string][] = [
     ['Min', 0, 'query-size-min'],
@@ -1420,39 +1414,15 @@ function QueryPanel({
       )}
 
       {output !== null && (
-        <div
-          data-testid="query-output"
-          className="max-h-[70vh] overflow-auto rounded-xl border border-white/10"
-        >
-          <table className="min-w-full border-collapse text-left text-sm">
-            <thead className="sticky top-0 bg-[rgba(16,20,36,0.62)] backdrop-blur-lg">
-              <tr>
-                {shownIdx.map((i) => (
-                  <th
-                    key={i}
-                    className="border-b border-white/10 px-3 py-2 font-semibold text-slate-200"
-                  >
-                    {columns[i]}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {resultRows.map((row, i) => (
-                <tr key={i} className="odd:bg-transparent even:bg-white/[0.03]">
-                  {shownIdx.map((j) => (
-                    <td
-                      key={j}
-                      className="whitespace-pre border-b border-white/5 px-3 py-1 font-mono text-slate-200"
-                    >
-                      {renderCell(columns[j], row[j], appliedViews, row, columns, colTypes)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ResultsTable
+          columns={columns}
+          rows={resultRows}
+          shownIdx={shownIdx}
+          testid="query-output"
+          renderCell={(col, raw, row) =>
+            renderCell(col, raw, appliedViews, row, columns, colTypes)
+          }
+        />
       )}
       {displayError && (
         <p data-testid="query-error" className="text-sm text-red-300">

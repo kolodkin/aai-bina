@@ -1,7 +1,18 @@
 """Driver dialect helpers and the row serializer (the shared output contract)."""
 from __future__ import annotations
 
-from queryview.drivers.base import build_order_by, serialize_rows, wrap_paginated
+from queryview.drivers.base import (
+    build_order_by,
+    select_all_sql,
+    serialize_rows,
+    wrap_paginated,
+)
+
+
+def test_select_all_sql_quotes_and_doubles_embedded_quotes():
+    assert select_all_sql("items", '"') == 'SELECT * FROM "items"'
+    assert select_all_sql('we"ird', '"') == 'SELECT * FROM "we""ird"'
+    assert select_all_sql("a`b", "`") == "SELECT * FROM `a``b`"
 
 
 def test_build_order_by_quotes_and_whitelists_direction():

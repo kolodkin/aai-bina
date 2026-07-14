@@ -1,33 +1,27 @@
-// Abbreviate a count with metric suffixes: 999 -> "999", 1234 -> "1.2K",
-// 3400000 -> "3.4M", then G/T/P. One decimal below 10 units, integer above;
-// a value that rounds up to 1000 carries into the next suffix ("1M", not
-// "1000K"). Used for the explorer sidebar's row counts and byte sizes.
-export function formatCompact(n: number): string {
-  const units = ['', 'K', 'M', 'G', 'T', 'P']
+// Abbreviations for the explorer sidebar's row counts and byte sizes.
+//
+// Shared core: step `base` per unit, one decimal below 10 units, integer
+// above; a value that rounds up to `base` carries into the next unit
+// ("1M", not "1000K").
+function format(n: number, base: number, units: string[]): string {
   let i = 0
   let v = n
-  while (v >= 1000 && i < units.length - 1) {
-    v /= 1000
+  while (v >= base && i < units.length - 1) {
+    v /= base
     i++
   }
-  if (i === 0) return String(n)
+  if (i === 0) return `${n}${units[0]}`
   const rounded = v < 10 ? Math.round(v * 10) / 10 : Math.round(v)
-  if (rounded >= 1000 && i < units.length - 1) return `1${units[i + 1]}`
+  if (rounded >= base && i < units.length - 1) return `1${units[i + 1]}`
   return `${rounded}${units[i]}`
 }
 
-// Same abbreviation for byte sizes, but on the binary ladder: 1024 steps a
-// unit, labeled KB/MB/GB/TB/PB, so 262144 -> "256KB".
+// Counts on the metric ladder: 999 -> "999", 1234 -> "1.2K", 3400000 -> "3.4M".
+export function formatCompact(n: number): string {
+  return format(n, 1000, ['', 'K', 'M', 'G', 'T', 'P'])
+}
+
+// Byte sizes step at powers of 1024, labeled KB/MB/GB/TB/PB: 262144 -> "256KB".
 export function formatBytes(n: number): string {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  let i = 0
-  let v = n
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  if (i === 0) return `${n}B`
-  const rounded = v < 10 ? Math.round(v * 10) / 10 : Math.round(v)
-  if (rounded >= 1024 && i < units.length - 1) return `1${units[i + 1]}`
-  return `${rounded}${units[i]}`
+  return format(n, 1024, ['B', 'KB', 'MB', 'GB', 'TB', 'PB'])
 }

@@ -51,14 +51,17 @@ semantics:
 - **Pagination** — Limit (applies on blur) plus Previous/Next, mapping to the
   query API's `limit`/`offset`.
 
-The generated SQL always selects `*`; the table name is double-quote-escaped,
-the identifier quoting every driver accepts.
+The browse SELECT always selects `*` and comes from the server: each
+`/api/db/tables` entry carries its ready-to-run `query`, quoted with the
+driver's own identifier quote (backticks for ClickHouse, double quotes for
+Postgres/DuckDB) — the frontend never guesses dialect quoting.
 
 ## Table listing per driver
 
-`GET /api/db/tables` lists `{name, rows, bytes}` per table via the driver's
-`list_tables`. Rows and bytes are cheap engine estimates — never a `COUNT(*)`
-scan — and null when the engine doesn't track them:
+`GET /api/db/tables` lists `{name, rows, bytes, query}` per table via the
+driver's `list_tables` (`query` is attached by the session layer). Rows and
+bytes are cheap engine estimates — never a `COUNT(*)` scan — and null when the
+engine doesn't track them:
 
 | Driver     | Names                                                       | Estimates |
 | ---------- | ----------------------------------------------------------- | --------- |

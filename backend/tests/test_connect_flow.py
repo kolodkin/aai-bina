@@ -16,6 +16,7 @@ def _run(coro):
 class _FakeDriver:
     type = "fake"
     requires_database = False  # no picker
+    ident_quote = '"'
 
     def parse_config(self, body):
         return {"v": 1}, None
@@ -79,7 +80,11 @@ def test_list_tables_routes_to_driver_and_skips_db_gate(monkeypatch):
     sid = "s-tables"
     _run(connect.connect_new(sid, "f", {"v": 1}, "fake"))
     out = _run(connect.list_tables(sid))
-    assert out["ok"] and out["tables"] == [{"name": "t-of-None", "rows": 1, "bytes": None}]
+    # The browse SELECT is attached here, quoted with the driver's ident_quote.
+    assert out["ok"] and out["tables"] == [
+        {"name": "t-of-None", "rows": 1, "bytes": None,
+         "query": 'SELECT * FROM "t-of-None"'},
+    ]
 
 
 def test_run_query_requires_database_when_picker_present(monkeypatch):
@@ -113,4 +118,6 @@ def test_list_tables_requires_database_when_picker_present(monkeypatch):
     # Selecting a database opens the gate; the driver sees the selection.
     _run(connect.select_database(sid, "a"))
     out = _run(connect.list_tables(sid))
-    assert out["ok"] and out["tables"] == [{"name": "t-of-a", "rows": 1, "bytes": None}]
+    assert out["ok"] and out["tables"] == [
+        {"name": "t-of-a", "rows": 1, "bytes": None, "query": 'SELECT * FROM "t-of-a"'},
+    ]

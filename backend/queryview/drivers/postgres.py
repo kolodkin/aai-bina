@@ -78,6 +78,7 @@ async def _connect_bootstrap(c: PgConfig):
 class PostgresDriver:
     type: str = "postgres"
     requires_database: bool = True
+    ident_quote: str = '"'
 
     def parse_config(self, body: Any) -> tuple[PgConfig | None, str | None]:
         return parse_pg_config(body)
