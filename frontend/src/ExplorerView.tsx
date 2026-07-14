@@ -200,17 +200,17 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
                 data-testid="explorer-table"
                 data-table={t.name}
                 onClick={() => setSearchParams({ table: t.name })}
-                className={`block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-white/10 ${
+                className={`flex w-full items-baseline gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-white/10 ${
                   t.name === table
                     ? 'bg-white/10 font-medium text-indigo-200'
                     : 'text-slate-200'
                 }`}
               >
-                <span className="block truncate">{t.name}</span>
+                <span className="min-w-0 flex-1 truncate">{t.name}</span>
                 {meta && (
                   <span
                     data-testid="explorer-table-meta"
-                    className="block truncate text-xs font-normal text-slate-400"
+                    className="shrink-0 whitespace-nowrap text-xs font-normal text-slate-400"
                   >
                     {meta}
                   </span>
