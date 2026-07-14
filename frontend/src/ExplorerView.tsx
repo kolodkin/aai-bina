@@ -182,7 +182,9 @@ function ExplorerView({ connection }: { connection: Connection | null }) {
     .filter((i) => !fieldNames.has(columns[i]) || visible.has(columns[i]))
 
   return (
-    <div className="flex w-full max-w-[85vw] items-start gap-4">
+    // mt-10 keeps the panels clear of the absolutely-positioned connection
+    // pill (top-left) and nav (top-right) when the content is viewport-tall.
+    <div className="mt-10 flex w-full max-w-[85vw] items-start gap-4">
       <aside data-testid="explorer-tables" className="glass-panel w-64 shrink-0 p-4">
         <h2 className="text-sm font-semibold text-slate-200">Tables</h2>
         {tablesError && (
