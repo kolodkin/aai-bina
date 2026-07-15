@@ -32,6 +32,7 @@ def _open(path: str):
 class DuckDBDriver:
     type: str = "duckdb"
     requires_database: bool = False
+    ident_quote: str = '"'
 
     def parse_config(self, body: Any) -> tuple[DuckConfig | None, str | None]:
         return parse_duck_config(body)
@@ -58,6 +59,48 @@ class DuckDBDriver:
     async def list_databases(self, config: DuckConfig) -> tuple[bool, list[str] | str]:
         # No picker: queries run directly against the file (schema-qualify in SQL).
         return True, []
+
+    async def list_tables(self, config: DuckConfig,
+                          database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
+        # SHOW TABLES for the name set, joined with duckdb_tables()'s estimated
+        # row count (absent for views). Bytes are distinct storage blocks ×
+        # block size from pragma_storage_info — metadata only, no data scan;
+        # None for views and whenever the pragma has nothing (e.g. :memory:).
+        def _work():
+            con = _open(config.path)
+            try:
+                names = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
+                est = dict(
+                    con.execute(
+                        "SELECT table_name, estimated_size FROM duckdb_tables()"
+                    ).fetchall()
+                )
+                block_size = con.execute(
+                    "SELECT block_size FROM pragma_database_size()"
+                ).fetchone()[0]
+
+                def _bytes(name: str) -> int | None:
+                    if name not in est:  # a view — no storage of its own
+                        return None
+                    quoted = name.replace("'", "''")
+                    try:
+                        blocks = con.execute(
+                            "SELECT count(DISTINCT block_id) "
+                            f"FROM pragma_storage_info('{quoted}') WHERE block_id >= 0"
+                        ).fetchone()[0]
+                    except Exception:  # noqa: BLE001
+                        return None
+                    return blocks * block_size if blocks else None
+
+                return [
+                    {"name": n, "rows": est.get(n), "bytes": _bytes(n)} for n in names
+                ]
+            finally:
+                con.close()
+        try:
+            return True, await asyncio.to_thread(_work)
+        except Exception as e:  # noqa: BLE001
+            return False, str(e)
 
     async def run_query(self, config: DuckConfig, sql: str, database: str | None,
                         limit: int, offset: int,

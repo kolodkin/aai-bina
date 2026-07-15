@@ -21,6 +21,7 @@ const COMMANDS: CommandSpec[] = [
   { word: 'new', arg: true, hint: 'create a connection' },
   { word: 'connect', arg: true, hint: 'open a saved connection' },
   { word: 'query', arg: false, hint: 'run a query', needs: 'ready' },
+  { word: 'explorer', arg: false, hint: 'browse tables', needs: 'ready' },
   { word: 'dashboard', arg: true, hint: 'open a dashboard' },
   { word: 'disconnect', arg: false, hint: 'close the connection', needs: 'connected' },
 ]

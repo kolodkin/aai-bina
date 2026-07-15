@@ -55,9 +55,21 @@ def parse_ch_config(body: Any) -> tuple[ChConfig | None, str | None]:
     return ChConfig(**fields), None
 
 
+def _tsv_rows(text: str, min_cols: int):
+    """Rows of a TabSeparated result: blank lines and rows with fewer than
+    `min_cols` columns are skipped."""
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        cols = line.split("\t")
+        if len(cols) >= min_cols:
+            yield cols
+
+
 class ClickHouseDriver:
     type: str = "clickhouse"
     requires_database: bool = True
+    ident_quote: str = "`"
 
     def parse_config(self, body: Any) -> tuple[ChConfig | None, str | None]:
         return parse_ch_config(body)
@@ -80,6 +92,28 @@ class ClickHouseDriver:
             return False, r.value
         return True, [s.strip() for s in r.value.split("\n") if s.strip()]
 
+    async def list_tables(self, config: ChConfig,
+                          database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
+        # Same set SHOW TABLES yields, plus the engine's stored row/byte counts
+        # (NULL — serialized as \N — for views and engines that don't track them).
+        r = await ch_query(
+            config,
+            "SELECT name, total_rows, total_bytes FROM system.tables "
+            "WHERE database = currentDatabase() ORDER BY name",
+            database=database,
+            fmt="TabSeparated",
+        )
+        if not r.ok:
+            return False, r.value
+        return True, [
+            {
+                "name": cols[0],
+                "rows": None if cols[1] == "\\N" else int(cols[1]),
+                "bytes": None if cols[2] == "\\N" else int(cols[2]),
+            }
+            for cols in _tsv_rows(r.value, 3)
+        ]
+
     async def run_query(self, config: ChConfig, sql: str, database: str | None,
                         limit: int, offset: int,
                         order_by: list[dict[str, Any]] | None, fmt: str) -> QueryResult:
@@ -96,12 +130,6 @@ class ClickHouseDriver:
                            fmt="TabSeparated")
         if not r.ok:
             return False, r.value
-        fields: list[dict[str, str]] = []
-        for line in r.value.split("\n"):
-            if not line.strip():
-                continue
-            cols = line.split("\t")
-            if len(cols) < 2:
-                continue
-            fields.append({"name": cols[0], "type": cols[1]})
-        return True, fields
+        return True, [
+            {"name": cols[0], "type": cols[1]} for cols in _tsv_rows(r.value, 2)
+        ]

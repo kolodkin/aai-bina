@@ -30,12 +30,21 @@ class Driver(Protocol):
     # Whether queries require a database to be selected first (a non-empty
     # picker). False for file-based drivers like DuckDB that have no picker.
     requires_database: bool
+    # The dialect's identifier-quote character, for SQL generated server-side
+    # (select_all_sql). Same convention as the build_order_by `quote` argument.
+    ident_quote: str
 
     def parse_config(self, body: Any) -> tuple[DriverConfig | None, str | None]: ...
     def config_to_dict(self, config: DriverConfig) -> dict[str, Any]: ...
     def config_from_dict(self, data: dict[str, Any]) -> DriverConfig: ...
     async def test(self, config: DriverConfig) -> dict[str, Any]: ...
     async def list_databases(self, config: DriverConfig) -> tuple[bool, list[str] | str]: ...
+    # Each table is {"name": str, "rows": int|None, "bytes": int|None} — rows and
+    # bytes are cheap engine estimates (never a COUNT(*) scan), None when the
+    # engine doesn't track them (e.g. views, or DuckDB's missing per-table size).
+    async def list_tables(
+        self, config: DriverConfig, database: str | None,
+    ) -> tuple[bool, list[dict[str, Any]] | str]: ...
     async def run_query(
         self, config: DriverConfig, sql: str, database: str | None,
         limit: int, offset: int, order_by: list[dict[str, Any]] | None, fmt: str,
@@ -72,6 +81,14 @@ def parse_host_port_config(body: Any) -> tuple[dict[str, Any] | None, str | None
     if port is None:
         return None, "valid port required"
     return {"host": host, "port": port, "username": username, "password": password}, None
+
+
+def select_all_sql(table: str, quote: str) -> str:
+    """`SELECT * FROM <quoted table>` — the query the explorer browses a table
+    with. The name is `quote`-quoted with embedded quotes doubled, so an odd
+    table name can't escape the identifier."""
+    escaped = table.replace(quote, quote + quote)
+    return f"SELECT * FROM {quote}{escaped}{quote}"
 
 
 def build_order_by(order_by: list[dict[str, Any]] | None, quote: str) -> str:

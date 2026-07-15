@@ -25,6 +25,7 @@ from .connect import (
     disconnect,
     get_session,
     list_connection_names,
+    list_tables,
     open_saved,
     run_query,
     select_database,
@@ -199,6 +200,13 @@ async def db_database(request: Request):
     return {"ok": True}
 
 
+def _gate_error(r: dict[str, Any], reasons_409: tuple[str, ...]) -> JSONResponse:
+    """Failed query/describe/tables result → response. Session-gate reasons in
+    `reasons_409` map to 409; anything else (a driver error) stays 200."""
+    status = 409 if r.get("reason") in reasons_409 else 200
+    return JSONResponse({"ok": False, "message": r["message"]}, status_code=status)
+
+
 # Run a SQL query (paginated) against this session's selected database.
 @app.post("/api/db/query")
 async def db_query(request: Request):
@@ -217,9 +225,17 @@ async def db_query(request: Request):
     order_by = raw_order if isinstance(raw_order, list) else None
     r = await run_query(request.state.sid, sql, limit, offset, fmt, order_by)
     if not r["ok"]:
-        status = 409 if r.get("reason") == "no-session" else 200
-        return JSONResponse({"ok": False, "message": r["message"]}, status_code=status)
+        return _gate_error(r, ("no-session",))
     return {"ok": True, "output": r["output"]}
+
+
+# Tables of this session's selected database (the Explorer page's sidebar).
+@app.get("/api/db/tables")
+async def db_tables(request: Request):
+    r = await list_tables(request.state.sid)
+    if not r["ok"]:
+        return _gate_error(r, ("no-session", "no-database"))
+    return {"ok": True, "tables": r["tables"]}
 
 
 # Describe a query's output columns (name + type) without scanning data.
@@ -233,8 +249,7 @@ async def db_describe(request: Request):
         return JSONResponse({"ok": False, "message": "query required"}, status_code=400)
     r = await describe_query(request.state.sid, sql)
     if not r["ok"]:
-        status = 409 if r.get("reason") in ("no-session", "no-database") else 200
-        return JSONResponse({"ok": False, "message": r["message"]}, status_code=status)
+        return _gate_error(r, ("no-session", "no-database"))
     return {"ok": True, "fields": r["fields"]}
 
 

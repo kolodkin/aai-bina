@@ -16,6 +16,7 @@ def _run(coro):
 class _FakeDriver:
     type = "fake"
     requires_database = False  # no picker
+    ident_quote = '"'
 
     def parse_config(self, body):
         return {"v": 1}, None
@@ -37,6 +38,9 @@ class _FakeDriver:
 
     async def describe_query(self, c, sql, database):
         return True, [{"name": "x", "type": "int"}]
+
+    async def list_tables(self, c, database):
+        return True, [{"name": f"t-of-{database}", "rows": 1, "bytes": None}]
 
 
 def test_run_query_skips_db_gate_when_no_databases(monkeypatch):
@@ -71,6 +75,18 @@ def test_list_connection_names_orders_by_recency(monkeypatch):
     assert names[:2] == ["beta", "alpha"]
 
 
+def test_list_tables_routes_to_driver_and_skips_db_gate(monkeypatch):
+    monkeypatch.setitem(DRIVERS, "fake", _FakeDriver())
+    sid = "s-tables"
+    _run(connect.connect_new(sid, "f", {"v": 1}, "fake"))
+    out = _run(connect.list_tables(sid))
+    # The browse SELECT is attached here, quoted with the driver's ident_quote.
+    assert out["ok"] and out["tables"] == [
+        {"name": "t-of-None", "rows": 1, "bytes": None,
+         "query": 'SELECT * FROM "t-of-None"'},
+    ]
+
+
 def test_run_query_requires_database_when_picker_present(monkeypatch):
     class _WithDbs(_FakeDriver):
         type = "fakedb"
@@ -84,3 +100,24 @@ def test_run_query_requires_database_when_picker_present(monkeypatch):
     _run(connect.connect_new(sid, "g", {"v": 1}, "fakedb"))
     out = _run(connect.run_query(sid, "SELECT 1", 10, 0, "tsv", None))
     assert out["ok"] is False and out["reason"] == "no-database"
+
+
+def test_list_tables_requires_database_when_picker_present(monkeypatch):
+    class _WithDbs(_FakeDriver):
+        type = "fakedb2"
+        requires_database = True
+
+        async def list_databases(self, c):
+            return True, ["a", "b"]
+
+    monkeypatch.setitem(DRIVERS, "fakedb2", _WithDbs())
+    sid = "s-fakedb2"
+    _run(connect.connect_new(sid, "g2", {"v": 1}, "fakedb2"))
+    out = _run(connect.list_tables(sid))
+    assert out["ok"] is False and out["reason"] == "no-database"
+    # Selecting a database opens the gate; the driver sees the selection.
+    _run(connect.select_database(sid, "a"))
+    out = _run(connect.list_tables(sid))
+    assert out["ok"] and out["tables"] == [
+        {"name": "t-of-a", "rows": 1, "bytes": None, "query": 'SELECT * FROM "t-of-a"'},
+    ]

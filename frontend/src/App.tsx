@@ -11,6 +11,7 @@ import {
 
 import QueryView, { isReady, type Connection, type QueryPush } from './QueryView'
 import DashboardView, { type DashboardPush } from './DashboardView'
+import ExplorerView from './ExplorerView'
 import { Toast } from './Toast'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
 import { activeWorkspace, setActiveWorkspace } from './workspace'
@@ -290,6 +291,13 @@ function Shell() {
           Queries
         </Link>
         <Link
+          to="/explorer"
+          data-testid="nav-explorer"
+          className={navLinkClass('/explorer')}
+        >
+          Explorer
+        </Link>
+        <Link
           to="/dashboard"
           data-testid="nav-dashboard"
           className={navLinkClass('/dashboard')}
@@ -312,6 +320,7 @@ function Shell() {
             />
           }
         />
+        <Route path="/explorer" element={<ExplorerView connection={connection} />} />
         <Route
           path="/dashboard"
           element={
