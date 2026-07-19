@@ -1,5 +1,33 @@
 import { describe, expect, test, vi } from 'vitest'
-import { answerBridgeRequest, buildSrcDoc, parseBridgeRequest } from './dashboardBridge'
+import {
+  answerBridgeRequest,
+  buildSrcDoc,
+  parseBridgeRequest,
+  parseParamsRequest,
+} from './dashboardBridge'
+
+describe('parseParamsRequest', () => {
+  test('accepts a set-params message', () => {
+    expect(parseParamsRequest({ type: 'set-params', values: { field: 'city' } })).toEqual({
+      field: 'city',
+    })
+  })
+
+  test('coerces checkbox booleans to the on/off strings substitution expects', () => {
+    expect(parseParamsRequest({ type: 'set-params', values: { category: true, region: false } })).toEqual({
+      category: 'on',
+      region: '',
+    })
+  })
+
+  test('rejects a message of another type', () => {
+    expect(parseParamsRequest({ type: 'run-queries', values: {} })).toBeNull()
+  })
+
+  test('rejects values that are not a mapping', () => {
+    expect(parseParamsRequest({ type: 'set-params', values: ['a'] })).toBeNull()
+  })
+})
 
 describe('buildSrcDoc', () => {
   test('exposes the results as window.queries', () => {
@@ -14,6 +42,22 @@ describe('buildSrcDoc', () => {
 
   test('exposes window.runQueries for querying after load', () => {
     expect(buildSrcDoc('<p>hi</p>', {})).toContain('window.runQueries')
+  })
+
+  test('exposes the resolved params so the page can render its own controls', () => {
+    const doc = buildSrcDoc('<p>hi</p>', {}, [
+      { name: 'field', kind: 'identifier', options: ['city', 'severity'], value: 'city' },
+    ])
+    expect(doc).toContain('window.params = [{"name":"field"')
+    expect(doc).toContain('"value":"city"')
+  })
+
+  test('exposes window.setParams for requesting a re-run', () => {
+    expect(buildSrcDoc('<p>hi</p>', {})).toContain('window.setParams')
+  })
+
+  test('publishes an empty params list when the dashboard declares none', () => {
+    expect(buildSrcDoc('<p>hi</p>', {})).toContain('window.params = []')
   })
 
   test('keeps the dashboard html after the prologue', () => {

@@ -73,6 +73,73 @@ Load any chart library from a CDN inside the HTML. A minimal dashboard:
 </script>
 ```
 
+## Dashboard parameters
+
+A dashboard can declare **selectors** whose chosen values are substituted into its
+queries, so an interactive dashboard re-queries per selection instead of
+precomputing every result it might ever show. They live in a `params` list on the
+dashboard (persisted in `dashboards.params`, written to `meta.yaml` by
+[git sync](./gitsync.md)):
+
+```yaml
+params:
+  - name: table
+    kind: identifier
+    options_sql: SELECT name FROM system.tables WHERE database = currentDatabase()
+  - name: field
+    kind: identifier
+    options_sql: SELECT name FROM system.columns WHERE table = {table}
+  - name: category
+    kind: dimension
+```
+
+with a query referencing the placeholders:
+
+```sql
+SELECT {field} AS value, {category} AS category, count() AS cnt
+FROM {table} GROUP BY value, category
+```
+
+Three kinds, differing only in how a value is substituted:
+
+| kind | substitutes as | example |
+| --- | --- | --- |
+| `value` (default) | quoted string literal, single quotes doubled | `{region}` → `'eu'` |
+| `identifier` | backtick-quoted table/column | `{field}` → `` `city` `` |
+| `dimension` | its own column when checked, `''` when not | `{category}` → `` `category` `` / `''` |
+
+`identifier` exists because a literal would make `SELECT {field}` select a constant
+string rather than the column. A value containing a backtick is rejected. A
+`dimension` renders as a checkbox and needs no options: unchecked it substitutes an
+empty literal, so the query keeps its shape and the column simply drops out of the
+grouping.
+
+As with [query params](./query.md), `options` and `options_sql` are mutually
+exclusive and the first option is the default. An `options_sql` may itself
+reference another `{param}` — so a field list can depend on the selected table —
+and those are resolved in dependency order; a cycle is an error.
+
+## Changing parameters: the `window.params` contract
+
+Resolved selectors are injected alongside the results:
+
+```js
+window.params = [{ name, kind, options: [...], value }, …]
+```
+
+The page renders its own controls from that list and asks for a re-run with
+`window.setParams({field: 'city', category: true})`. The host substitutes the
+values into the dashboard's **own** queries, runs them, and posts the results
+back; the page's `window.onQueryResults(results, params, message)` fires with the
+new `window.queries` and `window.params`. The iframe is not reloaded, so it keeps
+its state.
+
+The page sends **values only** — never SQL — so query execution stays entirely in
+the host, and a dashboard's SQL remains reviewable in `queries.yaml`. (A page may
+still send its own SQL with `window.runQueries({name: sql})` for cases params
+can't express; the host runs it against the dashboard's connection, never one the
+page chooses.)
+
 ## Running the queries: `/api/runqueries`
 
 The browser POSTs `{connection, queries}` to `/api/runqueries`, which runs each

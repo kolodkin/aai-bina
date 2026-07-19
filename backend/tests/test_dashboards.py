@@ -208,3 +208,22 @@ def test_mcp_list_dashboards_scopes_by_session_workspace(default_ws_id):
         assert names == ["mcp ld"]
     finally:
         remote.unregister(rid)
+
+
+def test_upsert_round_trips_params(default_ws_id):
+    params = [
+        {"name": "table", "kind": "identifier", "options_sql": "SELECT name FROM system.tables"},
+        {"name": "field", "kind": "identifier", "options_sql": "SELECT name FROM system.columns WHERE table = {table}"},
+    ]
+    _run(
+        upsert_dashboard(
+            "p1", "conn", "<h1>x</h1>", {"q": "SELECT {field} FROM {table}"},
+            params=params, workspace_id=default_ws_id,
+        )
+    )
+    assert _run(get_dashboard("p1", default_ws_id))["params"] == params
+
+
+def test_dashboard_without_params_reads_back_as_empty(default_ws_id):
+    _run(upsert_dashboard("p2", "conn", "<h1>x</h1>", {"q": "SELECT 1"}, workspace_id=default_ws_id))
+    assert _run(get_dashboard("p2", default_ws_id))["params"] == []

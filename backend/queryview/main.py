@@ -480,8 +480,11 @@ async def dashboards_upsert(request: Request):
     if err:
         return err
     session_id = _clean_str(b.get("session_id"))
+    raw_params = b.get("params")
+    params = [p for p in raw_params if isinstance(p, dict)] if isinstance(raw_params, list) else []
     persisted, pushed, message = await _upsert_and_push(
-        name, connection, html, queries, session_id or None, workspace_id=ws.id
+        name, connection, html, queries, session_id or None,
+        params=params, workspace_id=ws.id,
     )
     return {"ok": persisted, "persisted": persisted, "pushed": pushed, "message": message}
 

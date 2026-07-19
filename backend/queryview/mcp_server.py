@@ -169,6 +169,7 @@ async def push_dashboard(
     connection: str,
     html: str,
     queries: dict[str, str],
+    params: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Push a dashboard DRAFT to a live QueryView session (does not persist).
 
@@ -188,12 +189,19 @@ async def push_dashboard(
         name: Dashboard name (the name the user's Save will persist under).
         connection: Saved connection name the queries run against.
         html: The dashboard HTML document (renders in a sandboxed iframe).
-        queries: Map of query name to SQL.
+        queries: Map of query name to SQL, which may contain {param}
+            placeholders resolved from `params`.
+        params: Optional selectors, each {name, kind, options|options_sql}.
+            kind is "value" (quoted literal), "identifier" (quoted table/column)
+            or "dimension" (an optional GROUP BY column, toggled by a checkbox).
+            An options_sql may reference an earlier {param}, so a field list can
+            depend on the selected table. The host resolves and substitutes
+            these, so the dashboard HTML never assembles SQL itself.
 
     Returns {ok, pushed, message}.
     """
     pushed, message = await _push_dashboard(
-        name, connection, html, queries, session_id or None
+        name, connection, html, queries, session_id or None, params
     )
     return {
         "ok": pushed,

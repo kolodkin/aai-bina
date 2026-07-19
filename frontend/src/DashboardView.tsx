@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { answerBridgeRequest, buildSrcDoc, parseBridgeRequest, type Results } from './dashboardBridge'
+import {
+  answerBridgeRequest,
+  buildSrcDoc,
+  parseBridgeRequest,
+  parseParamsRequest,
+  type ResolvedParam,
+  type Results,
+} from './dashboardBridge'
+import {
+  parseDashboardParams,
+  resolveOrder,
+  substituteParams,
+  type DashboardParam,
+} from './dashboardParams'
 import GitSyncControls from './GitSyncControls'
 import { activeWorkspace } from './workspace'
 
@@ -10,6 +23,7 @@ export type DashboardPush = {
   connection: string
   html: string
   queries: Record<string, string>
+  params?: unknown[]
 }
 
 type DashboardSummary = { name: string; connection: string; updated_at: number }
@@ -27,6 +41,55 @@ async function runQueries(connection: string, queries: Record<string, string>) {
     return { ok: false as const, message: (data.message as string) ?? 'Failed to run queries.' }
   }
   return { ok: true as const, results: (data.results ?? {}) as Results }
+}
+
+type Runner = (queries: Record<string, string>) => ReturnType<typeof runQueries>
+
+// Substitute the resolved selections into every named query of the dashboard.
+function applyToQueries(
+  queries: Record<string, string>,
+  declared: DashboardParam[],
+  resolved: ResolvedParam[],
+): Record<string, string> {
+  const values = Object.fromEntries(resolved.map((p) => [p.name, p.value]))
+  return Object.fromEntries(
+    Object.entries(queries).map(([name, sql]) => [name, substituteParams(sql, declared, values)]),
+  )
+}
+
+// Resolve each selector's option list in dependency order — an options_sql may
+// reference an already-resolved param — keeping the caller's values where they
+// are still valid and otherwise falling back to the first option.
+async function resolveParams(
+  params: DashboardParam[],
+  values: Record<string, string>,
+  run: Runner,
+): Promise<ResolvedParam[]> {
+  const resolved: ResolvedParam[] = []
+  const chosen: Record<string, string> = {}
+
+  for (const p of resolveOrder(params)) {
+    let options = p.options ?? []
+    if (p.optionsSql) {
+      const sql = substituteParams(p.optionsSql, params, chosen)
+      const r = await run({ o: sql })
+      if (!r.ok) throw new Error(r.message)
+      const table = r.results.o ?? {}
+      const firstColumn = Object.values(table)[0] ?? []
+      options = firstColumn.map(String)
+    }
+    // A dimension is a checkbox: its value is the toggle, not a choice.
+    const want = values[p.name]
+    const value =
+      p.kind === 'dimension'
+        ? (want ?? '')
+        : want && options.includes(want)
+          ? want
+          : (options[0] ?? '')
+    chosen[p.name] = value
+    resolved.push({ name: p.name, kind: p.kind, options, value })
+  }
+  return resolved
 }
 
 // The dashboard page (`/dashboard?name=x`). Picks a saved dashboard (dropdown or
@@ -51,6 +114,7 @@ function DashboardView({
   const [localPush, setLocalPush] = useState<DashboardPush | null>(null)
   const [active, setActive] = useState<DashboardPush | null>(null)
   const [results, setResults] = useState<Results | null>(null)
+  const [params, setParams] = useState<ResolvedParam[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -83,6 +147,9 @@ function DashboardView({
           connection: active.connection,
           html: active.html,
           queries: active.queries,
+          // Declarations, not the resolved values — a saved dashboard re-resolves
+          // its selectors on every load.
+          params: active.params ?? [],
           workspace: activeWorkspace(),
         }),
       })
@@ -159,15 +226,21 @@ function DashboardView({
 
       setLoading(true)
       try {
-        const r = await runQueries(dash.connection, dash.queries)
+        const declared = parseDashboardParams(dash.params)
+        const run: Runner = (queries) => runQueries(dash.connection, queries)
+        const resolved = await resolveParams(declared, {}, run)
+        if (cancelled) return
+        setParams(resolved)
+
+        const r = await run(applyToQueries(dash.queries, declared, resolved))
         if (cancelled) return
         if (!r.ok) {
           setError(r.message)
           return
         }
         setResults(r.results)
-      } catch {
-        if (!cancelled) setError('Failed to run queries.')
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to run queries.')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -179,29 +252,62 @@ function DashboardView({
     }
   }, [name, localPush, database, reloadNonce])
 
+  // Built once per load; later param changes are answered over the bridge so the
+  // iframe keeps its state instead of reloading.
   const srcDoc = useMemo(
-    () => (active && results ? buildSrcDoc(active.html, results) : null),
+    () => (active && results ? buildSrcDoc(active.html, results, params) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [active, results],
   )
 
-  // Serve the iframe's runQueries bridge: only messages from this dashboard's
-  // own frame are answered, and always against the dashboard's connection —
-  // the page picks the SQL, never the connection.
+  // Serve the iframe's bridge. Only messages from this dashboard's own frame are
+  // answered, and always against the dashboard's connection. A set-params
+  // message carries values only: the SQL comes from the dashboard's own queries
+  // and is substituted here, so the page never issues SQL of its own.
   const frameRef = useRef<HTMLIFrameElement>(null)
   const connection = active?.connection
+  const declared = useMemo(() => parseDashboardParams(active?.params), [active])
   useEffect(() => {
-    if (!connection) return
+    if (!connection || !active) return
+    const run: Runner = (queries) => runQueries(connection, queries)
+
     async function onMessage(e: MessageEvent) {
       const frame = frameRef.current
       if (!frame || e.source !== frame.contentWindow) return
+
+      const values = parseParamsRequest(e.data)
+      if (values) {
+        try {
+          const resolved = await resolveParams(declared, values, run)
+          const r = await run(applyToQueries(active!.queries, declared, resolved))
+          frame.contentWindow?.postMessage(
+            r.ok
+              ? { type: 'params-results', ok: true, results: r.results, params: resolved }
+              : { type: 'params-results', ok: false, message: r.message, params: resolved },
+            '*',
+          )
+        } catch (err) {
+          frame.contentWindow?.postMessage(
+            {
+              type: 'params-results',
+              ok: false,
+              message: err instanceof Error ? err.message : 'Failed to run queries.',
+              params: [],
+            },
+            '*',
+          )
+        }
+        return
+      }
+
       const req = parseBridgeRequest(e.data)
       if (!req) return
-      const answer = await answerBridgeRequest(req, (queries) => runQueries(connection!, queries))
-      frame.contentWindow?.postMessage(answer, '*')
+      frame.contentWindow?.postMessage(await answerBridgeRequest(req, run), '*')
     }
+
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [connection])
+  }, [connection, active, declared])
 
   return (
     <div className="w-full max-w-[80vw]" data-testid="dashboard-view">

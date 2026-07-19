@@ -102,6 +102,7 @@ def test_dashboard_files_round_trip():
         "connection": "prod",
         "html": "<html>\n<body>hi — ünicode</body>\n</html>",
         "queries": {"revenue": "SELECT 1", "multi": "SELECT a\nFROM b"},
+        "params": [],
     }
     files = dashboard_to_files(d)
     assert set(files) == {"meta.yaml", "dashboard.html", "queries.yaml"}
@@ -338,6 +339,7 @@ def test_restore_dashboard_round_trip(git_env):
         "connection": "prod",
         "html": "<html>v1</html>",
         "queries": {"q": "SELECT 1"},
+        "params": [],
     }
 
 
@@ -391,3 +393,25 @@ def test_store_is_isolated_per_workspace(tmp_path, monkeypatch):
         _run(gitsync.store(wn, "query", "iso", "clickhouse"))
     assert e.value.status == 409
     assert "no git remote" in str(e.value)
+
+
+def test_dashboard_files_round_trip_params():
+    d = {
+        "name": "d",
+        "connection": "c",
+        "html": "<h1>x</h1>",
+        "queries": {"q": "SELECT {field}"},
+        "params": [{"name": "field", "kind": "identifier", "options": ["a", "b"]}],
+    }
+    files = dashboard_to_files(d)
+    assert "params:" in files["meta.yaml"]
+    assert dashboard_from_files(files) == d
+
+
+def test_dashboard_from_files_defaults_missing_params_to_empty():
+    files = {
+        "meta.yaml": "name: d\nconnection: c\n",
+        "dashboard.html": "<h1>x</h1>",
+        "queries.yaml": "q: SELECT 1\n",
+    }
+    assert dashboard_from_files(files)["params"] == []

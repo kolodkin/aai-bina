@@ -28,15 +28,24 @@ class Dashboard(SQLModel, table=True):
     connection: str  # connection name the queries run against
     html: str  # agent-authored HTML document
     queries: str  # JSON text: {query_name: SQL}
+    params: str = Field(default="[]")  # JSON text: [{name, kind, options|options_sql}]
     updated_at: int  # unix ms
 
 
 async def upsert_dashboard(
-    name: str, connection: str, html: str, queries: dict[str, str], *, workspace_id: int
+    name: str,
+    connection: str,
+    html: str,
+    queries: dict[str, str],
+    *,
+    params: list[dict[str, Any]] | None = None,
+    workspace_id: int,
 ) -> None:
-    """Upsert a dashboard by (workspace, name); `queries` is serialized to JSON text."""
+    """Upsert a dashboard by (workspace, name); `queries`/`params` are serialized
+    to JSON text."""
     await _ensure_schema()
     payload = json.dumps(queries)
+    params_payload = json.dumps(params or [])
     async with AsyncSession(_engine_for_db()) as s:
         row = (
             await s.exec(
@@ -52,12 +61,14 @@ async def upsert_dashboard(
                 connection=connection,
                 html=html,
                 queries=payload,
+                params=params_payload,
                 updated_at=_now_ms(),
             )
         else:
             row.connection = connection
             row.html = html
             row.queries = payload
+            row.params = params_payload
             row.updated_at = _now_ms()
         s.add(row)
         await s.commit()
@@ -80,11 +91,16 @@ async def get_dashboard(name: str, workspace_id: int) -> dict[str, Any] | None:
         queries = json.loads(row.queries)
     except (ValueError, TypeError):
         queries = {}
+    try:
+        params = json.loads(row.params or "[]")
+    except (ValueError, TypeError):
+        params = []
     return {
         "name": row.name,
         "connection": row.connection,
         "html": row.html,
         "queries": queries,
+        "params": params if isinstance(params, list) else [],
     }
 
 
@@ -106,7 +122,11 @@ async def list_dashboards(workspace_id: int) -> list[dict[str, Any]]:
 
 
 def _dashboard_event(
-    name: str, connection: str, html: str, queries: dict[str, str]
+    name: str,
+    connection: str,
+    html: str,
+    queries: dict[str, str],
+    params: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The SSE payload the browser renders for a pushed dashboard."""
     return {
@@ -115,6 +135,7 @@ def _dashboard_event(
         "connection": connection,
         "html": html,
         "queries": queries,
+        "params": params or [],
     }
 
 
@@ -124,6 +145,7 @@ async def _push_dashboard(
     html: str,
     queries: dict[str, str],
     session_id: str | None,
+    params: list[dict[str, Any]] | None = None,
 ) -> tuple[bool, str]:
     """Push a dashboard to a live session as a DRAFT — no persistence. Only the
     user's Save (POST /api/dashboards) writes it to the store, mirroring how
@@ -131,7 +153,9 @@ async def _push_dashboard(
     no session_id -> (False, "no session")."""
     if not session_id:
         return False, "no session"
-    return remote.push(session_id, _dashboard_event(name, connection, html, queries))
+    return remote.push(
+        session_id, _dashboard_event(name, connection, html, queries, params)
+    )
 
 
 async def _upsert_and_push(
@@ -141,16 +165,19 @@ async def _upsert_and_push(
     queries: dict[str, str],
     session_id: str | None,
     *,
+    params: list[dict[str, Any]] | None = None,
     workspace_id: int,
 ) -> tuple[bool, bool, str]:
     """Persist a dashboard, then (if `session_id` given) push it to that live
     browser session. Returns (persisted, pushed, message). Push is best-effort:
     an unknown/inactive session leaves it saved with pushed=False, per
     remote.push's contract. Used by the REST endpoint (the user-Save path)."""
-    await upsert_dashboard(name, connection, html, queries, workspace_id=workspace_id)
+    await upsert_dashboard(
+        name, connection, html, queries, params=params, workspace_id=workspace_id
+    )
     if session_id:
         ok, message = remote.push(
-            session_id, _dashboard_event(name, connection, html, queries)
+            session_id, _dashboard_event(name, connection, html, queries, params)
         )
         return True, ok, message
     return True, False, "persisted"

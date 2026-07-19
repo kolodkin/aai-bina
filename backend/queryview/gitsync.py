@@ -111,8 +111,13 @@ def query_from_yaml(text: str) -> dict[str, Any]:
 
 def dashboard_to_files(d: dict[str, Any]) -> dict[str, str]:
     """A dashboard (as returned by get_dashboard) as its three repo files."""
+    meta: dict[str, Any] = {"name": d["name"], "connection": d["connection"]}
+    # Omitted entirely when empty, so unparameterized dashboards keep the
+    # two-key meta.yaml they already have in the repo.
+    if d.get("params"):
+        meta["params"] = d["params"]
     return {
-        "meta.yaml": _dump({"name": d["name"], "connection": d["connection"]}),
+        "meta.yaml": _dump(meta),
         "dashboard.html": d["html"],
         "queries.yaml": _dump(d["queries"] or {}),
     }
@@ -131,11 +136,15 @@ def dashboard_from_files(files: dict[str, str]) -> dict[str, Any]:
         isinstance(k, str) and isinstance(v, str) for k, v in queries.items()
     ):
         raise GitSyncError("malformed queries.yaml: expected {name: SQL} map")
+    params = meta.get("params") or []
+    if not isinstance(params, list) or not all(isinstance(p, dict) for p in params):
+        raise GitSyncError("malformed meta.yaml: params must be a list of mappings")
     return {
         "name": meta["name"],
         "connection": meta["connection"],
         "html": files.get("dashboard.html", ""),
         "queries": queries,
+        "params": params,
     }
 
 
