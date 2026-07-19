@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { answerBridgeRequest, buildSrcDoc, parseBridgeRequest, type Results } from './dashboardBridge'
 import GitSyncControls from './GitSyncControls'
 import { activeWorkspace } from './workspace'
 
@@ -13,15 +14,19 @@ export type DashboardPush = {
 
 type DashboardSummary = { name: string; connection: string; updated_at: number }
 
-// Column-oriented results map: {query_name: {column_name: values[]}}.
-type Results = Record<string, Record<string, unknown[]>>
-
-// Build the iframe document: a prologue exposing results as `window.queries`,
-// then the agent-authored HTML. JSON `<` is escaped so an embedded `</script>`
-// in result data can't break out of the prologue script.
-function buildSrcDoc(html: string, results: Results): string {
-  const safeJson = JSON.stringify(results).replace(/</g, '\\u003c')
-  return `<script>window.queries = ${safeJson};</script>\n${html}`
+// Run a dashboard's queries against its connection; shared by the initial load
+// and the iframe's on-demand runQueries bridge.
+async function runQueries(connection: string, queries: Record<string, string>) {
+  const res = await fetch('/api/runqueries', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ connection, queries }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || !data.ok) {
+    return { ok: false as const, message: (data.message as string) ?? 'Failed to run queries.' }
+  }
+  return { ok: true as const, results: (data.results ?? {}) as Results }
 }
 
 // The dashboard page (`/dashboard?name=x`). Picks a saved dashboard (dropdown or
@@ -154,17 +159,13 @@ function DashboardView({
 
       setLoading(true)
       try {
-        const res = await fetch('/api/runqueries', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ connection: dash.connection, queries: dash.queries }),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok || !data.ok) {
-          if (!cancelled) setError(data.message ?? 'Failed to run queries.')
+        const r = await runQueries(dash.connection, dash.queries)
+        if (cancelled) return
+        if (!r.ok) {
+          setError(r.message)
           return
         }
-        if (!cancelled) setResults((data.results ?? {}) as Results)
+        setResults(r.results)
       } catch {
         if (!cancelled) setError('Failed to run queries.')
       } finally {
@@ -182,6 +183,25 @@ function DashboardView({
     () => (active && results ? buildSrcDoc(active.html, results) : null),
     [active, results],
   )
+
+  // Serve the iframe's runQueries bridge: only messages from this dashboard's
+  // own frame are answered, and always against the dashboard's connection —
+  // the page picks the SQL, never the connection.
+  const frameRef = useRef<HTMLIFrameElement>(null)
+  const connection = active?.connection
+  useEffect(() => {
+    if (!connection) return
+    async function onMessage(e: MessageEvent) {
+      const frame = frameRef.current
+      if (!frame || e.source !== frame.contentWindow) return
+      const req = parseBridgeRequest(e.data)
+      if (!req) return
+      const answer = await answerBridgeRequest(req, (queries) => runQueries(connection!, queries))
+      frame.contentWindow?.postMessage(answer, '*')
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [connection])
 
   return (
     <div className="w-full max-w-[80vw]" data-testid="dashboard-view">
@@ -255,6 +275,7 @@ function DashboardView({
 
       {srcDoc && (
         <iframe
+          ref={frameRef}
           title="dashboard"
           data-testid="dashboard-frame"
           sandbox="allow-scripts"
