@@ -12,17 +12,15 @@ expect.set_options(timeout=15_000)
 
 @pytest.fixture(scope="session")
 def base_url() -> str:
-    # The app under test runs separately; point at it with TEST_BASE_URL (a
-    # dedicated test knob) or BASE_URL (what CI sets). With neither set the whole
-    # e2e suite skips — this avoids accidentally driving (and polluting the
-    # connection store of) a dev server. Start your own backend with its own
-    # DB_PATH and export TEST_BASE_URL to run these locally.
-    url = os.environ.get("TEST_BASE_URL") or os.environ.get("BASE_URL")
+    # The app under test runs separately; point at it with BASE_URL. With it
+    # unset the whole e2e suite skips — this avoids accidentally driving (and
+    # polluting the connection store of) a dev server. To run these locally,
+    # start a backend with its own DB_PATH and export BASE_URL.
+    url = os.environ.get("BASE_URL")
     if not url:
         pytest.skip(
-            "e2e need a running app: export TEST_BASE_URL (or BASE_URL) to its URL. "
-            "Start a backend with its own DB_PATH so tests never touch "
-            "backend/queryview.db."
+            "e2e need a running app: export BASE_URL to its URL. Start a backend "
+            "with its own DB_PATH so tests never touch backend/queryview.db."
         )
     return url
 
