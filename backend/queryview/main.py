@@ -34,14 +34,23 @@ from .dashboard_queries import run_queries_for_connection
 from .dashboards import _upsert_and_push, get_dashboard, list_dashboards
 from .queries import list_predefined_queries_view, save_predefined_query
 
-SERVE_STATIC = os.environ.get("SERVE_STATIC") == "1"
+# SPA bundle shipped inside the wheel (release CI copies frontend/dist here);
+# absent in a source checkout, where the repo's frontend/dist is used instead.
+_PACKAGED_STATIC = Path(__file__).resolve().parent / "static"
+
+# Opt-in in a source checkout; defaults on for an installed wheel (which ships
+# its SPA bundle) so `pip install aaibina` serves the UI out of the box.
+SERVE_STATIC = os.environ.get("SERVE_STATIC", "1" if _PACKAGED_STATIC.is_dir() else "") == "1"
 
 
 def _static_root() -> Path:
     env = os.environ.get("STATIC_ROOT")
     if env:
         return Path(env).resolve()
-    return (Path(__file__).resolve().parent.parent.parent / "frontend" / "dist").resolve()
+    repo_dist = (Path(__file__).resolve().parent.parent.parent / "frontend" / "dist").resolve()
+    if repo_dist.is_dir():
+        return repo_dist
+    return _PACKAGED_STATIC
 
 
 async def _read_json(request: Request) -> Any:

@@ -1,7 +1,9 @@
 [project]
-name = "queryview-backend"
-version = "0.1.0"
-description = "QueryView backend: FastAPI + SQLModel API over the ClickHouse HTTP interface"
+name = "aaibina"
+dynamic = ["version"]
+description = "QueryView: FastAPI + SQLModel backend and React SPA over the ClickHouse HTTP interface"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.110",
@@ -18,8 +20,14 @@ dependencies = [
     "pyyaml>=6",
 ]
 
+[project.urls]
+Homepage = "https://github.com/kolodkin/aai-bina"
+Repository = "https://github.com/kolodkin/aai-bina"
+Issues = "https://github.com/kolodkin/aai-bina/issues"
+
 [project.scripts]
 queryview-backend = "queryview.main:run"
+aaibina = "queryview.main:run"
 
 [dependency-groups]
 test = [
@@ -32,8 +40,20 @@ test = [
 testpaths = ["e2e"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+fallback_version = "0.0.0"
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/queryview"]
+
+# Vite SPA build output. The directory is gitignored and produced by
+# `npm run build` — release CI copies frontend/dist there before `uv build`
+# so the wheel ships a working /api + SPA out of the box.
+[tool.hatch.build]
+artifacts = ["backend/queryview/static/**"]
