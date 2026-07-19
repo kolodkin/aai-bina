@@ -4,10 +4,17 @@
 // so the UI shows plain text rather than a guessed, possibly-wrong link.
 
 const HOSTS = {
-  'github.com': { commit: '/commit/', tree: '/tree/' },
-  'gitlab.com': { commit: '/-/commit/', tree: '/-/tree/' },
-  'bitbucket.org': { commit: '/commits/', tree: '/src/' },
+  // blob = a file at a ref; tree = a folder at a ref. Bitbucket serves both
+  // from /src.
+  'github.com': { commit: '/commit/', tree: '/tree/', blob: '/blob/' },
+  'gitlab.com': { commit: '/-/commit/', tree: '/-/tree/', blob: '/-/blob/' },
+  'bitbucket.org': { commit: '/commits/', tree: '/src/', blob: '/src/' },
 } as const
+
+// Encode each path segment but keep the slashes, so nested refs/paths resolve.
+function encodePath(p: string): string {
+  return p.split('/').map(encodeURIComponent).join('/')
+}
 
 function scheme(webUrl: string | null) {
   if (!webUrl) return null
@@ -27,11 +34,21 @@ export function commitUrl(webUrl: string | null, sha: string): string | null {
   return s ? `${s.base}${s.commit}${sha}` : null
 }
 
-// The branch (tree) URL, or null when the host isn't a supported one. Branch
-// segments are encoded but slashes are kept so nested names (feature/x) resolve.
+// The branch (tree) URL, or null when the host isn't a supported one.
 export function branchUrl(webUrl: string | null, branch: string): string | null {
   const s = scheme(webUrl)
+  return s ? `${s.base}${s.tree}${encodePath(branch)}` : null
+}
+
+// The URL to an entity's folder (isFolder) or file at a given ref (a sha or
+// branch), or null when the host isn't a supported one.
+export function entityUrl(
+  webUrl: string | null,
+  ref: string,
+  path: string,
+  isFolder: boolean,
+): string | null {
+  const s = scheme(webUrl)
   if (!s) return null
-  const encoded = branch.split('/').map(encodeURIComponent).join('/')
-  return `${s.base}${s.tree}${encoded}`
+  return `${s.base}${isFolder ? s.tree : s.blob}${encodePath(ref)}/${encodePath(path)}`
 }

@@ -367,7 +367,7 @@ async def history(
         wd = await _ensure_repo(ws)
         head = await _origin_head(wd, ws)
         if head is None:
-            return {"revisions": [], "has_more": False}
+            return {"revisions": [], "has_more": False, "path": relpath}
         start = head
         if before:
             try:
@@ -378,7 +378,7 @@ async def history(
                 await _git("rev-parse", "--verify", "--quiet", f"{before}^", cwd=wd)
             except GitSyncError:
                 # `before` is the oldest commit: <sha>^ doesn't resolve.
-                return {"revisions": [], "has_more": False}
+                return {"revisions": [], "has_more": False, "path": relpath}
             start = f"{before}^"
         out = await _git(
             "log",
@@ -393,7 +393,11 @@ async def history(
     for line in out.splitlines():
         sha, ct, subject = line.split("\x1f", 2)
         revisions.append({"sha": sha, "date": int(ct) * 1000, "message": subject})
-    return {"revisions": revisions[:limit], "has_more": len(revisions) > limit}
+    return {
+        "revisions": revisions[:limit],
+        "has_more": len(revisions) > limit,
+        "path": relpath,
+    }
 
 
 async def restore(

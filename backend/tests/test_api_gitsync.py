@@ -25,12 +25,15 @@ def _default_ws_id() -> int:
 def test_status_reports_unconfigured():
     # Outside git_env the default workspace has no remote configured.
     c = TestClient(app)
-    assert c.get("/api/git/status").json() == {"configured": False}
+    s = c.get("/api/git/status").json()
+    assert s["configured"] is False and s["web_url"] is None
 
 
 def test_status_reports_configured(git_env):
     c = TestClient(app)
-    assert c.get("/api/git/status").json() == {"configured": True}
+    s = c.get("/api/git/status").json()
+    # Configured, but git_env's remote is a local path — no browsable web URL.
+    assert s["configured"] is True and s["web_url"] is None and s["branch"]
 
 
 def test_store_validation_400():

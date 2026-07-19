@@ -280,7 +280,11 @@ def test_history_pages_newest_first(git_env):
     page3 = _run(
         gitsync.history(_default_ws(), "query", "gs hist", "clickhouse", before=shas[0], limit=2)
     )
-    assert page3 == {"revisions": [], "has_more": False}
+    assert page3 == {
+        "revisions": [],
+        "has_more": False,
+        "path": "queries/clickhouse/gs hist.yaml",
+    }
 
 
 def test_history_garbage_before_is_404(git_env):

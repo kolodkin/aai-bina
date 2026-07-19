@@ -16,6 +16,8 @@ export type GitHistoryResult = {
   ok: boolean
   revisions?: GitRevision[]
   has_more?: boolean
+  // The entity's repo path (same for every page), for building folder links.
+  path?: string
   message?: string
 }
 
