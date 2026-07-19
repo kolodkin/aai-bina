@@ -1,19 +1,17 @@
 """The explorer page: table sidebar -> rows with the field/order-by selects and
 pagination, parameterized across every driver (same seeds as test_drivers)."""
+
 from __future__ import annotations
 
 import re
 
 import pytest
 from playwright.sync_api import Page, expect
-
 from test_drivers import CASES, DriverCase, _connect
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.id)
-def test_explorer_browse_order_fields_paginate(
-    case: DriverCase, request, page: Page, shot
-) -> None:
+def test_explorer_browse_order_fields_paginate(case: DriverCase, request, page: Page, shot) -> None:
     seed = request.getfixturevalue(case.seed_fixture)
     _connect(page, case, seed)
 
@@ -23,10 +21,7 @@ def test_explorer_browse_order_fields_paginate(
     # Each sidebar entry carries the engine's estimates. ClickHouse and DuckDB
     # know the seeded row count immediately; a freshly created Postgres table
     # has no reltuples estimate yet, so its subline is just the on-disk size.
-    meta = page.locator(
-        '[data-testid="explorer-table"][data-table="items"]'
-        ' [data-testid="explorer-table-meta"]'
-    )
+    meta = page.locator('[data-testid="explorer-table"][data-table="items"] [data-testid="explorer-table-meta"]')
     expect(meta).to_be_visible()
     if case.id in ("clickhouse", "duckdb"):
         expect(meta).to_contain_text("3 rows")

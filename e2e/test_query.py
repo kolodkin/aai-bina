@@ -45,18 +45,14 @@ def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page, shot
         "  value: https://example.com/{cell}\n"
         "id:\n"
         "  type: custom\n"
-        "  value: <strong style=\"color:#a5b4fc\">{cell}</strong>\n"
+        '  value: <strong style="color:#a5b4fc">{cell}</strong>\n'
     )
     shot("cell view modal - YAML authored")
 
     # Save persists cell_view + sql under the selected name and closes the modal.
     page.get_by_test_id("cell-view-save").click()
     expect(page.get_by_test_id("cell-view-modal")).not_to_be_visible()
-    expect(
-        page.get_by_test_id("query-predefined-select").locator(
-            'option[value="with-views"]'
-        )
-    ).to_have_count(1)
+    expect(page.get_by_test_id("query-predefined-select").locator('option[value="with-views"]')).to_have_count(1)
     shot("saved - modal closed")
 
     page.get_by_test_id("query-run").click()
@@ -81,9 +77,7 @@ def test_cell_view_renders_link_and_custom_html(seeded_test_db, page: Page, shot
     shot("results: name as link, id as custom HTML")
 
 
-def test_cell_view_row_placeholder_references_other_columns(
-    seeded_test_db, page: Page, shot
-) -> None:
+def test_cell_view_row_placeholder_references_other_columns(seeded_test_db, page: Page, shot) -> None:
     """A cell_view template can reference other columns of the same row via
     `{row.<col>}`. Here the `name` column renders as a link whose href is built
     from a sibling column (`{row.id}`), and a `custom` cell combines `{cell}`
@@ -131,9 +125,7 @@ def test_cell_view_cancel_discards_edits(seeded_test_db, page: Page, shot) -> No
     page.get_by_test_id("query-input").fill("SELECT name FROM items ORDER BY id LIMIT 1")
     page.get_by_test_id("cell-view-toggle").click()
     expect(page.get_by_test_id("cell-view-modal")).to_be_visible()
-    page.get_by_test_id("cell-view-input").fill(
-        "name:\n  type: link\n  value: https://example.com/{cell}\n"
-    )
+    page.get_by_test_id("cell-view-input").fill("name:\n  type: link\n  value: https://example.com/{cell}\n")
     shot("cell view modal - draft YAML before Cancel")
     page.get_by_test_id("cell-view-cancel").click()
     expect(page.get_by_test_id("cell-view-modal")).not_to_be_visible()
@@ -283,9 +275,7 @@ def test_query_param_dropdown_substitutes_value(seeded_test_db, page: Page, shot
         page,
         "by-name",
         "SELECT name FROM items WHERE name = {sel} ORDER BY id",
-        "params:\n"
-        "  - name: sel\n"
-        "    options: [alpha, beta, gamma]\n",
+        "params:\n  - name: sel\n    options: [alpha, beta, gamma]\n",
     )
 
     # The dropdown renders with the declared options; default is the first one.
@@ -321,9 +311,7 @@ def test_query_param_options_sql_populates_dropdown(seeded_test_db, page: Page, 
         page,
         "by-options-sql",
         "SELECT name FROM items WHERE name = {sel} ORDER BY id",
-        "params:\n"
-        "  - name: sel\n"
-        "    options_sql: SELECT DISTINCT name FROM items ORDER BY name\n",
+        "params:\n  - name: sel\n    options_sql: SELECT DISTINCT name FROM items ORDER BY name\n",
     )
 
     # The dropdown is populated from the query result: alpha, beta, gamma.
@@ -348,9 +336,7 @@ def test_query_param_options_sql_populates_dropdown(seeded_test_db, page: Page, 
     shot("options_sql re-run with sel=gamma")
 
 
-def test_query_param_options_and_options_sql_are_mutually_exclusive(
-    seeded_test_db, page: Page, shot
-) -> None:
+def test_query_param_options_and_options_sql_are_mutually_exclusive(seeded_test_db, page: Page, shot) -> None:
     """A param declaring both `options` and `options_sql` is a config error: the
     entry is dropped during parse, so no dropdown renders for it."""
     _open_query_panel(page)
@@ -358,10 +344,7 @@ def test_query_param_options_and_options_sql_are_mutually_exclusive(
         page,
         "both-keys",
         "SELECT name FROM items WHERE name = {sel} ORDER BY id",
-        "params:\n"
-        "  - name: sel\n"
-        "    options: [alpha, beta]\n"
-        "    options_sql: SELECT name FROM items\n",
+        "params:\n  - name: sel\n    options: [alpha, beta]\n    options_sql: SELECT name FROM items\n",
     )
     expect(page.locator('[data-testid="param-select"][data-param="sel"]')).to_have_count(0)
     shot("both options + options_sql -> no dropdown")
@@ -376,9 +359,7 @@ def test_query_param_options_sql_no_rows_blocks_run(seeded_test_db, page: Page, 
         page,
         "empty-options",
         "SELECT name FROM items WHERE name = {sel}",
-        "params:\n"
-        "  - name: sel\n"
-        "    options_sql: SELECT name FROM items WHERE 1 = 0\n",
+        "params:\n  - name: sel\n    options_sql: SELECT name FROM items WHERE 1 = 0\n",
     )
     error = page.get_by_test_id("query-error")
     expect(error).to_be_visible()
@@ -396,9 +377,7 @@ def test_query_param_options_sql_error_blocks_run(seeded_test_db, page: Page, sh
         page,
         "bad-options",
         "SELECT name FROM items WHERE name = {sel}",
-        "params:\n"
-        "  - name: sel\n"
-        "    options_sql: SELECT name FROM no_such_table\n",
+        "params:\n  - name: sel\n    options_sql: SELECT name FROM no_such_table\n",
     )
     error = page.get_by_test_id("query-error")
     expect(error).to_be_visible()

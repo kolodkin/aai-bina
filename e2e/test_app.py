@@ -44,6 +44,4 @@ def test_queryview_e2e(page: Page) -> None:
     page.goto("/?connection=clickhouse", wait_until="networkidle")
     expect(page.get_by_test_id("db-picker")).to_be_visible()
     page.locator('[data-db="information_schema"]').click()
-    expect(page.get_by_test_id("connection-status")).to_contain_text(
-        "connected - information_schema"
-    )
+    expect(page.get_by_test_id("connection-status")).to_contain_text("connected - information_schema")

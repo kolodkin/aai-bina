@@ -48,9 +48,7 @@ def _dump(data: Any) -> str:
     return yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True)
 
 
-_SAFE = set(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._ -"
-)
+_SAFE = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._ -")
 
 
 def slug(name: str) -> str:
@@ -125,9 +123,7 @@ def dashboard_from_files(files: dict[str, str]) -> dict[str, Any]:
         raise GitSyncError(f"malformed dashboard file: {e}") from e
     if not isinstance(meta, dict) or not meta.get("name") or not meta.get("connection"):
         raise GitSyncError("malformed meta.yaml: name and connection are required")
-    if not isinstance(queries, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in queries.items()
-    ):
+    if not isinstance(queries, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in queries.items()):
         raise GitSyncError("malformed queries.yaml: expected {name: SQL} map")
     return {
         "name": meta["name"],
@@ -142,15 +138,13 @@ def dashboard_from_files(files: dict[str, str]) -> dict[str, Any]:
 # are read once, by the workspaces migration, to seed the default workspace).
 
 
-def _require_remote(ws: "WorkspaceRec") -> str:
+def _require_remote(ws: WorkspaceRec) -> str:
     if not ws.remote:
-        raise GitSyncError(
-            f"workspace {ws.name!r} has no git remote configured", status=409
-        )
+        raise GitSyncError(f"workspace {ws.name!r} has no git remote configured", status=409)
     return ws.remote
 
 
-def _workdir(ws: "WorkspaceRec") -> Path:
+def _workdir(ws: WorkspaceRec) -> Path:
     """This workspace's clone: {base}/{workspace id}. Keyed by id so renaming
     a workspace never orphans its clone. GIT_SYNC_DIR overrides the base."""
     env = os.environ.get("GIT_SYNC_DIR")
@@ -161,7 +155,7 @@ def _workdir(ws: "WorkspaceRec") -> Path:
     return Path(f"{_db_path()}.gitsync") / str(ws.id)
 
 
-def configured(ws: "WorkspaceRec") -> bool:
+def configured(ws: WorkspaceRec) -> bool:
     return bool(ws.remote)
 
 
@@ -175,7 +169,7 @@ def configured(ws: "WorkspaceRec") -> bool:
 _locks: dict[tuple[int, int], asyncio.Lock] = {}
 
 
-def _lock(ws: "WorkspaceRec") -> asyncio.Lock:
+def _lock(ws: WorkspaceRec) -> asyncio.Lock:
     key = (id(asyncio.get_running_loop()), ws.id)
     lock = _locks.get(key)
     if lock is None:
@@ -198,7 +192,7 @@ async def _git(*args: str, cwd: Path | None = None) -> str:
     return out.decode("utf-8", "replace")
 
 
-async def _ensure_repo(ws: "WorkspaceRec") -> Path:
+async def _ensure_repo(ws: WorkspaceRec) -> Path:
     """The workspace's sync clone, cloning (or, for an empty remote, init +
     remote add) on first use. Idempotent."""
     remote, branch, wd = _require_remote(ws), ws.branch, _workdir(ws)
@@ -228,7 +222,7 @@ async def _ensure_repo(ws: "WorkspaceRec") -> Path:
     return wd
 
 
-async def _origin_head(wd: Path, ws: "WorkspaceRec") -> str | None:
+async def _origin_head(wd: Path, ws: WorkspaceRec) -> str | None:
     """Fetch, then the remote branch ref if it exists (None on an empty remote).
     Network/auth failures raise."""
     await _git("fetch", "origin", cwd=wd)
@@ -247,9 +241,7 @@ def _check_kind(kind: str, conn_type: str | None) -> None:
     """Validate kind/conn_type here so every caller (REST, MCP, future ones)
     inherits it instead of each layer re-implementing the check."""
     if kind not in ("query", "dashboard"):
-        raise GitSyncError(
-            f"unknown kind {kind!r} (expected 'query' or 'dashboard')", status=400
-        )
+        raise GitSyncError(f"unknown kind {kind!r} (expected 'query' or 'dashboard')", status=400)
     if kind == "query" and not conn_type:
         raise GitSyncError("conn_type is required for queries", status=400)
 
@@ -258,9 +250,7 @@ def entity_relpath(kind: str, name: str, conn_type: str | None) -> str:
     return query_relpath(conn_type or "", name) if kind == "query" else dashboard_reldir(name)
 
 
-async def _load_entity(
-    ws: "WorkspaceRec", kind: str, name: str, conn_type: str | None
-) -> dict[str, Any]:
+async def _load_entity(ws: WorkspaceRec, kind: str, name: str, conn_type: str | None) -> dict[str, Any]:
     if kind == "query":
         from .queries import get_predefined_query
 
@@ -280,7 +270,7 @@ async def _load_entity(
 
 
 async def store(
-    ws: "WorkspaceRec",
+    ws: WorkspaceRec,
     kind: str,
     name: str,
     conn_type: str | None = None,
@@ -321,7 +311,7 @@ async def store(
 
 
 async def history(
-    ws: "WorkspaceRec",
+    ws: WorkspaceRec,
     kind: str,
     name: str,
     conn_type: str | None = None,
@@ -342,8 +332,8 @@ async def history(
         if before:
             try:
                 await _git("rev-parse", "--verify", "--quiet", f"{before}^{{commit}}", cwd=wd)
-            except GitSyncError:
-                raise GitSyncError(f"unknown revision {before!r}", status=404)
+            except GitSyncError as e:
+                raise GitSyncError(f"unknown revision {before!r}", status=404) from e
             try:
                 await _git("rev-parse", "--verify", "--quiet", f"{before}^", cwd=wd)
             except GitSyncError:
@@ -367,7 +357,7 @@ async def history(
 
 
 async def restore(
-    ws: "WorkspaceRec",
+    ws: WorkspaceRec,
     kind: str,
     name: str,
     conn_type: str | None = None,
@@ -394,9 +384,7 @@ async def restore(
             try:
                 text = await _show(relpath)
             except GitSyncError:
-                raise GitSyncError(
-                    f"query {name!r} not found at {resolved}", status=404
-                ) from None
+                raise GitSyncError(f"query {name!r} not found at {resolved}", status=404) from None
             data = query_from_yaml(text)
         else:
             files: dict[str, str] = {}
@@ -405,9 +393,7 @@ async def restore(
                     files[fname] = await _show(f"{relpath}/{fname}")
                 except GitSyncError:
                     if fname == "meta.yaml":
-                        raise GitSyncError(
-                            f"dashboard {name!r} not found at {resolved}", status=404
-                        ) from None
+                        raise GitSyncError(f"dashboard {name!r} not found at {resolved}", status=404) from None
             data = dashboard_from_files(files)
 
     # DB upsert happens outside the git lock — it doesn't touch the workdir.

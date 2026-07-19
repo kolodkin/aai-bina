@@ -1,4 +1,5 @@
 """ClickHouse driver: the HTTP-interface client and a Driver implementation."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -24,8 +25,7 @@ class ChResult(NamedTuple):
     value: str
 
 
-async def ch_query(c: ChConfig, query: str, database: str | None = None,
-                   fmt: str | None = None) -> ChResult:
+async def ch_query(c: ChConfig, query: str, database: str | None = None, fmt: str | None = None) -> ChResult:
     """Run a query against the ClickHouse HTTP interface (Basic auth, 5s timeout).
     `database` scopes the query; `fmt` appends a ClickHouse `FORMAT` clause."""
     url = f"http://{c.host}:{c.port}/"
@@ -92,14 +92,12 @@ class ClickHouseDriver:
             return False, r.value
         return True, [s.strip() for s in r.value.split("\n") if s.strip()]
 
-    async def list_tables(self, config: ChConfig,
-                          database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
+    async def list_tables(self, config: ChConfig, database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
         # Same set SHOW TABLES yields, plus the engine's stored row/byte counts
         # (NULL — serialized as \N — for views and engines that don't track them).
         r = await ch_query(
             config,
-            "SELECT name, total_rows, total_bytes FROM system.tables "
-            "WHERE database = currentDatabase() ORDER BY name",
+            "SELECT name, total_rows, total_bytes FROM system.tables WHERE database = currentDatabase() ORDER BY name",
             database=database,
             fmt="TabSeparated",
         )
@@ -114,22 +112,27 @@ class ClickHouseDriver:
             for cols in _tsv_rows(r.value, 3)
         ]
 
-    async def run_query(self, config: ChConfig, sql: str, database: str | None,
-                        limit: int, offset: int,
-                        order_by: list[dict[str, Any]] | None, fmt: str) -> QueryResult:
+    async def run_query(
+        self,
+        config: ChConfig,
+        sql: str,
+        database: str | None,
+        limit: int,
+        offset: int,
+        order_by: list[dict[str, Any]] | None,
+        fmt: str,
+    ) -> QueryResult:
         order_clause = build_order_by(order_by, "`")
         paginated = wrap_paginated(sql, order_clause, limit, offset, alias=None)
         ch_fmt = "CSVWithNames" if fmt == "csv" else "TabSeparatedWithNames"
         r = await ch_query(config, paginated, database=database, fmt=ch_fmt)
         return QueryResult(r.ok, r.value)
 
-    async def describe_query(self, config: ChConfig, sql: str,
-                             database: str | None) -> tuple[bool, list[dict[str, str]] | str]:
+    async def describe_query(
+        self, config: ChConfig, sql: str, database: str | None
+    ) -> tuple[bool, list[dict[str, str]] | str]:
         inner = sql.rstrip().rstrip(";")
-        r = await ch_query(config, f"DESCRIBE (\n{inner}\n)", database=database,
-                           fmt="TabSeparated")
+        r = await ch_query(config, f"DESCRIBE (\n{inner}\n)", database=database, fmt="TabSeparated")
         if not r.ok:
             return False, r.value
-        return True, [
-            {"name": cols[0], "type": cols[1]} for cols in _tsv_rows(r.value, 2)
-        ]
+        return True, [{"name": cols[0], "type": cols[1]} for cols in _tsv_rows(r.value, 2)]

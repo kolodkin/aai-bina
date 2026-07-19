@@ -2,6 +2,7 @@
 parameterized across every driver. Each case names the driver's command, form
 testids, seeding fixture, and whether it has a database picker. Driver-specific
 ClickHouse features (cell views, params, complex types) live in test_query.py."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -13,24 +14,45 @@ from playwright.sync_api import Page, expect
 @dataclasses.dataclass
 class DriverCase:
     id: str
-    command: str          # prompt command, e.g. "new postgres"
-    form_testid: str      # connection form testid
-    connect_testid: str   # the Connect button testid
-    seed_fixture: str     # conftest fixture that seeds an `items` table
-    status_text: str      # expected connection-status text after connecting
+    command: str  # prompt command, e.g. "new postgres"
+    form_testid: str  # connection form testid
+    connect_testid: str  # the Connect button testid
+    seed_fixture: str  # conftest fixture that seeds an `items` table
+    status_text: str  # expected connection-status text after connecting
     path_field: str | None = None  # a file-path field to fill with the seed value
-    db_option: str | None = None   # picker option to click, or None for no picker
+    db_option: str | None = None  # picker option to click, or None for no picker
 
 
 # Every case seeds the same `items(id, name)` table with alpha/beta/gamma so the
 # query body and assertions below are shared verbatim.
 CASES = [
-    DriverCase("clickhouse", "new clickhouse", "clickhouse-form", "ch-connect",
-               "seeded_test_db", "connected - test", db_option="test"),
-    DriverCase("postgres", "new postgres", "postgres-form", "pg-connect",
-               "seeded_pg_db", "connected - qvtest", db_option="qvtest"),
-    DriverCase("duckdb", "new duckdb", "duckdb-form", "duck-connect",
-               "seeded_duckdb", "connected - duckdb", path_field="duck-path"),
+    DriverCase(
+        "clickhouse",
+        "new clickhouse",
+        "clickhouse-form",
+        "ch-connect",
+        "seeded_test_db",
+        "connected - test",
+        db_option="test",
+    ),
+    DriverCase(
+        "postgres",
+        "new postgres",
+        "postgres-form",
+        "pg-connect",
+        "seeded_pg_db",
+        "connected - qvtest",
+        db_option="qvtest",
+    ),
+    DriverCase(
+        "duckdb",
+        "new duckdb",
+        "duckdb-form",
+        "duck-connect",
+        "seeded_duckdb",
+        "connected - duckdb",
+        path_field="duck-path",
+    ),
 ]
 
 

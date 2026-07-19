@@ -1,5 +1,6 @@
 """Flow dispatch: connect_new persists with the given type; run_query routes to
 the driver; the database gate is skipped when the driver exposes no databases."""
+
 from __future__ import annotations
 
 import asyncio
@@ -82,8 +83,7 @@ def test_list_tables_routes_to_driver_and_skips_db_gate(monkeypatch):
     out = _run(connect.list_tables(sid))
     # The browse SELECT is attached here, quoted with the driver's ident_quote.
     assert out["ok"] and out["tables"] == [
-        {"name": "t-of-None", "rows": 1, "bytes": None,
-         "query": 'SELECT * FROM "t-of-None"'},
+        {"name": "t-of-None", "rows": 1, "bytes": None, "query": 'SELECT * FROM "t-of-None"'},
     ]
 
 

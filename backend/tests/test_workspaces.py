@@ -8,7 +8,6 @@ import asyncio
 import sqlite3
 
 import pytest
-
 from queryview.connect import _db_path
 from queryview.workspaces import (
     DEFAULT_WORKSPACE,
@@ -50,9 +49,7 @@ def test_create_list_and_encrypted_remote_round_trip():
     # At rest the remote is ciphertext, not the URL.
     con = sqlite3.connect(_db_path())
     try:
-        stored = con.execute(
-            "SELECT remote FROM workspaces WHERE name='t2-crt'"
-        ).fetchone()[0]
+        stored = con.execute("SELECT remote FROM workspaces WHERE name='t2-crt'").fetchone()[0]
     finally:
         con.close()
     assert "example.test" not in stored

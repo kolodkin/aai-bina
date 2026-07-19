@@ -19,10 +19,7 @@ def test_fresh_db_is_migrated_to_head():
 
     con = sqlite3.connect(os.environ["DB_PATH"])
     try:
-        names = {
-            r[0]
-            for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        }
+        names = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         # Alembic ran (not create_all): the version table exists alongside the
         # three application tables.
         assert {
@@ -41,7 +38,6 @@ def test_fresh_db_is_migrated_to_head():
 
     # The stamped revision is the latest in the migration tree.
     from alembic.script import ScriptDirectory
-
     from queryview.connect import _alembic_config
 
     head = ScriptDirectory.from_config(_alembic_config()).get_current_head()
@@ -56,9 +52,8 @@ def test_config_blob_migration_backfills_existing_clickhouse_row(tmp_path, monke
     import json
     import sqlite3
 
-    from alembic import command
-
     import queryview.connect as _c
+    from alembic import command
     from queryview.connect import _alembic_config, _db_path, _decrypt_str, _encrypt_str
 
     monkeypatch.setenv("DB_PATH", str(tmp_path / "blob.db"))
@@ -85,9 +80,7 @@ def test_config_blob_migration_backfills_existing_clickhouse_row(tmp_path, monke
 
     con = sqlite3.connect(_db_path())
     try:
-        blob = con.execute(
-            "SELECT config FROM connections WHERE name='legacy'"
-        ).fetchone()[0]
+        blob = con.execute("SELECT config FROM connections WHERE name='legacy'").fetchone()[0]
     finally:
         con.close()
     data = json.loads(_decrypt_str(blob))

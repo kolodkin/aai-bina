@@ -1,4 +1,4 @@
-from queryview.validation import presentation_error, clamp_paging, MAX_LIMIT
+from queryview.validation import MAX_LIMIT, clamp_paging, presentation_error
 
 
 def test_none_inputs_are_valid():

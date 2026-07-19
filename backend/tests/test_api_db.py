@@ -1,9 +1,9 @@
 """The /api/db surface: unknown type is a 400; validation errors are 400;
 the old /api/clickhouse paths are gone (404)."""
+
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-
 from queryview.main import app
 
 

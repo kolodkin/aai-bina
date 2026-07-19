@@ -12,11 +12,11 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import Field, SQLModel, select
+from sqlmodel import Field, SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ from .drivers.base import DriverConfig, select_all_sql
 
 
 class Connection(SQLModel, table=True):
-    __tablename__ = "connections"
+    __tablename__: ClassVar[str] = "connections"
 
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(unique=True, index=True)
@@ -66,9 +66,7 @@ def _alembic_config() -> Config:
     from alembic.config import Config
 
     cfg = Config()
-    cfg.set_main_option(
-        "script_location", str(Path(__file__).resolve().parent / "migrations")
-    )
+    cfg.set_main_option("script_location", str(Path(__file__).resolve().parent / "migrations"))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{_db_path()}")
     return cfg
 
@@ -178,18 +176,17 @@ def _row_to_stored(row: Connection | None) -> StoredConnection | None:
         # Unreadable (key changed / legacy) or unknown type — treat as unavailable.
         return None
     return StoredConnection(
-        name=row.name, type=row.type, config=config, database=row.database,
+        name=row.name,
+        type=row.type,
+        config=config,
+        database=row.database,
     )
 
 
 async def _latest_active_connection() -> StoredConnection | None:
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
-        row = (
-            await s.exec(
-                select(Connection).order_by(Connection.last_active_at.desc()).limit(1)
-            )
-        ).first()
+        row = (await s.exec(select(Connection).order_by(col(Connection.last_active_at).desc()).limit(1))).first()
         return _row_to_stored(row)
 
 
@@ -198,9 +195,7 @@ async def list_connection_names() -> list[str]:
     autocomplete)."""
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
-        rows = await s.exec(
-            select(Connection.name).order_by(Connection.last_active_at.desc())
-        )
+        rows = await s.exec(select(Connection.name).order_by(col(Connection.last_active_at).desc()))
         return list(rows.all())
 
 
@@ -240,13 +235,13 @@ class _SessionState:
 # LRU-capped so the map can't grow unbounded (every fresh cookie adds one). An
 # evicted session transparently rebuilds on its next request via _ensure_session;
 # OrderedDict + move_to_end tracks recency.
-_sessions: "OrderedDict[str, _SessionState]" = OrderedDict()
+_sessions: OrderedDict[str, _SessionState] = OrderedDict()
 MAX_SESSIONS = int(os.environ.get("MAX_SESSIONS", "1000"))
 
 
 # Cookies that explicitly disconnected. Kept distinct from "never seen" so
 # _ensure_session can suppress auto-reconnect for them; bounded like _sessions.
-_disconnected: "OrderedDict[str, None]" = OrderedDict()
+_disconnected: OrderedDict[str, None] = OrderedDict()
 
 
 def _mark_disconnected(sid: str) -> None:
@@ -381,7 +376,9 @@ async def _gated_session(sid: str) -> tuple[_SessionState | None, dict[str, Any]
         return None, {"ok": False, "message": "not connected", "reason": "no-session"}
     if DRIVERS[s.type].requires_database and not s.database:
         return None, {
-            "ok": False, "message": "select a database first", "reason": "no-database",
+            "ok": False,
+            "message": "select a database first",
+            "reason": "no-database",
         }
     return s, None
 
@@ -406,11 +403,9 @@ async def list_tables(sid: str) -> dict[str, Any]:
         return err  # type: ignore[return-value]
     driver = DRIVERS[s.type]
     ok, result = await driver.list_tables(s.config, s.database)
-    if not ok:
+    if not ok or isinstance(result, str):
         return {"ok": False, "message": result}
-    tables = [
-        {**t, "query": select_all_sql(t["name"], driver.ident_quote)} for t in result
-    ]
+    tables = [{**t, "query": select_all_sql(t["name"], driver.ident_quote)} for t in result]
     return {"ok": True, "tables": tables}
 
 
@@ -427,9 +422,7 @@ async def run_query(
     s, err = await _gated_session(sid)
     if s is None:
         return err  # type: ignore[return-value]
-    r = await DRIVERS[s.type].run_query(
-        s.config, sql, s.database, limit, offset, order_by, fmt
-    )
+    r = await DRIVERS[s.type].run_query(s.config, sql, s.database, limit, offset, order_by, fmt)
     if not r.ok:
         return {"ok": False, "message": r.value}
     return {"ok": True, "output": r.value}

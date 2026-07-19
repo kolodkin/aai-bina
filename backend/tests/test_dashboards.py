@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 
 from fastapi.testclient import TestClient
-
 from queryview import remote
 from queryview.dashboards import (
     _upsert_and_push,
@@ -25,12 +24,14 @@ def _run(coro):
 def test_upsert_creates_then_updates_by_name(default_ws_id):
     _run(upsert_dashboard("d1", "conn-a", "<h1>v1</h1>", {"q": "SELECT 1"}, workspace_id=default_ws_id))
     got = _run(get_dashboard("d1", default_ws_id))
+    assert got is not None
     assert got["connection"] == "conn-a"
     assert got["html"] == "<h1>v1</h1>"
     assert got["queries"] == {"q": "SELECT 1"}
 
     _run(upsert_dashboard("d1", "conn-b", "<h1>v2</h1>", {"q": "SELECT 2"}, workspace_id=default_ws_id))
     got = _run(get_dashboard("d1", default_ws_id))
+    assert got is not None
     assert got["connection"] == "conn-b"
     assert got["html"] == "<h1>v2</h1>"
     assert got["queries"] == {"q": "SELECT 2"}
@@ -39,7 +40,9 @@ def test_upsert_creates_then_updates_by_name(default_ws_id):
 def test_get_dashboard_round_trips_queries_dict(default_ws_id):
     queries = {"sales": "SELECT * FROM sales", "users": "SELECT count() FROM users"}
     _run(upsert_dashboard("multi", "c", "<div></div>", queries, workspace_id=default_ws_id))
-    assert _run(get_dashboard("multi", default_ws_id))["queries"] == queries
+    got = _run(get_dashboard("multi", default_ws_id))
+    assert got is not None
+    assert got["queries"] == queries
 
 
 def test_get_missing_dashboard_is_none(default_ws_id):
@@ -71,6 +74,7 @@ def test_upsert_and_push_delivers_to_registered_session(default_ws_id):
         )
         assert persisted is True and pushed is True
         msg = _run(remote.next_message(rid, 1.0))
+        assert msg is not None
         assert msg["type"] == "dashboard"
         assert msg["name"] == "pushed"
         assert msg["connection"] == "c"
@@ -87,10 +91,7 @@ def test_runqueries_requires_connection_and_queries():
     client = TestClient(app)
     assert client.post("/api/runqueries", json={"queries": {"q": "SELECT 1"}}).status_code == 400
     assert client.post("/api/runqueries", json={"connection": "c"}).status_code == 400
-    assert (
-        client.post("/api/runqueries", json={"connection": "c", "queries": {}}).status_code
-        == 400
-    )
+    assert client.post("/api/runqueries", json={"connection": "c", "queries": {}}).status_code == 400
 
 
 def test_runqueries_unknown_connection_returns_404():
@@ -154,6 +155,7 @@ def test_dashboards_upsert_pushes_to_registered_session():
         )
         assert r.json()["pushed"] is True
         msg = _run(remote.next_message(rid, 1.0))
+        assert msg is not None
         assert msg["type"] == "dashboard" and msg["name"] == "live-dash"
     finally:
         remote.unregister(rid)
@@ -169,6 +171,7 @@ def test_mcp_upsert_dashboard_pushes_draft_without_persisting(default_ws_id):
         # Draft: the agent push must NOT persist — only the user's Save does.
         assert _run(get_dashboard("draftdash", default_ws_id)) is None
         msg = _run(remote.next_message(rid, 1.0))
+        assert msg is not None
         assert msg["type"] == "dashboard" and msg["name"] == "draftdash"
     finally:
         remote.unregister(rid)
@@ -182,8 +185,10 @@ def test_dashboard_names_distinct_per_workspace(default_ws_id):
     _run(upsert_dashboard("iso d", "prod", "<html>1</html>", {"q": "SELECT 1"}, workspace_id=default_ws_id))
     _run(upsert_dashboard("iso d", "prod", "<html>2</html>", {"q": "SELECT 2"}, workspace_id=other))
 
-    assert _run(get_dashboard("iso d", default_ws_id))["html"] == "<html>1</html>"
-    assert _run(get_dashboard("iso d", other))["html"] == "<html>2</html>"
+    d_default = _run(get_dashboard("iso d", default_ws_id))
+    d_other = _run(get_dashboard("iso d", other))
+    assert d_default is not None and d_default["html"] == "<html>1</html>"
+    assert d_other is not None and d_other["html"] == "<html>2</html>"
     assert "iso d" in [d["name"] for d in _run(list_dashboards(default_ws_id))]
     assert "iso d" in [d["name"] for d in _run(list_dashboards(other))]
 

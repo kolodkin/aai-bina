@@ -120,9 +120,7 @@ async def _session_workspace_rec(session_id: str | None):
 
 
 @mcp.tool()
-async def list_queries(
-    conn_type: str = "clickhouse", session_id: str | None = None
-) -> dict[str, Any]:
+async def list_queries(conn_type: str = "clickhouse", session_id: str | None = None) -> dict[str, Any]:
     """List the saved (predefined) queries for a connection type.
 
     These are reusable queries a human has saved, shared per connection type
@@ -192,9 +190,7 @@ async def push_dashboard(
 
     Returns {ok, pushed, message}.
     """
-    pushed, message = await _push_dashboard(
-        name, connection, html, queries, session_id or None
-    )
+    pushed, message = await _push_dashboard(name, connection, html, queries, session_id or None)
     return {
         "ok": pushed,
         "pushed": pushed,

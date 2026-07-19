@@ -29,8 +29,10 @@ def test_save_and_list_round_trips_cell_view(default_ws_id):
     rows = _run(list_predefined_queries("clickhouse", default_ws_id))
     row = next(r for r in rows if r["query_name"] == "cves")
     assert row["query"] == "SELECT cve_id FROM t"
-    assert "nvd.nist.gov" in row["cell_view"]
-    assert "{cell}" in row["cell_view"]
+    cell_view = row["cell_view"]
+    assert cell_view is not None
+    assert "nvd.nist.gov" in cell_view
+    assert "{cell}" in cell_view
 
 
 def test_save_without_cell_view_lists_as_none(default_ws_id):
@@ -43,34 +45,41 @@ def test_save_without_cell_view_lists_as_none(default_ws_id):
 def test_upsert_overwrites_cell_view(default_ws_id):
     _run(
         save_predefined_query(
-            "u", "clickhouse", "SELECT 1",
-            cell_view="a: {type: link, value: x}", workspace_id=default_ws_id,
+            "u",
+            "clickhouse",
+            "SELECT 1",
+            cell_view="a: {type: link, value: x}",
+            workspace_id=default_ws_id,
         )
     )
     _run(
         save_predefined_query(
-            "u", "clickhouse", "SELECT 1",
-            cell_view="b: {type: link, value: y}", workspace_id=default_ws_id,
+            "u",
+            "clickhouse",
+            "SELECT 1",
+            cell_view="b: {type: link, value: y}",
+            workspace_id=default_ws_id,
         )
     )
     rows = _run(list_predefined_queries("clickhouse", default_ws_id))
     row = next(r for r in rows if r["query_name"] == "u")
-    assert "b:" in row["cell_view"]
-    assert "a:" not in row["cell_view"]
+    cell_view = row["cell_view"]
+    assert cell_view is not None
+    assert "b:" in cell_view
+    assert "a:" not in cell_view
 
 
 def test_clearing_cell_view_persists_null(default_ws_id):
     _run(
         save_predefined_query(
-            "c", "clickhouse", "SELECT 1",
-            cell_view="x: {type: link, value: y}", workspace_id=default_ws_id,
+            "c",
+            "clickhouse",
+            "SELECT 1",
+            cell_view="x: {type: link, value: y}",
+            workspace_id=default_ws_id,
         )
     )
-    _run(
-        save_predefined_query(
-            "c", "clickhouse", "SELECT 1", cell_view=None, workspace_id=default_ws_id
-        )
-    )
+    _run(save_predefined_query("c", "clickhouse", "SELECT 1", cell_view=None, workspace_id=default_ws_id))
     rows = _run(list_predefined_queries("clickhouse", default_ws_id))
     row = next(r for r in rows if r["query_name"] == "c")
     assert row["cell_view"] is None
@@ -109,8 +118,10 @@ def test_same_name_is_distinct_per_workspace(default_ws_id):
     _run(save_predefined_query("iso q", "clickhouse", "SELECT 1", workspace_id=default_ws_id))
     _run(save_predefined_query("iso q", "clickhouse", "SELECT 2", workspace_id=other))
 
-    assert _run(get_predefined_query("clickhouse", "iso q", default_ws_id))["query"] == "SELECT 1"
-    assert _run(get_predefined_query("clickhouse", "iso q", other))["query"] == "SELECT 2"
+    q_default = _run(get_predefined_query("clickhouse", "iso q", default_ws_id))
+    q_other = _run(get_predefined_query("clickhouse", "iso q", other))
+    assert q_default is not None and q_default["query"] == "SELECT 1"
+    assert q_other is not None and q_other["query"] == "SELECT 2"
     names_default = [r["query_name"] for r in _run(list_predefined_queries("clickhouse", default_ws_id))]
     names_other = [r["query_name"] for r in _run(list_predefined_queries("clickhouse", other))]
     assert "iso q" in names_default and "iso q" in names_other
@@ -118,7 +129,6 @@ def test_same_name_is_distinct_per_workspace(default_ws_id):
 
 def test_api_unknown_workspace_is_404():
     from fastapi.testclient import TestClient
-
     from queryview.main import app
 
     c = TestClient(app)
@@ -131,7 +141,9 @@ def test_mcp_list_queries_parses_presentation(default_ws_id):
 
     _run(
         save_predefined_query(
-            "lq", "clickhouse", "SELECT 1",
+            "lq",
+            "clickhouse",
+            "SELECT 1",
             order_by='[{"name":"id","dir":"ASC"}]',
             fields='["id"]',
             workspace_id=default_ws_id,

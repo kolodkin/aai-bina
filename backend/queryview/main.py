@@ -5,19 +5,14 @@ from __future__ import annotations
 
 import os
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from . import gitsync, remote, workspaces
-from .validation import presentation_error
-from .mcp_server import mcp
-
-from .drivers import DRIVERS
 from .connect import (
     _ensure_schema,
     connect_new,
@@ -32,7 +27,10 @@ from .connect import (
 )
 from .dashboard_queries import run_queries_for_connection
 from .dashboards import _upsert_and_push, get_dashboard, list_dashboards
+from .drivers import DRIVERS
+from .mcp_server import mcp
 from .queries import list_predefined_queries_view, save_predefined_query
+from .validation import presentation_error
 
 # SPA bundle shipped inside the wheel (release CI copies frontend/dist here);
 # absent in a source checkout, where the repo's frontend/dist is used instead.
@@ -69,11 +67,7 @@ def _clean_queries(raw: Any) -> dict[str, str]:
     anything else so a malformed `queries` map can't reach the runner."""
     if not isinstance(raw, dict):
         return {}
-    return {
-        k: v
-        for k, v in raw.items()
-        if isinstance(k, str) and k and isinstance(v, str) and v.strip()
-    }
+    return {k: v for k, v in raw.items() if isinstance(k, str) and k and isinstance(v, str) and v.strip()}
 
 
 def _parse_int(value: Any, default: int) -> int:
@@ -113,9 +107,7 @@ async def session_cookie(request: Request, call_next):
     request.state.sid = sid
     response = await call_next(request)
     if new_session:
-        response.set_cookie(
-            "qv_session", sid, path="/", httponly=True, samesite="lax"
-        )
+        response.set_cookie("qv_session", sid, path="/", httponly=True, samesite="lax")
     return response
 
 
@@ -159,7 +151,7 @@ def _driver_and_config(body: Any):
 @app.post("/api/db/test")
 async def db_test(request: Request):
     driver, config, error = _driver_and_config(await _read_json(request))
-    if error:
+    if driver is None or config is None:
         return JSONResponse({"ok": False, "message": error}, status_code=400)
     return await driver.test(config)
 
@@ -169,7 +161,7 @@ async def db_test(request: Request):
 async def db_connect(request: Request):
     body = await _read_json(request)
     driver, config, error = _driver_and_config(body)
-    if error:
+    if driver is None or config is None:
         return JSONResponse({"ok": False, "message": error}, status_code=400)
     b = body if isinstance(body, dict) else {}
     raw_name = b.get("name")
@@ -279,6 +271,7 @@ async def predefined_queries_list(request: Request):
     ws, err = await _resolve_workspace(request.query_params.get("workspace"))
     if err:
         return err
+    assert ws is not None
     return {"queries": await list_predefined_queries_view(conn_type, ws.id)}
 
 
@@ -312,9 +305,8 @@ async def predefined_queries_save(request: Request):
     ws, err = await _resolve_workspace(b.get("workspace"))
     if err:
         return err
-    await save_predefined_query(
-        name, conn_type, query, cell_view, order_by, fields, workspace_id=ws.id
-    )
+    assert ws is not None
+    await save_predefined_query(name, conn_type, query, cell_view, order_by, fields, workspace_id=ws.id)
     return {"ok": True}
 
 
@@ -327,7 +319,7 @@ _SSE_HEARTBEAT_SECONDS = 15.0
 def _sse(event: str, data: dict[str, Any]) -> bytes:
     import json
 
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode("utf-8")
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode()
 
 
 async def _event_stream(remote_id: str, request: Request):
@@ -413,15 +405,11 @@ async def remote_db(request: Request):
     raw_db = b.get("database")
     database = raw_db if isinstance(raw_db, str) and raw_db else None
     if not session_id:
-        return JSONResponse(
-            {"ok": False, "message": "session_id required"}, status_code=400
-        )
+        return JSONResponse({"ok": False, "message": "session_id required"}, status_code=400)
     ok = remote.set_session_database(session_id, database)
     if "workspace" in b:
         raw_ws = b.get("workspace")
-        remote.set_session_workspace(
-            session_id, raw_ws if isinstance(raw_ws, str) and raw_ws else None
-        )
+        remote.set_session_workspace(session_id, raw_ws if isinstance(raw_ws, str) and raw_ws else None)
     return {"ok": ok}
 
 
@@ -478,7 +466,8 @@ async def dashboards_upsert(request: Request):
     b = body if isinstance(body, dict) else {}
     name = _clean_str(b.get("name"))
     connection = _clean_str(b.get("connection"))
-    html = b.get("html") if isinstance(b.get("html"), str) else ""
+    raw_html = b.get("html")
+    html = raw_html if isinstance(raw_html, str) else ""
     queries = _clean_queries(b.get("queries"))
     if not name or not connection or not html.strip():
         return JSONResponse(
@@ -488,6 +477,7 @@ async def dashboards_upsert(request: Request):
     ws, err = await _resolve_workspace(b.get("workspace"))
     if err:
         return err
+    assert ws is not None
     session_id = _clean_str(b.get("session_id"))
     persisted, pushed, message = await _upsert_and_push(
         name, connection, html, queries, session_id or None, workspace_id=ws.id
@@ -500,6 +490,7 @@ async def dashboards_list(request: Request):
     ws, err = await _resolve_workspace(request.query_params.get("workspace"))
     if err:
         return err
+    assert ws is not None
     return {"dashboards": await list_dashboards(ws.id)}
 
 
@@ -508,6 +499,7 @@ async def dashboards_get(name: str, request: Request):
     ws, err = await _resolve_workspace(request.query_params.get("workspace"))
     if err:
         return err
+    assert ws is not None
     d = await get_dashboard(name, ws.id)
     if d is None:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -524,12 +516,17 @@ def _gitsync_args(kind, name, conn_type):
     name = _clean_str(name)
     conn_type = _clean_str(conn_type)
     if kind not in ("query", "dashboard") or not name or (kind == "query" and not conn_type):
-        return None, None, None, JSONResponse(
-            {
-                "ok": False,
-                "message": "kind ('query'|'dashboard'), name and (for queries) conn_type are required",
-            },
-            status_code=400,
+        return (
+            None,
+            None,
+            None,
+            JSONResponse(
+                {
+                    "ok": False,
+                    "message": "kind ('query'|'dashboard'), name and (for queries) conn_type are required",
+                },
+                status_code=400,
+            ),
         )
     return kind, name, conn_type or None, None
 
@@ -549,6 +546,7 @@ async def git_status(request: Request):
     ws, err = await _resolve_workspace(request.query_params.get("workspace"))
     if err:
         return err
+    assert ws is not None
     return {"configured": gitsync.configured(ws)}
 
 
@@ -579,9 +577,7 @@ async def git_history(request: Request):
     ws, werr = await _resolve_workspace(q.get("workspace"))
     if werr:
         return werr
-    return await _gitsync_json(
-        gitsync.history(ws, kind, name, conn_type, q.get("before") or None, limit)
-    )
+    return await _gitsync_json(gitsync.history(ws, kind, name, conn_type, q.get("before") or None, limit))
 
 
 @app.post("/api/git/restore")
@@ -594,9 +590,7 @@ async def git_restore(request: Request):
     ws, werr = await _resolve_workspace(b.get("workspace"))
     if werr:
         return werr
-    return await _gitsync_json(
-        gitsync.restore(ws, kind, name, conn_type, _clean_str(b.get("ref")) or None)
-    )
+    return await _gitsync_json(gitsync.restore(ws, kind, name, conn_type, _clean_str(b.get("ref")) or None))
 
 
 # --- Workspaces (see docs/workspace.md) ------------------------------------

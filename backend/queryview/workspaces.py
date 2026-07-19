@@ -6,7 +6,7 @@ docs/workspace.md."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import text
 from sqlmodel import Field, SQLModel, select
@@ -28,7 +28,7 @@ class WorkspaceError(Exception):
 
 
 class Workspace(SQLModel, table=True):
-    __tablename__ = "workspaces"
+    __tablename__: ClassVar[str] = "workspaces"
 
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(unique=True, index=True)
@@ -81,15 +81,10 @@ async def list_workspaces() -> list[dict[str, Any]]:
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
         rows = (await s.exec(select(Workspace).order_by(Workspace.name))).all()
-    return [
-        {"name": r.name, "branch": r.branch, "configured": bool(r.remote)}
-        for r in rows
-    ]
+    return [{"name": r.name, "branch": r.branch, "configured": bool(r.remote)} for r in rows]
 
 
-async def create_workspace(
-    name: str, remote: str | None = None, branch: str = "main"
-) -> None:
+async def create_workspace(name: str, remote: str | None = None, branch: str = "main") -> None:
     name = _valid_name(name)
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:

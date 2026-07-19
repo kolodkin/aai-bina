@@ -7,7 +7,6 @@ import asyncio
 import subprocess
 
 import pytest
-
 from queryview import gitsync
 from queryview.gitsync import (
     GitSyncError,
@@ -86,13 +85,10 @@ def test_dashboard_files_round_trip():
 
 def test_dashboard_from_files_rejects_malformed_meta():
     with pytest.raises(GitSyncError):
-        dashboard_from_files(
-            {"meta.yaml": "connection: x", "dashboard.html": "", "queries.yaml": ""}
-        )
+        dashboard_from_files({"meta.yaml": "connection: x", "dashboard.html": "", "queries.yaml": ""})
 
 
 # The git_env fixture (bare repo + GIT_SYNC_* env vars) lives in conftest.py.
-
 
 
 def _default_ws_id() -> int:
@@ -246,15 +242,11 @@ def test_history_pages_newest_first(git_env):
     assert [r["sha"] for r in page1["revisions"]] == [shas[2], shas[1]]
     assert page1["has_more"] is True
     assert all(isinstance(r["date"], int) and r["message"] for r in page1["revisions"])
-    page2 = _run(
-        gitsync.history(_default_ws(), "query", "gs hist", "clickhouse", before=shas[1], limit=2)
-    )
+    page2 = _run(gitsync.history(_default_ws(), "query", "gs hist", "clickhouse", before=shas[1], limit=2))
     assert [r["sha"] for r in page2["revisions"]] == [shas[0]]
     assert page2["has_more"] is False
     # Paging past the oldest commit yields an empty page, not an error.
-    page3 = _run(
-        gitsync.history(_default_ws(), "query", "gs hist", "clickhouse", before=shas[0], limit=2)
-    )
+    page3 = _run(gitsync.history(_default_ws(), "query", "gs hist", "clickhouse", before=shas[0], limit=2))
     assert page3 == {"revisions": [], "has_more": False}
 
 
@@ -347,9 +339,7 @@ def test_store_is_isolated_per_workspace(tmp_path, monkeypatch):
     assert r["committed"] is True
     assert "store query clickhouse/iso" in _remote_log(ra)
     # B's remote has no commits at all (git log fails on an empty bare repo).
-    p = subprocess.run(
-        ["git", "log", "--format=%H", "main"], cwd=rb, capture_output=True, text=True
-    )
+    p = subprocess.run(["git", "log", "--format=%H", "main"], cwd=rb, capture_output=True, text=True)
     assert p.returncode != 0
 
     # And B's history for the same entity name is empty, not A's history.

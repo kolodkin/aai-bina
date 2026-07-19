@@ -1,5 +1,6 @@
 """DuckDB driver: file-based, no network, no picker. The synchronous duckdb
 library is driven in a worker thread so the event loop is never blocked."""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,6 +30,14 @@ def _open(path: str):
     return duckdb.connect(path, read_only=(path != ":memory:"))
 
 
+def _scalar(con: duckdb.DuckDBPyConnection, sql: str) -> Any:
+    """First column of the single-row result; raises if the query yields no row."""
+    row = con.execute(sql).fetchone()
+    if row is None:
+        raise RuntimeError(f"query returned no row: {sql}")
+    return row[0]
+
+
 class DuckDBDriver:
     type: str = "duckdb"
     requires_database: bool = False
@@ -47,9 +56,10 @@ class DuckDBDriver:
         def _work():
             con = _open(config.path)
             try:
-                return con.execute("SELECT 1").fetchone()[0]
+                return _scalar(con, "SELECT 1")
             finally:
                 con.close()
+
         try:
             val = await asyncio.to_thread(_work)
             return {"ok": True, "message": f"Connected — SELECT 1 returned {val}"}
@@ -60,8 +70,7 @@ class DuckDBDriver:
         # No picker: queries run directly against the file (schema-qualify in SQL).
         return True, []
 
-    async def list_tables(self, config: DuckConfig,
-                          database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
+    async def list_tables(self, config: DuckConfig, database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
         # SHOW TABLES for the name set, joined with duckdb_tables()'s estimated
         # row count (absent for views). Bytes are distinct storage blocks ×
         # block size from pragma_storage_info — metadata only, no data scan;
@@ -70,41 +79,41 @@ class DuckDBDriver:
             con = _open(config.path)
             try:
                 names = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
-                est = dict(
-                    con.execute(
-                        "SELECT table_name, estimated_size FROM duckdb_tables()"
-                    ).fetchall()
-                )
-                block_size = con.execute(
-                    "SELECT block_size FROM pragma_database_size()"
-                ).fetchone()[0]
+                est = dict(con.execute("SELECT table_name, estimated_size FROM duckdb_tables()").fetchall())
+                block_size = _scalar(con, "SELECT block_size FROM pragma_database_size()")
 
                 def _bytes(name: str) -> int | None:
                     if name not in est:  # a view — no storage of its own
                         return None
                     quoted = name.replace("'", "''")
                     try:
-                        blocks = con.execute(
-                            "SELECT count(DISTINCT block_id) "
-                            f"FROM pragma_storage_info('{quoted}') WHERE block_id >= 0"
-                        ).fetchone()[0]
+                        blocks = _scalar(
+                            con,
+                            f"SELECT count(DISTINCT block_id) FROM pragma_storage_info('{quoted}') WHERE block_id >= 0",
+                        )
                     except Exception:  # noqa: BLE001
                         return None
                     return blocks * block_size if blocks else None
 
-                return [
-                    {"name": n, "rows": est.get(n), "bytes": _bytes(n)} for n in names
-                ]
+                return [{"name": n, "rows": est.get(n), "bytes": _bytes(n)} for n in names]
             finally:
                 con.close()
+
         try:
             return True, await asyncio.to_thread(_work)
         except Exception as e:  # noqa: BLE001
             return False, str(e)
 
-    async def run_query(self, config: DuckConfig, sql: str, database: str | None,
-                        limit: int, offset: int,
-                        order_by: list[dict[str, Any]] | None, fmt: str) -> QueryResult:
+    async def run_query(
+        self,
+        config: DuckConfig,
+        sql: str,
+        database: str | None,
+        limit: int,
+        offset: int,
+        order_by: list[dict[str, Any]] | None,
+        fmt: str,
+    ) -> QueryResult:
         order_clause = build_order_by(order_by, '"')
         paginated = wrap_paginated(sql, order_clause, limit, offset, alias="_qv")
 
@@ -117,14 +126,16 @@ class DuckDBDriver:
                 return columns, rows
             finally:
                 con.close()
+
         try:
             columns, rows = await asyncio.to_thread(_work)
             return QueryResult(True, serialize_rows(columns, rows, fmt))
         except Exception as e:  # noqa: BLE001
             return QueryResult(False, str(e))
 
-    async def describe_query(self, config: DuckConfig, sql: str,
-                             database: str | None) -> tuple[bool, list[dict[str, str]] | str]:
+    async def describe_query(
+        self, config: DuckConfig, sql: str, database: str | None
+    ) -> tuple[bool, list[dict[str, str]] | str]:
         inner = sql.rstrip().rstrip(";")
 
         def _work():
@@ -134,6 +145,7 @@ class DuckDBDriver:
                 return con.execute(f"DESCRIBE {inner}").fetchall()
             finally:
                 con.close()
+
         try:
             rows = await asyncio.to_thread(_work)
             return True, [{"name": r[0], "type": r[1]} for r in rows]

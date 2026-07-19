@@ -74,12 +74,8 @@ def seeded_test_db():
     rows from an earlier run that left the database behind."""
     _ch_exec("DROP DATABASE IF EXISTS test")
     _ch_exec("CREATE DATABASE test")
-    _ch_exec(
-        "CREATE TABLE test.items (id UInt32, name String) ENGINE = MergeTree ORDER BY id"
-    )
-    _ch_exec(
-        "INSERT INTO test.items (id, name) VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')"
-    )
+    _ch_exec("CREATE TABLE test.items (id UInt32, name String) ENGINE = MergeTree ORDER BY id")
+    _ch_exec("INSERT INTO test.items (id, name) VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')")
     yield
     _ch_exec("DROP DATABASE IF EXISTS test")
 
@@ -104,26 +100,33 @@ def seeded_pg_db():
 
     async def _seed():
         sys = await asyncpg.connect(
-            host=PG_HOST, port=PG_PORT, user=PG_USER,
-            password=PG_PASSWORD or None, database="postgres",
+            host=PG_HOST,
+            port=PG_PORT,
+            user=PG_USER,
+            password=PG_PASSWORD or None,
+            database="postgres",
         )
         await sys.execute("DROP DATABASE IF EXISTS qvtest WITH (FORCE)")
         await sys.execute("CREATE DATABASE qvtest")
         await sys.close()
         db = await asyncpg.connect(
-            host=PG_HOST, port=PG_PORT, user=PG_USER,
-            password=PG_PASSWORD or None, database="qvtest",
+            host=PG_HOST,
+            port=PG_PORT,
+            user=PG_USER,
+            password=PG_PASSWORD or None,
+            database="qvtest",
         )
         await db.execute("CREATE TABLE items (id int, name text)")
-        await db.execute(
-            "INSERT INTO items (id, name) VALUES (1,'alpha'),(2,'beta'),(3,'gamma')"
-        )
+        await db.execute("INSERT INTO items (id, name) VALUES (1,'alpha'),(2,'beta'),(3,'gamma')")
         await db.close()
 
     async def _teardown():
         sys = await asyncpg.connect(
-            host=PG_HOST, port=PG_PORT, user=PG_USER,
-            password=PG_PASSWORD or None, database="postgres",
+            host=PG_HOST,
+            port=PG_PORT,
+            user=PG_USER,
+            password=PG_PASSWORD or None,
+            database="postgres",
         )
         await sys.execute("DROP DATABASE IF EXISTS qvtest WITH (FORCE)")
         await sys.close()

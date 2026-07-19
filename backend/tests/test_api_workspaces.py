@@ -5,7 +5,6 @@ in test_workspaces.py."""
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-
 from queryview.main import app
 
 
@@ -42,4 +41,3 @@ def test_create_validation_and_conflict():
     assert c.post("/api/workspaces", json={}).status_code == 400
     c.post("/api/workspaces", json={"name": "t6-dup"})
     assert c.post("/api/workspaces", json={"name": "t6-dup"}).status_code == 409
-

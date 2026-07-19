@@ -10,19 +10,20 @@ Revises: b2c3d4e5f6a7
 Create Date: 2026-07-10
 
 """
+
 from __future__ import annotations
 
 import os
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 import sqlmodel
 from alembic import op
 
 revision: str = "c7d8e9f0a1b2"
-down_revision: Union[str, None] = "b2c3d4e5f6a7"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "b2c3d4e5f6a7"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -48,9 +49,7 @@ def upgrade() -> None:
         sa.text("INSERT INTO workspaces (name, remote, branch) VALUES (:n, :r, :b)"),
         {"n": "default", "r": remote, "b": branch},
     )
-    default_id = conn.execute(
-        sa.text("SELECT id FROM workspaces WHERE name = 'default'")
-    ).scalar()
+    default_id = conn.execute(sa.text("SELECT id FROM workspaces WHERE name = 'default'")).scalar()
 
     # server_default backfills existing rows during the batch table rewrite and
     # keeps pre-workspace INSERT paths working mid-upgrade; application code
@@ -65,9 +64,7 @@ def upgrade() -> None:
             )
         )
         batch_op.drop_constraint("uq_predefined_type_name", type_="unique")
-        batch_op.create_unique_constraint(
-            "uq_predefined_ws_type_name", ["workspace_id", "type", "query_name"]
-        )
+        batch_op.create_unique_constraint("uq_predefined_ws_type_name", ["workspace_id", "type", "query_name"])
 
     with op.batch_alter_table("dashboards", schema=None) as batch_op:
         batch_op.add_column(
@@ -94,9 +91,7 @@ def downgrade() -> None:
 
     with op.batch_alter_table("predefined_queries", schema=None) as batch_op:
         batch_op.drop_constraint("uq_predefined_ws_type_name", type_="unique")
-        batch_op.create_unique_constraint(
-            "uq_predefined_type_name", ["type", "query_name"]
-        )
+        batch_op.create_unique_constraint("uq_predefined_type_name", ["type", "query_name"])
         batch_op.drop_column("workspace_id")
 
     op.drop_index(op.f("ix_workspaces_name"), table_name="workspaces")

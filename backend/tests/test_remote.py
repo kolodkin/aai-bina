@@ -1,6 +1,10 @@
 import asyncio
+import time as _time
 
+from fastapi.testclient import TestClient
 from queryview import remote
+from queryview import remote as _remote
+from queryview.main import app
 
 
 def test_register_returns_distinct_ids():
@@ -43,11 +47,6 @@ def test_next_message_times_out_to_none():
         remote.unregister(rid)
 
 
-from fastapi.testclient import TestClient
-
-from queryview.main import app
-
-
 def test_push_endpoint_requires_query():
     client = TestClient(app)
     r = client.post("/api/remote/push", json={"session_id": "x", "query": ""})
@@ -66,6 +65,7 @@ def test_push_endpoint_unknown_session_returns_not_delivered():
 
 def test_push_endpoint_delivers_to_registered_session():
     import asyncio
+
     from queryview import remote
 
     rid = remote.register()
@@ -83,6 +83,7 @@ def test_push_endpoint_delivers_to_registered_session():
         )
         assert r.json()["ok"] is True
         msg = asyncio.run(remote.next_message(rid, 1.0))
+        assert msg is not None
         assert msg["type"] == "query"
         assert msg["query"] == "SELECT id, name FROM items"
         assert msg["limit"] == 5
@@ -94,6 +95,7 @@ def test_push_endpoint_delivers_to_registered_session():
 
 def test_push_endpoint_forwards_cell_view():
     import asyncio
+
     from queryview import remote
 
     rid = remote.register()
@@ -106,17 +108,15 @@ def test_push_endpoint_forwards_cell_view():
         )
         assert r.json()["ok"] is True
         msg = asyncio.run(remote.next_message(rid, 1.0))
+        assert msg is not None
         assert msg["cell_view"] == yaml
     finally:
         remote.unregister(rid)
 
 
-import time as _time
-from queryview import remote as _remote
-
-
 def test_lock_endpoint_acquire_blocks_push():
     from queryview import remote
+
     rid = remote.register()
     try:
         client = TestClient(app)
@@ -134,6 +134,7 @@ def test_lock_endpoint_acquire_blocks_push():
 
 def test_lock_endpoint_bad_action_400():
     from queryview import remote
+
     rid = remote.register()
     try:
         client = TestClient(app)
@@ -172,9 +173,7 @@ def test_lock_ttl_expiry_allows_push():
 def test_push_rejects_invalid_order_by():
     rid = _remote.register()
     try:
-        ok, msg = _remote.push(
-            rid, {"type": "query", "query": "SELECT 1", "order_by": [{"name": "id", "dir": "X"}]}
-        )
+        ok, msg = _remote.push(rid, {"type": "query", "query": "SELECT 1", "order_by": [{"name": "id", "dir": "X"}]})
         assert ok is False and "invalid order_by" in msg
     finally:
         _remote.unregister(rid)
@@ -193,6 +192,7 @@ def test_release_by_nonowner_is_noop():
 
 def test_push_endpoint_blank_cell_view_is_none():
     import asyncio
+
     from queryview import remote
 
     rid = remote.register()
@@ -204,6 +204,7 @@ def test_push_endpoint_blank_cell_view_is_none():
         )
         assert r.json()["ok"] is True
         msg = asyncio.run(remote.next_message(rid, 1.0))
+        assert msg is not None
         assert msg["cell_view"] is None
     finally:
         remote.unregister(rid)
@@ -225,6 +226,7 @@ def test_set_session_database_unknown_session():
 
 def test_remote_db_endpoint_sets_channel_database():
     from queryview import remote
+
     rid = remote.register()
     try:
         client = TestClient(app)
@@ -237,6 +239,7 @@ def test_remote_db_endpoint_sets_channel_database():
 
 def test_push_query_return_includes_database():
     import asyncio
+
     from queryview.mcp_server import push_query as mcp_push_query
 
     rid = _remote.register()
