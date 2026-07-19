@@ -9,9 +9,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import yaml
 
@@ -163,6 +165,34 @@ def _workdir(ws: "WorkspaceRec") -> Path:
 
 def configured(ws: "WorkspaceRec") -> bool:
     return bool(ws.remote)
+
+
+def _remote_to_web(remote: str) -> str | None:
+    """A git remote as a credential-free https browse base (scheme://host/path,
+    no trailing .git), or None if it can't be parsed. Any embedded userinfo
+    (e.g. https://user:token@host/…) is dropped — the token must never leak to
+    the client. Host is not validated here; the frontend decides which hosts it
+    can build deep links for."""
+    remote = remote.strip()
+    # scp-style "[user@]host:org/repo(.git)" — no "//", a single ":" before path.
+    scp = re.match(r"^(?:[^@/]+@)?([^:/]+):(.+)$", remote)
+    if scp and "//" not in remote:
+        host, path = scp.group(1), scp.group(2)
+    else:
+        u = urlparse(remote)
+        host, path = (u.hostname or ""), u.path  # hostname excludes userinfo
+    path = path.strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    if not host or not path:
+        return None
+    return f"https://{host}/{path}"
+
+
+def web_url(ws: "WorkspaceRec") -> str | None:
+    """This workspace's remote as a credential-free browse URL, or None when
+    unconfigured or unparseable."""
+    return _remote_to_web(ws.remote) if ws.remote else None
 
 
 # --- Git plumbing ----------------------------------------------------------

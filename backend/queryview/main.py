@@ -540,7 +540,11 @@ async def git_status(request: Request):
     ws, err = await _resolve_workspace(request.query_params.get("workspace"))
     if err:
         return err
-    return {"configured": gitsync.configured(ws)}
+    return {
+        "configured": gitsync.configured(ws),
+        "web_url": gitsync.web_url(ws),
+        "branch": ws.branch,
+    }
 
 
 @app.post("/api/git/store")

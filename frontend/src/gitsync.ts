@@ -19,11 +19,18 @@ export type GitHistoryResult = {
   message?: string
 }
 
-// Whether git sync is configured is per-workspace server state — cache one
-// probe per workspace, cleared when workspace settings change.
-const statusCache = new Map<string, Promise<boolean>>()
+// Per-workspace git-sync state: whether a remote is configured, plus its
+// credential-free browse URL and branch for building repo links.
+export type GitRepoStatus = {
+  configured: boolean
+  webUrl: string | null
+  branch: string | null
+}
 
-export function gitStatus(workspace: string): Promise<boolean> {
+// Cache one probe per workspace, cleared when workspace settings change.
+const statusCache = new Map<string, Promise<GitRepoStatus>>()
+
+export function gitStatus(workspace: string): Promise<GitRepoStatus> {
   let cached = statusCache.get(workspace)
   if (!cached) {
     cached = (async () => {
@@ -31,9 +38,13 @@ export function gitStatus(workspace: string): Promise<boolean> {
         const r = await (
           await fetch(`/api/git/status?workspace=${encodeURIComponent(workspace)}`)
         ).json()
-        return Boolean(r.configured)
+        return {
+          configured: Boolean(r.configured),
+          webUrl: (r.web_url as string | null) ?? null,
+          branch: (r.branch as string | null) ?? null,
+        }
       } catch {
-        return false
+        return { configured: false, webUrl: null, branch: null }
       }
     })()
     statusCache.set(workspace, cached)

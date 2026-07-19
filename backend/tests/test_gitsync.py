@@ -11,6 +11,7 @@ import pytest
 from queryview import gitsync
 from queryview.gitsync import (
     GitSyncError,
+    _remote_to_web,
     dashboard_from_files,
     dashboard_reldir,
     dashboard_to_files,
@@ -18,11 +19,35 @@ from queryview.gitsync import (
     query_relpath,
     query_to_yaml,
     slug,
+    web_url,
 )
+from queryview.workspaces import WorkspaceRec
 
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def test_remote_to_web_strips_credentials_and_normalizes():
+    # https with an embedded token — the token must never survive.
+    assert (
+        _remote_to_web("https://user:ghp_secret@github.com/org/repo.git")
+        == "https://github.com/org/repo"
+    )
+    # scp-style shorthand.
+    assert _remote_to_web("git@github.com:org/repo.git") == "https://github.com/org/repo"
+    # ssh url.
+    assert _remote_to_web("ssh://git@gitlab.com/org/repo.git") == "https://gitlab.com/org/repo"
+    # already clean https, no .git.
+    assert _remote_to_web("https://bitbucket.org/org/repo") == "https://bitbucket.org/org/repo"
+    # unparseable input.
+    assert _remote_to_web("not a remote") is None
+
+
+def test_web_url_from_workspace():
+    ws = WorkspaceRec(id=1, name="w", remote="git@github.com:org/repo.git", branch="main")
+    assert web_url(ws) == "https://github.com/org/repo"
+    assert web_url(WorkspaceRec(id=2, name="w", remote=None, branch="main")) is None
 
 
 def test_slug_passthrough_and_encoding():
