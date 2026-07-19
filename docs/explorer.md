@@ -32,6 +32,15 @@ order-by select the query panel uses.
   Postgres table) is simply omitted. The list
   refreshes when the active database changes (via the connection pill); a
   selected table that no longer exists is deselected.
+- **Sidebar sizing** — a cycle button steps the panel through four presets:
+  **hidden** (rows fill the page), **minimal** (256px), **expanded** (480px,
+  wide enough for most full names), and **full** (the list fills the page, rows
+  hidden — picking a table drops back to minimal). The button sits beside the
+  "Tables" heading while the panel shows; when hidden (no panel) it moves to the
+  rows-panel header so there's always a way back. In the two split presets a
+  divider between the panel and rows drags the width freely (180–560px). The
+  preset and dragged width persist in `localStorage` (`qv_explorer_sidebar`) and
+  restore on load; see `frontend/src/explorerSidebar.ts`.
 - **Rows panel** — the selected table's rows. The selection lives in the URL
   (`/explorer?table=<name>`), so reloads and links land on the same table.
 - Without a ready connection the page shows a hint to connect on the Queries
