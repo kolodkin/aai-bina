@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BrowserRouter,
   Link,
@@ -14,6 +14,7 @@ import DashboardView, { type DashboardPush } from './DashboardView'
 import ExplorerView from './ExplorerView'
 import { Toast } from './Toast'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
+import { useClickOutside } from './useClickOutside'
 import { activeWorkspace, setActiveWorkspace } from './workspace'
 
 // App shell: routing, shared connection state, the connection pill + agent
@@ -39,6 +40,12 @@ function Shell() {
     const t = setTimeout(() => setCopied(false), 1200)
     return () => clearTimeout(t)
   }, [copied])
+
+  // Dismiss the header popovers on an outside click.
+  const dbRef = useRef<HTMLDivElement>(null)
+  const agentRef = useRef<HTMLDivElement>(null)
+  useClickOutside(dbOpen, dbRef, () => setDbOpen(false))
+  useClickOutside(agentOpen, agentRef, () => setAgentOpen(false))
 
   function switchWorkspace(name: string) {
     setActiveWorkspace(name)
@@ -183,7 +190,7 @@ function Shell() {
     <main className="relative flex min-h-screen items-center justify-center px-6 py-10 text-slate-100">
       {ready && connection && (
         <div className="absolute left-4 top-4 flex items-center gap-2">
-          <div className="relative">
+          <div className="relative" ref={dbRef}>
             <button
               type="button"
               data-testid="connection-status"
@@ -258,7 +265,7 @@ function Shell() {
               )}
             </svg>
           </button>
-          <div className="relative">
+          <div className="relative" ref={agentRef}>
             <button
               type="button"
               data-testid="agent-toggle"

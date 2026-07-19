@@ -45,3 +45,15 @@ def test_switcher_isolates_dashboards(page: Page, base_url: str):
         # there is no dashboard-delete endpoint yet; see docs/future.md).
         page.evaluate("localStorage.setItem('qv_workspace', 'default')")
         httpx.request("DELETE", f"{base_url}/api/workspaces/{ws}")
+
+
+def test_switcher_closes_on_outside_click(page: Page, base_url: str):
+    """The workspace switcher popover dismisses on a click outside it."""
+    page.goto(f"{base_url}/queries")
+    page.get_by_test_id("workspace-switcher").click()
+    manage = page.get_by_test_id("workspace-manage")
+    expect(manage).to_be_visible()
+
+    # A click well away from the top-right popover closes it.
+    page.mouse.click(500, 500)
+    expect(manage).to_have_count(0)
