@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import yaml from 'js-yaml'
 
 import {
   answerBridgeRequest,
@@ -118,6 +119,18 @@ function DashboardView({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Whether the active dashboard has unsaved changes. Only an agent push makes
+  // it diverge from the store (the page never edits html/queries in place), so
+  // a store-loaded dashboard is clean and Save is disabled ("nothing to save").
+  const [dirty, setDirty] = useState(false)
+  const [showQueries, setShowQueries] = useState(false)
+
+  // The active dashboard's queries as YAML (name → SQL), matching the repo's
+  // queries.yaml. js-yaml renders multiline SQL as readable literal blocks.
+  const queriesYaml = useMemo(
+    () => (active ? yaml.dump(active.queries ?? {}, { lineWidth: -1 }) : ''),
+    [active],
+  )
   // Bumped after a git restore to re-trigger the load effect below without
   // otherwise changing its dependencies.
   const [reloadNonce, setReloadNonce] = useState(0)
@@ -158,6 +171,7 @@ function DashboardView({
         setError(data.message ?? 'Failed to save dashboard.')
         return
       }
+      setDirty(false)
       await loadDashboards()
     } catch {
       setError('Failed to save dashboard.')
@@ -223,6 +237,9 @@ function DashboardView({
       const dash = await loadDashboard()
       if (cancelled || !dash) return
       setActive(dash)
+      // Dirty only when the active dashboard is a pending agent push (a draft
+      // not yet in the store); a store-loaded one matches the DB.
+      setDirty(!!(localPush && localPush.name === name))
 
       setLoading(true)
       try {
@@ -340,10 +357,21 @@ function DashboardView({
           type="button"
           data-testid="dashboard-save"
           onClick={() => void save()}
-          disabled={!active || saving}
+          disabled={!active || saving || !dirty}
+          title={!dirty && active ? 'No unsaved changes' : undefined}
           className="glass-btn min-w-[5rem] px-3 py-2 text-center text-sm font-medium"
         >
           {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          data-testid="dashboard-queries-yaml"
+          onClick={() => setShowQueries(true)}
+          disabled={!active || Object.keys(active.queries ?? {}).length === 0}
+          title="View the dashboard's queries as YAML"
+          className="glass-btn px-3 py-2 text-sm font-medium"
+        >
+          Queries
         </button>
         <GitSyncControls
           kind="dashboard"
@@ -388,6 +416,49 @@ function DashboardView({
           srcDoc={srcDoc}
           className="h-[78vh] w-full rounded-xl border border-white/10 bg-white"
         />
+      )}
+
+      {showQueries && active && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Dashboard queries (YAML)"
+          data-testid="dashboard-queries-modal"
+          className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowQueries(false)
+          }}
+        >
+          <div className="glass-popover flex max-h-[80vh] w-full max-w-2xl flex-col p-5">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-base font-semibold text-slate-100">Queries (YAML)</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="dashboard-queries-copy"
+                  onClick={() => void navigator.clipboard?.writeText(queriesYaml)}
+                  className="glass-btn px-2 py-1 text-xs font-medium text-indigo-200"
+                >
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  data-testid="dashboard-queries-close"
+                  onClick={() => setShowQueries(false)}
+                  className="glass-btn px-2 py-1 text-xs"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <pre
+              data-testid="dashboard-queries-yaml-text"
+              className="min-h-0 flex-1 overflow-auto rounded bg-black/30 p-3 font-mono text-xs text-slate-100"
+            >
+              {queriesYaml}
+            </pre>
+          </div>
+        </div>
       )}
     </div>
   )
