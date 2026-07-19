@@ -87,9 +87,7 @@ def test_dashboard_push_and_reopen(seeded_test_db, page: Page, base_url: str, sh
     shot("reopened from store")
 
 
-def test_dashboard_runqueries_error_shows_banner(
-    seeded_test_db, page: Page, base_url: str, shot
-) -> None:
+def test_dashboard_runqueries_error_shows_banner(seeded_test_db, page: Page, base_url: str, shot) -> None:
     # Persist a dashboard whose query is invalid; reopening it should surface a
     # fail-fast error banner instead of rendering the iframe.
     _connect_and_select_test_db(page)

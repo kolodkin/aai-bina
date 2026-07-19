@@ -19,6 +19,9 @@ __pycache__/
 # data, logs, screenshots.
 .cache/
 
+# SPA bundle copied into the package by the release build (see publish.yaml)
+backend/queryview/static/
+
 # SQLite connection store (backend) + password-encryption key
 backend/*.db
 backend/*.db-*

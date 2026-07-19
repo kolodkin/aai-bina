@@ -27,10 +27,7 @@ def test_switcher_isolates_dashboards(page: Page, base_url: str):
         # Default workspace: the dashboard is absent from its list.
         page.goto(f"{base_url}/dashboard")
         expect(page.get_by_test_id("workspace-switcher")).to_contain_text("default")
-        assert dash not in [
-            d["name"]
-            for d in httpx.get(f"{base_url}/api/dashboards").json()["dashboards"]
-        ]
+        assert dash not in [d["name"] for d in httpx.get(f"{base_url}/api/dashboards").json()["dashboards"]]
 
         # Switch: the page views remount and the dashboard resolves in that
         # workspace.

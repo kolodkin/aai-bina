@@ -1,5 +1,6 @@
 """Postgres driver (asyncpg). Short-lived connections per request; the picker
 lists real databases and the selected one is where queries run."""
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -16,7 +17,7 @@ from .base import (
     wrap_paginated,
 )
 
-PG_TIMEOUT_SECONDS = 5.0
+PG_TIMEOUT_SECONDS = 5
 _BOOTSTRAP_DBS = ("postgres", "template1")
 
 
@@ -30,16 +31,20 @@ class PgConfig:
 
 def parse_pg_config(body: Any) -> tuple[PgConfig | None, str | None]:
     fields, err = parse_host_port_config(body)
-    if err:
+    if err or fields is None:
         return None, err
     return PgConfig(**fields), None
 
 
 async def _raw_connect(c: PgConfig, database: str | None):
     return await asyncpg.connect(
-        host=c.host, port=c.port,
-        user=c.username or None, password=c.password or None,
-        database=database, timeout=PG_TIMEOUT_SECONDS, command_timeout=PG_TIMEOUT_SECONDS,
+        host=c.host,
+        port=c.port,
+        user=c.username or None,
+        password=c.password or None,
+        database=database,
+        timeout=PG_TIMEOUT_SECONDS,
+        command_timeout=PG_TIMEOUT_SECONDS,
     )
 
 
@@ -101,15 +106,13 @@ class PostgresDriver:
         try:
             async with _connect_bootstrap(config) as conn:
                 rows = await conn.fetch(
-                    "SELECT datname FROM pg_database "
-                    "WHERE datallowconn AND NOT datistemplate ORDER BY datname"
+                    "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname"
                 )
                 return True, [r["datname"] for r in rows]
         except Exception as e:  # noqa: BLE001
             return False, str(e) or "connection failed"
 
-    async def list_tables(self, config: PgConfig,
-                          database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
+    async def list_tables(self, config: PgConfig, database: str | None) -> tuple[bool, list[dict[str, Any]] | str]:
         # Tables and views of the public schema — what an unqualified name in
         # the explorer's generated SELECT resolves to under the default
         # search_path. Other schemas need explicit SQL on the query page.
@@ -126,16 +129,20 @@ class PostgresDriver:
                     "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm') "
                     "ORDER BY c.relname"
                 )
-                return True, [
-                    {"name": r["name"], "rows": r["rows"], "bytes": r["bytes"]}
-                    for r in rows
-                ]
+                return True, [{"name": r["name"], "rows": r["rows"], "bytes": r["bytes"]} for r in rows]
         except Exception as e:  # noqa: BLE001
             return False, str(e) or "connection failed"
 
-    async def run_query(self, config: PgConfig, sql: str, database: str | None,
-                        limit: int, offset: int,
-                        order_by: list[dict[str, Any]] | None, fmt: str) -> QueryResult:
+    async def run_query(
+        self,
+        config: PgConfig,
+        sql: str,
+        database: str | None,
+        limit: int,
+        offset: int,
+        order_by: list[dict[str, Any]] | None,
+        fmt: str,
+    ) -> QueryResult:
         order_clause = build_order_by(order_by, '"')
         paginated = wrap_paginated(sql, order_clause, limit, offset, alias="_qv")
         try:
@@ -147,14 +154,13 @@ class PostgresDriver:
         except Exception as e:  # noqa: BLE001
             return QueryResult(False, str(e) or "connection failed")
 
-    async def describe_query(self, config: PgConfig, sql: str,
-                             database: str | None) -> tuple[bool, list[dict[str, str]] | str]:
+    async def describe_query(
+        self, config: PgConfig, sql: str, database: str | None
+    ) -> tuple[bool, list[dict[str, str]] | str]:
         inner = sql.rstrip().rstrip(";")
         try:
             async with _connect(config, database) as conn:
                 stmt = await conn.prepare(inner)
-                return True, [
-                    {"name": a.name, "type": a.type.name} for a in stmt.get_attributes()
-                ]
+                return True, [{"name": a.name, "type": a.type.name} for a in stmt.get_attributes()]
         except Exception as e:  # noqa: BLE001
             return False, str(e) or "connection failed"

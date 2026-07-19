@@ -6,7 +6,7 @@ the MCP tool call."""
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel, select
@@ -17,10 +17,8 @@ from .connect import _engine_for_db, _ensure_schema, _now_ms
 
 
 class Dashboard(SQLModel, table=True):
-    __tablename__ = "dashboards"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "name", name="uq_dashboards_ws_name"),
-    )
+    __tablename__: ClassVar[str] = "dashboards"
+    __table_args__ = (UniqueConstraint("workspace_id", "name", name="uq_dashboards_ws_name"),)
 
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)  # unique per workspace, not globally
@@ -39,11 +37,7 @@ async def upsert_dashboard(
     payload = json.dumps(queries)
     async with AsyncSession(_engine_for_db()) as s:
         row = (
-            await s.exec(
-                select(Dashboard).where(
-                    Dashboard.name == name, Dashboard.workspace_id == workspace_id
-                )
-            )
+            await s.exec(select(Dashboard).where(Dashboard.name == name, Dashboard.workspace_id == workspace_id))
         ).first()
         if row is None:
             row = Dashboard(
@@ -68,11 +62,7 @@ async def get_dashboard(name: str, workspace_id: int) -> dict[str, Any] | None:
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
         row = (
-            await s.exec(
-                select(Dashboard).where(
-                    Dashboard.name == name, Dashboard.workspace_id == workspace_id
-                )
-            )
+            await s.exec(select(Dashboard).where(Dashboard.name == name, Dashboard.workspace_id == workspace_id))
         ).first()
     if row is None:
         return None
@@ -93,21 +83,12 @@ async def list_dashboards(workspace_id: int) -> list[dict[str, Any]]:
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
         rows = (
-            await s.exec(
-                select(Dashboard)
-                .where(Dashboard.workspace_id == workspace_id)
-                .order_by(Dashboard.name)
-            )
+            await s.exec(select(Dashboard).where(Dashboard.workspace_id == workspace_id).order_by(Dashboard.name))
         ).all()
-    return [
-        {"name": r.name, "connection": r.connection, "updated_at": r.updated_at}
-        for r in rows
-    ]
+    return [{"name": r.name, "connection": r.connection, "updated_at": r.updated_at} for r in rows]
 
 
-def _dashboard_event(
-    name: str, connection: str, html: str, queries: dict[str, str]
-) -> dict[str, Any]:
+def _dashboard_event(name: str, connection: str, html: str, queries: dict[str, str]) -> dict[str, Any]:
     """The SSE payload the browser renders for a pushed dashboard."""
     return {
         "type": "dashboard",
@@ -149,8 +130,6 @@ async def _upsert_and_push(
     remote.push's contract. Used by the REST endpoint (the user-Save path)."""
     await upsert_dashboard(name, connection, html, queries, workspace_id=workspace_id)
     if session_id:
-        ok, message = remote.push(
-            session_id, _dashboard_event(name, connection, html, queries)
-        )
+        ok, message = remote.push(session_id, _dashboard_event(name, connection, html, queries))
         return True, ok, message
     return True, False, "persisted"

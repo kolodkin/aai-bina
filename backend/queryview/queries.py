@@ -4,6 +4,8 @@ connect.py."""
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -12,12 +14,8 @@ from .connect import _engine_for_db, _ensure_schema
 
 
 class PredefinedQuery(SQLModel, table=True):
-    __tablename__ = "predefined_queries"
-    __table_args__ = (
-        UniqueConstraint(
-            "workspace_id", "type", "query_name", name="uq_predefined_ws_type_name"
-        ),
-    )
+    __tablename__: ClassVar[str] = "predefined_queries"
+    __table_args__ = (UniqueConstraint("workspace_id", "type", "query_name", name="uq_predefined_ws_type_name"),)
 
     id: int | None = Field(default=None, primary_key=True)
     query_name: str = Field(index=True)
@@ -33,9 +31,7 @@ class PredefinedQuery(SQLModel, table=True):
     fields: str | None = Field(default=None)
 
 
-async def list_predefined_queries(
-    conn_type: str, workspace_id: int
-) -> list[dict[str, str | None]]:
+async def list_predefined_queries(conn_type: str, workspace_id: int) -> list[dict[str, str | None]]:
     """Saved queries for a connection type within one workspace, ordered by name."""
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
@@ -61,9 +57,7 @@ async def list_predefined_queries(
     ]
 
 
-async def get_predefined_query(
-    conn_type: str, query_name: str, workspace_id: int
-) -> dict[str, str | None] | None:
+async def get_predefined_query(conn_type: str, query_name: str, workspace_id: int) -> dict[str, str | None] | None:
     """One saved query by (workspace, type, name) — the unique key — in the same
     row shape as list_predefined_queries items, or None."""
     await _ensure_schema()

@@ -2,13 +2,13 @@
 default, the empty (no-picker) database list, paginated+serialized queries,
 describe, and error reporting. Registry conformance, config round-trip, and
 validation are covered by test_driver_contract."""
+
 from __future__ import annotations
 
 import asyncio
 
 import duckdb
 import pytest
-
 from queryview.drivers.duckdb import DuckConfig, DuckDBDriver
 
 
@@ -42,7 +42,7 @@ def test_list_tables_names_seeded_table_with_estimates(duck_path):
     # rows is duckdb_tables()'s estimated_size; bytes is storage blocks × block
     # size (a small positive multiple of the 256KiB block for a tiny table).
     ok, tables = _run(d.list_tables(DuckConfig(duck_path), None))
-    assert ok and len(tables) == 1
+    assert ok and isinstance(tables, list) and len(tables) == 1
     t = tables[0]
     assert t["name"] == "items" and t["rows"] == 3
     assert isinstance(t["bytes"], int) and t["bytes"] > 0
@@ -50,8 +50,17 @@ def test_list_tables_names_seeded_table_with_estimates(duck_path):
 
 def test_run_query_paginates_and_serializes(duck_path):
     d = DuckDBDriver()
-    r = _run(d.run_query(DuckConfig(duck_path), "SELECT id, name FROM items ORDER BY id",
-                         None, 2, 0, [{"name": "name", "dir": "ASC"}], "tsv"))
+    r = _run(
+        d.run_query(
+            DuckConfig(duck_path),
+            "SELECT id, name FROM items ORDER BY id",
+            None,
+            2,
+            0,
+            [{"name": "name", "dir": "ASC"}],
+            "tsv",
+        )
+    )
     assert r.ok
     assert r.value == "id\tname\n1\talpha\n2\tbeta"
 
@@ -59,7 +68,7 @@ def test_run_query_paginates_and_serializes(duck_path):
 def test_describe_query_returns_columns(duck_path):
     d = DuckDBDriver()
     ok, fields = _run(d.describe_query(DuckConfig(duck_path), "SELECT id, name FROM items", None))
-    assert ok
+    assert ok and isinstance(fields, list)
     names = [f["name"] for f in fields]
     assert names == ["id", "name"]
 

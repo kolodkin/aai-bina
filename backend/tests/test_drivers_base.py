@@ -1,4 +1,5 @@
 """Driver dialect helpers and the row serializer (the shared output contract)."""
+
 from __future__ import annotations
 
 from queryview.drivers.base import (

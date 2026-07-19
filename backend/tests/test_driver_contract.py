@@ -2,13 +2,13 @@
 driver to the registry (with a SAMPLES entry) automatically extends these
 checks. Driver-specific behavior (dialect SQL, real-DB queries) lives in the
 per-driver test modules."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
-
 from queryview.drivers import DRIVERS, Driver
 from queryview.drivers.clickhouse import ChConfig
 from queryview.drivers.duckdb import DuckConfig
@@ -17,8 +17,8 @@ from queryview.drivers.postgres import PgConfig
 
 @dataclass
 class DriverSample:
-    config: Any           # a representative config object
-    valid_body: dict      # a request body that parses to `config`
+    config: Any  # a representative config object
+    valid_body: dict  # a request body that parses to `config`
     requires_database: bool
 
 
@@ -70,7 +70,7 @@ def test_parse_valid_body_and_config_round_trip(type_):
 @pytest.mark.parametrize("type_", NETWORK)
 def test_network_driver_rejects_missing_host_and_bad_port(type_):
     d = DRIVERS[type_]
-    assert d.parse_config({"port": 5432})[0] is None          # missing host
+    assert d.parse_config({"port": 5432})[0] is None  # missing host
     assert d.parse_config({"host": "h", "port": 0})[0] is None  # port too low
     assert d.parse_config({"host": "h", "port": 99999})[0] is None  # too high
-    assert d.parse_config({"host": "h", "port": "x"})[0] is None    # non-numeric
+    assert d.parse_config({"host": "h", "port": "x"})[0] is None  # non-numeric

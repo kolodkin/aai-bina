@@ -1,5 +1,6 @@
 """The driver contract (Protocol) plus dialect helpers and the row serializer
 shared by row-returning drivers. No backend/storage concerns here."""
+
 from __future__ import annotations
 
 import csv
@@ -43,14 +44,25 @@ class Driver(Protocol):
     # bytes are cheap engine estimates (never a COUNT(*) scan), None when the
     # engine doesn't track them (e.g. views, or DuckDB's missing per-table size).
     async def list_tables(
-        self, config: DriverConfig, database: str | None,
+        self,
+        config: DriverConfig,
+        database: str | None,
     ) -> tuple[bool, list[dict[str, Any]] | str]: ...
     async def run_query(
-        self, config: DriverConfig, sql: str, database: str | None,
-        limit: int, offset: int, order_by: list[dict[str, Any]] | None, fmt: str,
+        self,
+        config: DriverConfig,
+        sql: str,
+        database: str | None,
+        limit: int,
+        offset: int,
+        order_by: list[dict[str, Any]] | None,
+        fmt: str,
     ) -> QueryResult: ...
     async def describe_query(
-        self, config: DriverConfig, sql: str, database: str | None,
+        self,
+        config: DriverConfig,
+        sql: str,
+        database: str | None,
     ) -> tuple[bool, list[dict[str, str]] | str]: ...
 
 
@@ -116,7 +128,11 @@ def build_order_by(order_by: list[dict[str, Any]] | None, quote: str) -> str:
 
 
 def wrap_paginated(
-    sql: str, order_clause: str, limit: int, offset: int, alias: str | None = None,
+    sql: str,
+    order_clause: str,
+    limit: int,
+    offset: int,
+    alias: str | None = None,
 ) -> str:
     """Wrap a SELECT in a paginating subselect. `alias` (e.g. `_qv`) is required
     by Postgres/DuckDB for a derived table; ClickHouse passes alias=None to keep

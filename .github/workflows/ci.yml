@@ -12,6 +12,38 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_RUNNER_NODE_VERSION: node24
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      # pre-commit's pyright hook resolves imports from the project's .venv
+      # (see pyrightconfig.json), so sync it first.
+      - name: Install backend + test dependencies
+        run: uv sync --frozen --group test
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+
+  test-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install backend + test dependencies
+        run: uv sync --frozen --group test
+
+      - name: Run backend unit tests
+        run: uv run --frozen pytest backend/tests
+
   test-e2e:
     runs-on: ubuntu-latest
     environment: CICD

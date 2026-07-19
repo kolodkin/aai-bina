@@ -1,5 +1,6 @@
 """The connection store round-trips a driver config through the encrypted JSON
 blob, keyed by type, and never persists secrets in plaintext."""
+
 from __future__ import annotations
 
 import asyncio

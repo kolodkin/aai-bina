@@ -17,7 +17,7 @@ LOCK_TTL_SECONDS = 30.0
 
 @dataclass
 class _Channel:
-    queue: "asyncio.Queue[dict[str, Any]]" = field(default_factory=asyncio.Queue)
+    queue: asyncio.Queue[dict[str, Any]] = field(default_factory=asyncio.Queue)
     # Advisory edit lock: "human" | "agent" | None. lock_touched is a monotonic
     # timestamp refreshed on acquire; a human lock older than LOCK_TTL_SECONDS is
     # treated as released (heartbeat lapsed / tab froze).
@@ -36,10 +36,7 @@ _channels: dict[str, _Channel] = {}
 
 
 def _human_holds(channel: _Channel) -> bool:
-    return (
-        channel.lock_owner == "human"
-        and (time.monotonic() - channel.lock_touched) < LOCK_TTL_SECONDS
-    )
+    return channel.lock_owner == "human" and (time.monotonic() - channel.lock_touched) < LOCK_TTL_SECONDS
 
 
 def acquire(remote_id: str, owner: str) -> tuple[bool, str]:
@@ -138,5 +135,5 @@ async def next_message(remote_id: str, timeout: float) -> dict[str, Any] | None:
         return None
     try:
         return await asyncio.wait_for(channel.queue.get(), timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return None

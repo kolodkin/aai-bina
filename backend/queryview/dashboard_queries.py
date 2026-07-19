@@ -61,8 +61,13 @@ async def run_queries_for_connection(
     results: dict[str, dict[str, list[str]]] = {}
     for qname, sql in queries.items():
         r = await driver.run_query(
-            stored.config, sql, stored.database,
-            limit=limit, offset=offset, order_by=None, fmt="tsv",
+            stored.config,
+            sql,
+            stored.database,
+            limit=limit,
+            offset=offset,
+            order_by=None,
+            fmt="tsv",
         )
         if not r.ok:
             return {"ok": False, "reason": "query", "message": f"{qname}: {r.value}"}

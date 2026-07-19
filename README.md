@@ -86,6 +86,22 @@ uv run --group test pytest
 
 Override the target URL with `BASE_URL=http://localhost:4173 uv run --group test pytest` (e.g. to test a built preview). To run the full suite against a real ClickHouse the way CI does, use `scripts/setup.sh`.
 
+## Release to PyPI
+
+The **Publish to PyPI** workflow (`.github/workflows/publish.yaml`, manual
+dispatch with a `vX.Y.Z` tag input) builds the SPA into the wheel
+(`queryview/static/`), smoke-tests the installed package, publishes
+[`aaibina`](https://pypi.org/project/aaibina/) via PyPI trusted publishing,
+then pushes the tag and creates the GitHub release. The package version comes
+from the tag (no version bump in `pyproject.toml`).
+
+An installed wheel serves the bundled UI by default:
+
+```bash
+pip install aaibina
+aaibina            # API + SPA on http://localhost:8000
+```
+
 ## API
 
 See [docs/api.md](docs/api.md) for the full endpoint reference.
