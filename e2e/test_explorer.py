@@ -71,6 +71,17 @@ def test_explorer_browse_order_fields_paginate(
     shot(f"{case.id} explorer page 2")
 
 
+def test_connection_copy_button(request, page: Page) -> None:
+    """The connection pill's copy button copies the active db/name and toasts.
+    Driver-independent — duckdb needs no external server."""
+    case = next(c for c in CASES if c.id == "duckdb")
+    seed = request.getfixturevalue(case.seed_fixture)
+    _connect(page, case, seed)
+
+    page.get_by_test_id("connection-copy").click()
+    expect(page.get_by_test_id("agent-toast")).to_contain_text("Copied")
+
+
 def test_explorer_sidebar_resize(request, page: Page, shot) -> None:
     """The Tables sidebar: cycle button walks the four presets, the divider
     drags the width, and both persist across a reload. One driver is enough —

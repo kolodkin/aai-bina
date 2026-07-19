@@ -217,6 +217,31 @@ function Shell() {
               </div>
             )}
           </div>
+          <button
+            type="button"
+            data-testid="connection-copy"
+            onClick={() => {
+              const value = connection.database ?? connection.name
+              void navigator.clipboard?.writeText(value)
+              setToast(`Copied "${value}"`)
+            }}
+            aria-label="Copy database name"
+            title="Copy database name"
+            className="glass-chip flex h-8 w-8 items-center justify-center text-slate-300"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="9" y="9" width="11" height="11" rx="2" />
+              <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+            </svg>
+          </button>
           <div className="relative">
             <button
               type="button"
