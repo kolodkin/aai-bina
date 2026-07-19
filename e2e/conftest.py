@@ -12,9 +12,17 @@ expect.set_options(timeout=15_000)
 
 @pytest.fixture(scope="session")
 def base_url() -> str:
-    # The app under test is started separately (Vite dev server, or the FastAPI
-    # backend serving the built SPA); point at it with BASE_URL.
-    return os.environ.get("BASE_URL", "http://localhost:5173")
+    # The app under test runs separately; point at it with BASE_URL. With it
+    # unset the whole e2e suite skips — this avoids accidentally driving (and
+    # polluting the connection store of) a dev server. To run these locally,
+    # start a backend with its own DB_PATH and export BASE_URL.
+    url = os.environ.get("BASE_URL")
+    if not url:
+        pytest.skip(
+            "e2e need a running app: export BASE_URL to its URL. Start a backend "
+            "with its own DB_PATH so tests never touch backend/queryview.db."
+        )
+    return url
 
 
 @pytest.fixture(scope="session")

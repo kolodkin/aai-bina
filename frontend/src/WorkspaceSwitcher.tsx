@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { invalidateGitStatus } from './gitsync'
+import { useDismiss } from './useDismiss'
 import {
   createWorkspace,
   deleteWorkspace,
@@ -25,6 +26,11 @@ export default function WorkspaceSwitcher({ workspace, onSwitch }: Props) {
   const [name, setName] = useState('')
   const [remote, setRemote] = useState('')
   const [branch, setBranch] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  useDismiss(open || manage, rootRef, () => {
+    setOpen(false)
+    setManage(false)
+  })
 
   async function reload() {
     try {
@@ -94,7 +100,7 @@ export default function WorkspaceSwitcher({ workspace, onSwitch }: Props) {
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={rootRef}>
       <button
         type="button"
         data-testid="workspace-switcher"

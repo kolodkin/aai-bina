@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BrowserRouter,
   Link,
@@ -14,6 +14,7 @@ import DashboardView, { type DashboardPush } from './DashboardView'
 import ExplorerView from './ExplorerView'
 import { Toast } from './Toast'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
+import { useDismiss } from './useDismiss'
 import { activeWorkspace, setActiveWorkspace } from './workspace'
 
 // App shell: routing, shared connection state, the connection pill + agent
@@ -30,7 +31,21 @@ function Shell() {
   const [dashboardPush, setDashboardPush] = useState<DashboardPush | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [dbOpen, setDbOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [workspace, setWorkspace] = useState(activeWorkspace())
+
+  // Brief on-button "copied" confirmation for the connection copy control.
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1200)
+    return () => clearTimeout(t)
+  }, [copied])
+
+  // Dismiss the header popovers on an outside click.
+  const dbRef = useRef<HTMLDivElement>(null)
+  const agentRef = useRef<HTMLDivElement>(null)
+  useDismiss(dbOpen, dbRef, () => setDbOpen(false))
+  useDismiss(agentOpen, agentRef, () => setAgentOpen(false))
 
   function switchWorkspace(name: string) {
     setActiveWorkspace(name)
@@ -175,7 +190,7 @@ function Shell() {
     <main className="relative flex min-h-screen items-center justify-center px-6 py-10 text-slate-100">
       {ready && connection && (
         <div className="absolute left-4 top-4 flex items-center gap-2">
-          <div className="relative">
+          <div className="relative" ref={dbRef}>
             <button
               type="button"
               data-testid="connection-status"
@@ -217,7 +232,40 @@ function Shell() {
               </div>
             )}
           </div>
-          <div className="relative">
+          <button
+            type="button"
+            data-testid="connection-copy"
+            onClick={() => {
+              const value = connection.database ?? connection.name
+              void navigator.clipboard?.writeText(value)
+              setCopied(true)
+            }}
+            aria-label="Copy database name"
+            title={copied ? 'Copied' : 'Copy database name'}
+            className={`glass-chip flex h-8 w-8 items-center justify-center transition-colors ${
+              copied ? 'text-emerald-400' : 'text-slate-300'
+            }`}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              {copied ? (
+                <path d="M20 6 9 17l-5-5" />
+              ) : (
+                <>
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                </>
+              )}
+            </svg>
+          </button>
+          <div className="relative" ref={agentRef}>
             <button
               type="button"
               data-testid="agent-toggle"

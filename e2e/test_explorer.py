@@ -69,3 +69,69 @@ def test_explorer_browse_order_fields_paginate(
     expect(output).to_contain_text("alpha")
     expect(output).not_to_contain_text("gamma")
     shot(f"{case.id} explorer page 2")
+
+
+def test_connection_copy_button(request, page: Page) -> None:
+    """The connection pill's copy button copies the active db/name and confirms
+    on the button itself. Driver-independent — duckdb needs no external server."""
+    case = next(c for c in CASES if c.id == "duckdb")
+    seed = request.getfixturevalue(case.seed_fixture)
+    _connect(page, case, seed)
+
+    copy = page.get_by_test_id("connection-copy")
+    expect(copy).to_have_attribute("title", "Copy database name")
+    copy.click()
+    # On-button confirmation: the title flips to "Copied", then reverts.
+    expect(copy).to_have_attribute("title", "Copied")
+    expect(copy).to_have_attribute("title", "Copy database name")
+
+
+def test_explorer_sidebar_resize(request, page: Page, shot) -> None:
+    """The Tables sidebar: cycle button walks the four presets, the divider
+    drags the width, and both persist across a reload. One driver is enough —
+    the sizing is driver-independent."""
+    case = next(c for c in CASES if c.id == "duckdb")
+    seed = request.getfixturevalue(case.seed_fixture)
+    _connect(page, case, seed)
+
+    page.get_by_test_id("nav-explorer").click()
+    tables = page.get_by_test_id("explorer-tables")
+    rows_panel = page.get_by_test_id("explorer-panel")
+    cycle = page.get_by_test_id("explorer-sidebar-cycle")
+    expect(tables).to_be_visible()
+    expect(cycle).to_have_attribute("data-preset", "minimal")
+
+    # Cycle: minimal → expanded (both still shown) → full (rows hidden) →
+    # hidden (list gone, rail remains) → minimal.
+    cycle.click()
+    expect(cycle).to_have_attribute("data-preset", "expanded")
+    expect(tables).to_be_visible()
+    cycle.click()
+    expect(cycle).to_have_attribute("data-preset", "full")
+    expect(tables).to_be_visible()
+    expect(rows_panel).to_have_count(0)  # rows panel hidden while full
+    cycle.click()
+    expect(cycle).to_have_attribute("data-preset", "hidden")
+    expect(tables).to_have_count(0)  # only the edge-rail remains
+    cycle.click()
+    expect(cycle).to_have_attribute("data-preset", "minimal")
+    shot("explorer sidebar presets")
+
+    # Drag the divider wider; the panel grows and the width persists on reload.
+    before = tables.bounding_box()["width"]
+    divider = page.get_by_test_id("explorer-sidebar-divider")
+    box = divider.bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 140, box["y"] + box["height"] / 2)
+    page.mouse.up()
+    widened = tables.bounding_box()["width"]
+    assert widened > before + 50, f"{widened} !> {before} + 50"
+
+    page.reload()
+    tables = page.get_by_test_id("explorer-tables")
+    expect(page.get_by_test_id("explorer-sidebar-cycle")).to_have_attribute(
+        "data-preset", "minimal"
+    )
+    restored = tables.bounding_box()["width"]
+    assert abs(restored - widened) < 4, f"{restored} != {widened}"
