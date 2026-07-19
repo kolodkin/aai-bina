@@ -14,7 +14,7 @@ import DashboardView, { type DashboardPush } from './DashboardView'
 import ExplorerView from './ExplorerView'
 import { Toast } from './Toast'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
-import { useClickOutside } from './useClickOutside'
+import { useDismiss } from './useDismiss'
 import { activeWorkspace, setActiveWorkspace } from './workspace'
 
 // App shell: routing, shared connection state, the connection pill + agent
@@ -44,8 +44,8 @@ function Shell() {
   // Dismiss the header popovers on an outside click.
   const dbRef = useRef<HTMLDivElement>(null)
   const agentRef = useRef<HTMLDivElement>(null)
-  useClickOutside(dbOpen, dbRef, () => setDbOpen(false))
-  useClickOutside(agentOpen, agentRef, () => setAgentOpen(false))
+  useDismiss(dbOpen, dbRef, () => setDbOpen(false))
+  useDismiss(agentOpen, agentRef, () => setAgentOpen(false))
 
   function switchWorkspace(name: string) {
     setActiveWorkspace(name)

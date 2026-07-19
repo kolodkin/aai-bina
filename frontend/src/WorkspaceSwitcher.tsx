@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { invalidateGitStatus } from './gitsync'
-import { useClickOutside } from './useClickOutside'
+import { useDismiss } from './useDismiss'
 import {
   createWorkspace,
   deleteWorkspace,
@@ -27,7 +27,7 @@ export default function WorkspaceSwitcher({ workspace, onSwitch }: Props) {
   const [remote, setRemote] = useState('')
   const [branch, setBranch] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
-  useClickOutside(open || manage, rootRef, () => {
+  useDismiss(open || manage, rootRef, () => {
     setOpen(false)
     setManage(false)
   })

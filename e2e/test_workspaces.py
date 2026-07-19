@@ -47,13 +47,20 @@ def test_switcher_isolates_dashboards(page: Page, base_url: str):
         httpx.request("DELETE", f"{base_url}/api/workspaces/{ws}")
 
 
-def test_switcher_closes_on_outside_click(page: Page, base_url: str):
-    """The workspace switcher popover dismisses on a click outside it."""
+def test_switcher_dismisses_on_outside_click_and_escape(page: Page, base_url: str):
+    """The workspace switcher popover dismisses on an outside click and on Escape."""
     page.goto(f"{base_url}/queries")
-    page.get_by_test_id("workspace-switcher").click()
+    switcher = page.get_by_test_id("workspace-switcher")
     manage = page.get_by_test_id("workspace-manage")
-    expect(manage).to_be_visible()
 
     # A click well away from the top-right popover closes it.
+    switcher.click()
+    expect(manage).to_be_visible()
     page.mouse.click(500, 500)
+    expect(manage).to_have_count(0)
+
+    # Escape closes it too.
+    switcher.click()
+    expect(manage).to_be_visible()
+    page.keyboard.press("Escape")
     expect(manage).to_have_count(0)
