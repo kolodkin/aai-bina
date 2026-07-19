@@ -72,14 +72,18 @@ def test_explorer_browse_order_fields_paginate(
 
 
 def test_connection_copy_button(request, page: Page) -> None:
-    """The connection pill's copy button copies the active db/name and toasts.
-    Driver-independent — duckdb needs no external server."""
+    """The connection pill's copy button copies the active db/name and confirms
+    on the button itself. Driver-independent — duckdb needs no external server."""
     case = next(c for c in CASES if c.id == "duckdb")
     seed = request.getfixturevalue(case.seed_fixture)
     _connect(page, case, seed)
 
-    page.get_by_test_id("connection-copy").click()
-    expect(page.get_by_test_id("agent-toast")).to_contain_text("Copied")
+    copy = page.get_by_test_id("connection-copy")
+    expect(copy).to_have_attribute("title", "Copy database name")
+    copy.click()
+    # On-button confirmation: the title flips to "Copied", then reverts.
+    expect(copy).to_have_attribute("title", "Copied")
+    expect(copy).to_have_attribute("title", "Copy database name")
 
 
 def test_explorer_sidebar_resize(request, page: Page, shot) -> None:

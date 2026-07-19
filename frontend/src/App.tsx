@@ -30,7 +30,15 @@ function Shell() {
   const [dashboardPush, setDashboardPush] = useState<DashboardPush | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [dbOpen, setDbOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [workspace, setWorkspace] = useState(activeWorkspace())
+
+  // Brief on-button "copied" confirmation for the connection copy control.
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1200)
+    return () => clearTimeout(t)
+  }, [copied])
 
   function switchWorkspace(name: string) {
     setActiveWorkspace(name)
@@ -223,11 +231,13 @@ function Shell() {
             onClick={() => {
               const value = connection.database ?? connection.name
               void navigator.clipboard?.writeText(value)
-              setToast(`Copied "${value}"`)
+              setCopied(true)
             }}
             aria-label="Copy database name"
-            title="Copy database name"
-            className="glass-chip flex h-8 w-8 items-center justify-center text-slate-300"
+            title={copied ? 'Copied' : 'Copy database name'}
+            className={`glass-chip flex h-8 w-8 items-center justify-center transition-colors ${
+              copied ? 'text-emerald-400' : 'text-slate-300'
+            }`}
           >
             <svg
               viewBox="0 0 24 24"
@@ -238,8 +248,14 @@ function Shell() {
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <rect x="9" y="9" width="11" height="11" rx="2" />
-              <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+              {copied ? (
+                <path d="M20 6 9 17l-5-5" />
+              ) : (
+                <>
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                </>
+              )}
             </svg>
           </button>
           <div className="relative">
