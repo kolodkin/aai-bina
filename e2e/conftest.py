@@ -1,5 +1,9 @@
 import os
 import re
+import socket
+import subprocess
+import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import httpx
@@ -9,12 +13,68 @@ from playwright.sync_api import Page, expect
 # Mirror playwright.config.ts: 15s default assertion timeout.
 expect.set_options(timeout=15_000)
 
+REPO = Path(__file__).resolve().parent.parent
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _isolated_backend(db_path: Path) -> Iterator[str]:
+    """Start our own backend on a throwaway DB_PATH so e2e never touches the
+    operational backend/queryview.db (the store the dev server uses). Serves the
+    built SPA via SERVE_STATIC; builds it first if there's no dist yet."""
+    if not (REPO / "frontend" / "dist" / "index.html").exists():
+        print("e2e: no frontend/dist — building the SPA (npm run build)…")
+        subprocess.run(["npm", "run", "build", "-w", "frontend"], cwd=REPO, check=True)
+    else:
+        print("e2e: reusing existing frontend/dist (rebuild it to test UI changes)")
+
+    port = _free_port()
+    url = f"http://127.0.0.1:{port}"
+    env = {**os.environ, "SERVE_STATIC": "1", "PORT": str(port), "DB_PATH": str(db_path)}
+    proc = subprocess.Popen(
+        ["uv", "run", "queryview-backend"],
+        cwd=REPO,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    try:
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                out = proc.stdout.read().decode() if proc.stdout else ""
+                raise RuntimeError(f"e2e backend exited early (code {proc.returncode}):\n{out}")
+            try:
+                httpx.get(f"{url}/api/health", timeout=1.0)
+                break
+            except httpx.HTTPError:
+                time.sleep(0.3)
+        else:
+            raise RuntimeError("e2e backend never became healthy on /api/health")
+        yield url
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
 
 @pytest.fixture(scope="session")
-def base_url() -> str:
-    # The app under test is started separately (Vite dev server, or the FastAPI
-    # backend serving the built SPA); point at it with BASE_URL.
-    return os.environ.get("BASE_URL", "http://localhost:5173")
+def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    # When BASE_URL is set (CI starts a server with its own ephemeral DB_PATH),
+    # use it as-is. Otherwise start an isolated backend on a temp DB so a local
+    # e2e run never clobbers the operational connection store.
+    external = os.environ.get("BASE_URL")
+    if external:
+        yield external
+        return
+    db_path = tmp_path_factory.mktemp("qv_e2e_db") / "qv.db"
+    yield from _isolated_backend(db_path)
 
 
 @pytest.fixture(scope="session")
