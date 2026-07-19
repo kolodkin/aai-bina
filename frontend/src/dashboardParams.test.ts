@@ -77,6 +77,22 @@ describe('substituteParams', () => {
     expect(substituteParams('GROUP BY {category}', params, { category: '' })).toBe("GROUP BY ''")
   })
 
+  test('casts an identifier to a literal where SQL wants a string', () => {
+    // system.columns.table is compared against a string, but the same param is
+    // an identifier in `FROM {table}`.
+    expect(substituteParams('WHERE table = {table:literal} FROM {table}', params, { table: 'events' })).toBe(
+      "WHERE table = 'events' FROM `events`",
+    )
+  })
+
+  test('casts a value to an identifier', () => {
+    expect(substituteParams('SELECT {region:identifier}', params, { region: 'eu' })).toBe('SELECT `eu`')
+  })
+
+  test('rejects an unknown cast', () => {
+    expect(() => substituteParams('SELECT {field:sql}', params, { field: 'city' })).toThrow(/cast/i)
+  })
+
   test('leaves an unknown placeholder untouched', () => {
     expect(substituteParams('SELECT {nope}', params, {})).toBe('SELECT {nope}')
   })
@@ -89,6 +105,10 @@ describe('substituteParams', () => {
 describe('placeholdersIn', () => {
   test('finds the placeholders a query depends on', () => {
     expect(placeholdersIn('SELECT name FROM system.columns WHERE table = {table} AND x = {y}')).toEqual(['table', 'y'])
+  })
+
+  test('finds a cast placeholder by its param name', () => {
+    expect(placeholdersIn('WHERE table = {table:literal}')).toEqual(['table'])
   })
 
   test('finds none in a plain query', () => {

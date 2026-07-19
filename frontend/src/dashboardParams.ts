@@ -20,7 +20,11 @@ export type DashboardParam = {
 }
 
 const KINDS: ParamKind[] = ['value', 'identifier', 'dimension']
-const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+const CASTS = ['literal', 'identifier']
+// `{name}` substitutes per the param's kind; `{name:literal}` / `{name:identifier}`
+// override it for that one spot. A table param is an identifier in `FROM {table}`
+// but a string in `WHERE table = {table:literal}`.
+const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)(?::([A-Za-z_]+))?\}/g
 
 // Parse the `params` list. Defensive, like parseQueryParams: a malformed entry
 // is dropped so a broken declaration costs one selector, not the dashboard.
@@ -80,22 +84,22 @@ export function substituteParams(
   params: DashboardParam[],
   values: Record<string, string>,
 ): string {
-  let out = sql
-  for (const p of params) {
-    const token = `{${p.name}}`
-    if (!out.includes(token)) continue
+  const byName = new Map(params.map((p) => [p.name, p]))
+  return sql.replace(PLACEHOLDER, (token, name: string, cast?: string) => {
+    const p = byName.get(name)
+    if (!p) return token
+    if (cast && !CASTS.includes(cast)) throw new Error(`unknown cast for {${name}}: ${cast}`)
 
-    const raw = values[p.name]
+    const raw = values[name]
     if (p.kind === 'dimension') {
       // Unchecked: substitute an empty literal so the query keeps its shape and
       // the column simply contributes nothing to the grouping.
-      out = out.replaceAll(token, raw ? quoteIdentifier(p.name, p.name) : "''")
-      continue
+      return raw ? quoteIdentifier(name, name) : "''"
     }
-    if (raw === undefined || raw === '') throw new Error(`no value selected for {${p.name}}`)
-    out = out.replaceAll(token, p.kind === 'identifier' ? quoteIdentifier(raw, p.name) : quoteLiteral(raw))
-  }
-  return out
+    if (raw === undefined || raw === '') throw new Error(`no value selected for {${name}}`)
+    const asIdentifier = cast ? cast === 'identifier' : p.kind === 'identifier'
+    return asIdentifier ? quoteIdentifier(raw, name) : quoteLiteral(raw)
+  })
 }
 
 // Declaration order, except a param whose options_sql references another is

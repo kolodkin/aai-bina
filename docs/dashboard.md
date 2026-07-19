@@ -88,7 +88,7 @@ params:
     options_sql: SELECT name FROM system.tables WHERE database = currentDatabase()
   - name: field
     kind: identifier
-    options_sql: SELECT name FROM system.columns WHERE table = {table}
+    options_sql: SELECT name FROM system.columns WHERE table = {table:literal}
   - name: category
     kind: dimension
 ```
@@ -107,6 +107,11 @@ Three kinds, differing only in how a value is substituted:
 | `value` (default) | quoted string literal, single quotes doubled | `{region}` → `'eu'` |
 | `identifier` | backtick-quoted table/column | `{field}` → `` `city` `` |
 | `dimension` | its own column when checked, `''` when not | `{category}` → `` `category` `` / `''` |
+
+A placeholder can override its param's kind for one spot: **`{table:literal}`**
+substitutes a string where the SQL wants one (`WHERE table = {table:literal}`)
+while `FROM {table}` still gets the identifier. The casts are `literal` and
+`identifier`; anything else is an error.
 
 `identifier` exists because a literal would make `SELECT {field}` select a constant
 string rather than the column. A value containing a backtick is rejected. A
