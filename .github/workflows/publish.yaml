@@ -33,8 +33,6 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
@@ -96,7 +94,7 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           DB_PATH="$PWD/queryview.db" "$GITHUB_WORKSPACE/.venv/bin/aaibina" > server.log 2>&1 &
-          echo $! > server.pid
+          pid=$!
           for i in $(seq 1 30); do
             curl -sf http://localhost:8000/api/health > /dev/null && break
             if [ "$i" -eq 30 ]; then
@@ -108,7 +106,7 @@ jobs:
             || { echo "/ did not serve the bundled SPA"; cat server.log; exit 1; }
           test "$(curl -sf -o /dev/null -w '%{http_code}' http://localhost:8000/some/client/route)" = "200" \
             || { echo "SPA fallback route did not return 200"; cat server.log; exit 1; }
-          kill "$(cat server.pid)"
+          kill "$pid"
 
   publish:
     needs: test-package
@@ -119,8 +117,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Download dist artifacts
         uses: actions/download-artifact@v4

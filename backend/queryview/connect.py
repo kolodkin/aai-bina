@@ -402,8 +402,8 @@ async def list_tables(sid: str) -> dict[str, Any]:
     if s is None:
         return err  # type: ignore[return-value]
     driver = DRIVERS[s.type]
-    ok, result = await driver.list_tables(s.config, s.database)
-    if not ok or isinstance(result, str):
+    _ok, result = await driver.list_tables(s.config, s.database)
+    if isinstance(result, str):
         return {"ok": False, "message": result}
     tables = [{**t, "query": select_all_sql(t["name"], driver.ident_quote)} for t in result]
     return {"ok": True, "tables": tables}

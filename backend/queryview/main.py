@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import uuid
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,7 @@ _PACKAGED_STATIC = Path(__file__).resolve().parent / "static"
 SERVE_STATIC = os.environ.get("SERVE_STATIC", "1" if _PACKAGED_STATIC.is_dir() else "") == "1"
 
 
+@lru_cache(maxsize=1)
 def _static_root() -> Path:
     env = os.environ.get("STATIC_ROOT")
     if env:
@@ -134,25 +136,28 @@ async def db_connections() -> dict[str, Any]:
 
 
 def _driver_and_config(body: Any):
-    """Resolve (driver, config) from a request body's `type`. Returns
-    (driver, config, None) or (None, None, message)."""
+    """Resolve (driver, config) from a request body's `type`, or the 400
+    response to return for an unknown type / invalid config."""
     b = body if isinstance(body, dict) else {}
-    conn_type = b.get("type") if isinstance(b.get("type"), str) else ""
+    raw_type = b.get("type")
+    conn_type = raw_type if isinstance(raw_type, str) else ""
     driver = DRIVERS.get(conn_type)
     if driver is None:
-        return None, None, f"unknown connection type: {conn_type or '(none)'}"
+        message = f"unknown connection type: {conn_type or '(none)'}"
+        return JSONResponse({"ok": False, "message": message}, status_code=400)
     config, error = driver.parse_config(b)
-    if error:
-        return None, None, error
-    return driver, config, None
+    if error or config is None:
+        return JSONResponse({"ok": False, "message": error}, status_code=400)
+    return driver, config
 
 
 # Test only: a throwaway connectivity check, no save, no activation.
 @app.post("/api/db/test")
 async def db_test(request: Request):
-    driver, config, error = _driver_and_config(await _read_json(request))
-    if driver is None or config is None:
-        return JSONResponse({"ok": False, "message": error}, status_code=400)
+    resolved = _driver_and_config(await _read_json(request))
+    if isinstance(resolved, JSONResponse):
+        return resolved
+    driver, config = resolved
     return await driver.test(config)
 
 
@@ -160,9 +165,10 @@ async def db_test(request: Request):
 @app.post("/api/db/connect")
 async def db_connect(request: Request):
     body = await _read_json(request)
-    driver, config, error = _driver_and_config(body)
-    if driver is None or config is None:
-        return JSONResponse({"ok": False, "message": error}, status_code=400)
+    resolved = _driver_and_config(body)
+    if isinstance(resolved, JSONResponse):
+        return resolved
+    driver, config = resolved
     b = body if isinstance(body, dict) else {}
     raw_name = b.get("name")
     name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else driver.type
@@ -254,24 +260,23 @@ async def db_describe(request: Request):
     return {"ok": True, "fields": r["fields"]}
 
 
-async def _resolve_workspace(raw: Any):
-    """(WorkspaceRec, None) or (None, JSONResponse) for a request's optional
-    `workspace` field; empty/missing means the default workspace."""
+async def _resolve_workspace(raw: Any) -> workspaces.WorkspaceRec | JSONResponse:
+    """The workspace for a request's optional `workspace` field (empty/missing
+    means the default workspace), or the error response to return."""
     name = _clean_str(raw) or workspaces.DEFAULT_WORKSPACE
     try:
-        return await workspaces.resolve(name), None
+        return await workspaces.resolve(name)
     except workspaces.WorkspaceError as e:
-        return None, JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+        return JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
 
 
 # Predefined queries: keyed by connection type within a workspace.
 @app.get("/api/predefined-queries")
 async def predefined_queries_list(request: Request):
     conn_type = request.query_params.get("type") or "clickhouse"
-    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
-    if err:
-        return err
-    assert ws is not None
+    ws = await _resolve_workspace(request.query_params.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
     return {"queries": await list_predefined_queries_view(conn_type, ws.id)}
 
 
@@ -302,10 +307,9 @@ async def predefined_queries_save(request: Request):
 
     order_by = json.dumps(order_by_arr) if isinstance(order_by_arr, list) and order_by_arr else None
     fields = json.dumps(fields_arr) if isinstance(fields_arr, list) and fields_arr else None
-    ws, err = await _resolve_workspace(b.get("workspace"))
-    if err:
-        return err
-    assert ws is not None
+    ws = await _resolve_workspace(b.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
     await save_predefined_query(name, conn_type, query, cell_view, order_by, fields, workspace_id=ws.id)
     return {"ok": True}
 
@@ -474,10 +478,9 @@ async def dashboards_upsert(request: Request):
             {"ok": False, "message": "name, connection and html are required"},
             status_code=400,
         )
-    ws, err = await _resolve_workspace(b.get("workspace"))
-    if err:
-        return err
-    assert ws is not None
+    ws = await _resolve_workspace(b.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
     session_id = _clean_str(b.get("session_id"))
     persisted, pushed, message = await _upsert_and_push(
         name, connection, html, queries, session_id or None, workspace_id=ws.id
@@ -487,19 +490,17 @@ async def dashboards_upsert(request: Request):
 
 @app.get("/api/dashboards")
 async def dashboards_list(request: Request):
-    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
-    if err:
-        return err
-    assert ws is not None
+    ws = await _resolve_workspace(request.query_params.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
     return {"dashboards": await list_dashboards(ws.id)}
 
 
 @app.get("/api/dashboards/{name}")
 async def dashboards_get(name: str, request: Request):
-    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
-    if err:
-        return err
-    assert ws is not None
+    ws = await _resolve_workspace(request.query_params.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
     d = await get_dashboard(name, ws.id)
     if d is None:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -509,26 +510,21 @@ async def dashboards_get(name: str, request: Request):
 # --- Git sync: per-entity backup/restore (see docs/gitsync.md) -------------
 
 
-def _gitsync_args(kind, name, conn_type):
-    """Validated (kind, name, conn_type, error); error is a JSONResponse or None,
+def _gitsync_args(kind: Any, name: Any, conn_type: Any) -> tuple[str, str, str | None] | JSONResponse:
+    """Validated (kind, name, conn_type), or the 400 response to return,
     mirroring _driver_and_config's convention."""
     kind = _clean_str(kind)
     name = _clean_str(name)
     conn_type = _clean_str(conn_type)
     if kind not in ("query", "dashboard") or not name or (kind == "query" and not conn_type):
-        return (
-            None,
-            None,
-            None,
-            JSONResponse(
-                {
-                    "ok": False,
-                    "message": "kind ('query'|'dashboard'), name and (for queries) conn_type are required",
-                },
-                status_code=400,
-            ),
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": "kind ('query'|'dashboard'), name and (for queries) conn_type are required",
+            },
+            status_code=400,
         )
-    return kind, name, conn_type or None, None
+    return kind, name, conn_type or None
 
 
 async def _gitsync_json(coro):
@@ -543,10 +539,9 @@ async def _gitsync_json(coro):
 
 @app.get("/api/git/status")
 async def git_status(request: Request):
-    ws, err = await _resolve_workspace(request.query_params.get("workspace"))
-    if err:
-        return err
-    assert ws is not None
+    ws = await _resolve_workspace(request.query_params.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
     return {"configured": gitsync.configured(ws)}
 
 
@@ -554,12 +549,13 @@ async def git_status(request: Request):
 async def git_store(request: Request):
     body = await _read_json(request)
     b = body if isinstance(body, dict) else {}
-    kind, name, conn_type, err = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
-    if err:
-        return err
-    ws, werr = await _resolve_workspace(b.get("workspace"))
-    if werr:
-        return werr
+    args = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
+    if isinstance(args, JSONResponse):
+        return args
+    kind, name, conn_type = args
+    ws = await _resolve_workspace(b.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
     message = _clean_str(b.get("message")) or None
     return await _gitsync_json(gitsync.store(ws, kind, name, conn_type, message))
 
@@ -567,16 +563,17 @@ async def git_store(request: Request):
 @app.get("/api/git/history")
 async def git_history(request: Request):
     q = request.query_params
-    kind, name, conn_type, err = _gitsync_args(q.get("kind"), q.get("name"), q.get("conn_type"))
-    if err:
-        return err
+    args = _gitsync_args(q.get("kind"), q.get("name"), q.get("conn_type"))
+    if isinstance(args, JSONResponse):
+        return args
+    kind, name, conn_type = args
     try:
         limit = max(1, min(int(q.get("limit") or 10), 100))
     except ValueError:
         limit = 10
-    ws, werr = await _resolve_workspace(q.get("workspace"))
-    if werr:
-        return werr
+    ws = await _resolve_workspace(q.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
     return await _gitsync_json(gitsync.history(ws, kind, name, conn_type, q.get("before") or None, limit))
 
 
@@ -584,12 +581,13 @@ async def git_history(request: Request):
 async def git_restore(request: Request):
     body = await _read_json(request)
     b = body if isinstance(body, dict) else {}
-    kind, name, conn_type, err = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
-    if err:
-        return err
-    ws, werr = await _resolve_workspace(b.get("workspace"))
-    if werr:
-        return werr
+    args = _gitsync_args(b.get("kind"), b.get("name"), b.get("conn_type"))
+    if isinstance(args, JSONResponse):
+        return args
+    kind, name, conn_type = args
+    ws = await _resolve_workspace(b.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
     return await _gitsync_json(gitsync.restore(ws, kind, name, conn_type, _clean_str(b.get("ref")) or None))
 
 

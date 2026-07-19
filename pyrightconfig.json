@@ -4,14 +4,10 @@
   "include": ["backend", "e2e"],
   "exclude": [
     "**/__pycache__",
-    "**/.venv",
-    "**/node_modules",
     "backend/queryview/migrations/versions"
   ],
   "pythonVersion": "3.11",
   "typeCheckingMode": "basic",
   "reportMissingImports": "error",
-  "reportMissingTypeStubs": false,
-  "reportArgumentType": "warning",
-  "reportCallIssue": "warning"
+  "reportMissingTypeStubs": false
 }

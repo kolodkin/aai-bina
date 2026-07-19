@@ -50,7 +50,7 @@ def parse_ch_config(body: Any) -> tuple[ChConfig | None, str | None]:
     """Validate a ClickHouse config from a request body. Returns (config, None) or
     (None, message)."""
     fields, err = parse_host_port_config(body)
-    if err:
+    if err or fields is None:
         return None, err
     return ChConfig(**fields), None
 

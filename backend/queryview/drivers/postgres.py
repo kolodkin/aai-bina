@@ -17,7 +17,7 @@ from .base import (
     wrap_paginated,
 )
 
-PG_TIMEOUT_SECONDS = 5.0
+PG_TIMEOUT_SECONDS = 5
 _BOOTSTRAP_DBS = ("postgres", "template1")
 
 
@@ -31,7 +31,7 @@ class PgConfig:
 
 def parse_pg_config(body: Any) -> tuple[PgConfig | None, str | None]:
     fields, err = parse_host_port_config(body)
-    if err:
+    if err or fields is None:
         return None, err
     return PgConfig(**fields), None
 
