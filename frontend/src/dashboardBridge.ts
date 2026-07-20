@@ -7,6 +7,10 @@
 // Column-oriented results map: {query_name: {column_name: values[]}}.
 export type Results = Record<string, Record<string, unknown[]>>
 
+// Resolved selector handed to the page: its option list and current value, so
+// the page can render controls without knowing how they were resolved.
+export type { ResolvedParam } from './dashboardParams'
+
 export type BridgeRequest = { id: string; queries: Record<string, string> }
 
 export type BridgeAnswer =
@@ -46,15 +50,6 @@ window.runQueries = function (queries) {
     parent.postMessage({ type: 'run-queries', id: id, queries: queries }, '*');
   });
 };`
-
-// Resolved selector handed to the page: its option list and current value, so
-// the page can render controls without knowing how they were resolved.
-export type ResolvedParam = {
-  name: string
-  kind: string
-  options: string[]
-  value: string
-}
 
 // The in-iframe half of the params channel. The page sends values only; the host
 // substitutes them into the dashboard's own SQL and posts results back, so the

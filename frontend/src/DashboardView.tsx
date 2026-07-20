@@ -7,14 +7,15 @@ import {
   buildSrcDoc,
   parseBridgeRequest,
   parseParamsRequest,
-  type ResolvedParam,
   type Results,
 } from './dashboardBridge'
 import {
+  missingParams,
   parseDashboardParams,
-  resolveOrder,
+  resolveParams,
   substituteParams,
   type DashboardParam,
+  type ResolvedParam,
 } from './dashboardParams'
 import GitSyncControls from './GitSyncControls'
 import { activeWorkspace } from './workspace'
@@ -46,7 +47,9 @@ async function runQueries(connection: string, queries: Record<string, string>) {
 
 type Runner = (queries: Record<string, string>) => ReturnType<typeof runQueries>
 
-// Substitute the resolved selections into every named query of the dashboard.
+// Substitute the resolved selections into the dashboard's queries. A query
+// whose selectors aren't all chosen yet is left out rather than run half-blank:
+// with `default: none` the dashboard opens with nothing selected and waits.
 function applyToQueries(
   queries: Record<string, string>,
   declared: DashboardParam[],
@@ -54,43 +57,10 @@ function applyToQueries(
 ): Record<string, string> {
   const values = Object.fromEntries(resolved.map((p) => [p.name, p.value]))
   return Object.fromEntries(
-    Object.entries(queries).map(([name, sql]) => [name, substituteParams(sql, declared, values)]),
+    Object.entries(queries)
+      .filter(([, sql]) => missingParams(sql, declared, values).length === 0)
+      .map(([name, sql]) => [name, substituteParams(sql, declared, values)]),
   )
-}
-
-// Resolve each selector's option list in dependency order — an options_sql may
-// reference an already-resolved param — keeping the caller's values where they
-// are still valid and otherwise falling back to the first option.
-async function resolveParams(
-  params: DashboardParam[],
-  values: Record<string, string>,
-  run: Runner,
-): Promise<ResolvedParam[]> {
-  const resolved: ResolvedParam[] = []
-  const chosen: Record<string, string> = {}
-
-  for (const p of resolveOrder(params)) {
-    let options = p.options ?? []
-    if (p.optionsSql) {
-      const sql = substituteParams(p.optionsSql, params, chosen)
-      const r = await run({ o: sql })
-      if (!r.ok) throw new Error(r.message)
-      const table = r.results.o ?? {}
-      const firstColumn = Object.values(table)[0] ?? []
-      options = firstColumn.map(String)
-    }
-    // A dimension is a checkbox: its value is the toggle, not a choice.
-    const want = values[p.name]
-    const value =
-      p.kind === 'dimension'
-        ? (want ?? '')
-        : want && options.includes(want)
-          ? want
-          : (options[0] ?? '')
-    chosen[p.name] = value
-    resolved.push({ name: p.name, kind: p.kind, options, value })
-  }
-  return resolved
 }
 
 // The dashboard page (`/dashboard?name=x`). Picks a saved dashboard (dropdown or
@@ -249,7 +219,12 @@ function DashboardView({
         if (cancelled) return
         setParams(resolved)
 
-        const r = await run(applyToQueries(dash.queries, declared, resolved))
+        const runnable = applyToQueries(dash.queries, declared, resolved)
+        if (!Object.keys(runnable).length) {
+          setResults({})
+          return
+        }
+        const r = await run(runnable)
         if (cancelled) return
         if (!r.ok) {
           setError(r.message)
@@ -296,7 +271,10 @@ function DashboardView({
       if (values) {
         try {
           const resolved = await resolveParams(declared, values, run)
-          const r = await run(applyToQueries(active!.queries, declared, resolved))
+          const runnable = applyToQueries(active!.queries, declared, resolved)
+          const r = Object.keys(runnable).length
+            ? await run(runnable)
+            : { ok: true as const, results: {} as Results }
           frame.contentWindow?.postMessage(
             r.ok
               ? { type: 'params-results', ok: true, results: r.results, params: resolved }

@@ -3,25 +3,29 @@ import {
   parseDashboardParams,
   placeholdersIn,
   resolveOrder,
+  resolveParams,
+  missingParams,
   substituteParams,
 } from './dashboardParams'
 
 describe('parseDashboardParams', () => {
   test('parses a static options param', () => {
     expect(parseDashboardParams([{ name: 'region', options: ['eu', 'us'] }])).toEqual([
-      { name: 'region', kind: 'value', options: ['eu', 'us'] },
+      { name: 'region', kind: 'value', options: ['eu', 'us'], autoSelect: true },
     ])
   })
 
   test('parses an options_sql param', () => {
     expect(
       parseDashboardParams([{ name: 'table', kind: 'identifier', options_sql: 'SELECT name FROM system.tables' }]),
-    ).toEqual([{ name: 'table', kind: 'identifier', optionsSql: 'SELECT name FROM system.tables' }])
+    ).toEqual([
+      { name: 'table', kind: 'identifier', optionsSql: 'SELECT name FROM system.tables', autoSelect: true },
+    ])
   })
 
   test('parses a dimension param, which needs no options', () => {
     expect(parseDashboardParams([{ name: 'category', kind: 'dimension' }])).toEqual([
-      { name: 'category', kind: 'dimension' },
+      { name: 'category', kind: 'dimension', autoSelect: true },
     ])
   })
 
@@ -139,5 +143,89 @@ describe('resolveOrder', () => {
       { name: 'b', kind: 'identifier', options_sql: 'SELECT {a}' },
     ])
     expect(() => resolveOrder(params)).toThrow(/cycle/i)
+  })
+})
+
+describe('default: none', () => {
+  test('parses a param that starts unselected', () => {
+    expect(parseDashboardParams([{ name: 'table', kind: 'identifier', options: ['a'], default: 'none' }])).toEqual([
+      { name: 'table', kind: 'identifier', options: ['a'], autoSelect: false },
+    ])
+  })
+
+  test('auto-selects by default, as query params do', () => {
+    expect(parseDashboardParams([{ name: 'table', options: ['a'] }])[0].autoSelect).toBe(true)
+  })
+})
+
+describe('missingParams', () => {
+  const params = parseDashboardParams([
+    { name: 'table', kind: 'identifier', options: ['events'], default: 'none' },
+    { name: 'field', kind: 'identifier', options: ['city'], default: 'none' },
+    { name: 'category', kind: 'dimension' },
+  ])
+
+  test('names the placeholders a query still needs a value for', () => {
+    expect(missingParams('SELECT {field} FROM {table}', params, { table: 'events' })).toEqual(['field'])
+  })
+
+  test('is empty once every placeholder has a value', () => {
+    expect(missingParams('SELECT {field} FROM {table}', params, { table: 'events', field: 'city' })).toEqual([])
+  })
+
+  test('never reports a dimension, which is off rather than unset', () => {
+    expect(missingParams('GROUP BY {category}', params, {})).toEqual([])
+  })
+
+  test('ignores placeholders that match no param', () => {
+    expect(missingParams('SELECT {nope}', params, {})).toEqual([])
+  })
+})
+
+describe('resolveParams', () => {
+  const params = parseDashboardParams([
+    { name: 'table', kind: 'identifier', default: 'none', options_sql: 'SELECT name FROM system.tables' },
+    {
+      name: 'field',
+      kind: 'identifier',
+      default: 'none',
+      options_sql: 'SELECT name FROM system.columns WHERE table = {table:literal}',
+    },
+  ])
+  const run = async (queries: Record<string, string>) => ({
+    ok: true as const,
+    results: { o: { name: queries.o.includes('system.tables') ? ['events'] : ['city', 'ts'] } },
+  })
+
+  test('leaves a dependent param unresolved while its dependency is unset', async () => {
+    // The whole point of `default: none`: nothing is chosen, so the field list
+    // cannot be looked up yet — and that is not an error.
+    const resolved = await resolveParams(params, {}, run)
+    expect(resolved).toEqual([
+      { name: 'table', kind: 'identifier', options: ['events'], value: '' },
+      { name: 'field', kind: 'identifier', options: [], value: '' },
+    ])
+  })
+
+  test('resolves the dependent options once the dependency has a value', async () => {
+    const resolved = await resolveParams(params, { table: 'events' }, run)
+    expect(resolved[1]).toEqual({ name: 'field', kind: 'identifier', options: ['city', 'ts'], value: '' })
+  })
+
+  test('keeps a chosen value that is still a valid option', async () => {
+    const resolved = await resolveParams(params, { table: 'events', field: 'city' }, run)
+    expect(resolved[1].value).toBe('city')
+  })
+
+  test('drops a chosen value that the new options no longer offer', async () => {
+    const resolved = await resolveParams(params, { table: 'events', field: 'gone' }, run)
+    expect(resolved[1].value).toBe('')
+  })
+
+  test('auto-selects the first option unless the param opts out', async () => {
+    const auto = parseDashboardParams([
+      { name: 'table', kind: 'identifier', options_sql: 'SELECT name FROM system.tables' },
+    ])
+    expect((await resolveParams(auto, {}, run))[0].value).toBe('events')
   })
 })

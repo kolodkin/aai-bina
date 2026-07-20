@@ -12,11 +12,30 @@
 
 export type ParamKind = 'value' | 'identifier' | 'dimension'
 
+// A selector with its option list resolved and a value chosen (or left empty).
+export type ResolvedParam = {
+  name: string
+  kind: string
+  options: string[]
+  value: string
+}
+
+// Runs an options_sql and hands back its column-oriented result.
+export type OptionsRunner = (
+  queries: Record<string, string>,
+) => Promise<
+  { ok: true; results: Record<string, Record<string, unknown[]>> } | { ok: false; message: string }
+>
+
 export type DashboardParam = {
   name: string
   kind: ParamKind
   options?: string[]
   optionsSql?: string
+  // Whether the first option is chosen for you. `default: none` leaves the
+  // selector empty so nothing runs until a choice is made — useful when the
+  // first option is an arbitrary pick rather than a sensible default.
+  autoSelect: boolean
 }
 
 const KINDS: ParamKind[] = ['value', 'identifier', 'dimension']
@@ -39,22 +58,23 @@ export function parseDashboardParams(raw: unknown): DashboardParam[] {
     const kind = (o.kind ?? 'value') as ParamKind
     if (!KINDS.includes(kind)) continue
 
+    const autoSelect = o.default !== 'none'
     const hasOptions = Array.isArray(o.options)
     const sql = typeof o.options_sql === 'string' ? o.options_sql.trim() : ''
     if (hasOptions && sql) continue // ambiguous
 
     if (sql) {
-      out.push({ name: o.name, kind, optionsSql: sql })
+      out.push({ name: o.name, kind, optionsSql: sql, autoSelect })
       continue
     }
     if (hasOptions) {
       const options = (o.options as unknown[]).filter((v) => typeof v !== 'object').map(String)
       if (options.length === 0) continue
-      out.push({ name: o.name, kind, options })
+      out.push({ name: o.name, kind, options, autoSelect })
       continue
     }
     // A dimension is a checkbox: it needs no option list.
-    if (kind === 'dimension') out.push({ name: o.name, kind })
+    if (kind === 'dimension') out.push({ name: o.name, kind, autoSelect })
   }
   return out
 }
@@ -125,4 +145,60 @@ export function resolveOrder(params: DashboardParam[]): DashboardParam[] {
 
   for (const p of params) visit(p)
   return ordered
+}
+
+// The declared params a query still needs a value for. Dimensions never appear:
+// an unchecked one is off, not unset. Placeholders matching no param are the
+// query's own business.
+export function missingParams(
+  sql: string,
+  params: DashboardParam[],
+  values: Record<string, string>,
+): string[] {
+  const byName = new Map(params.map((p) => [p.name, p]))
+  return placeholdersIn(sql).filter((name) => {
+    const p = byName.get(name)
+    return !!p && p.kind !== 'dimension' && !values[name]
+  })
+}
+
+// Resolve every selector's options in dependency order, keeping the caller's
+// values where they are still offered. A param whose options_sql depends on a
+// param that isn't chosen yet resolves to no options and no value — with
+// `default: none` that is the normal opening state, not a failure.
+export async function resolveParams(
+  params: DashboardParam[],
+  values: Record<string, string>,
+  run: OptionsRunner,
+): Promise<ResolvedParam[]> {
+  const resolved: ResolvedParam[] = []
+  const chosen: Record<string, string> = {}
+
+  for (const p of resolveOrder(params)) {
+    let options = p.options ?? []
+    if (p.optionsSql) {
+      if (missingParams(p.optionsSql, params, chosen).length) {
+        chosen[p.name] = ''
+        resolved.push({ name: p.name, kind: p.kind, options: [], value: '' })
+        continue
+      }
+      const r = await run({ o: substituteParams(p.optionsSql, params, chosen) })
+      if (!r.ok) throw new Error(r.message)
+      const firstColumn = Object.values(r.results.o ?? {})[0] ?? []
+      options = firstColumn.map(String)
+    }
+    // A dimension is a checkbox: its value is the toggle, not a choice.
+    const want = values[p.name]
+    const value =
+      p.kind === 'dimension'
+        ? (want ?? '')
+        : want && options.includes(want)
+          ? want
+          : p.autoSelect
+            ? (options[0] ?? '')
+            : ''
+    chosen[p.name] = value
+    resolved.push({ name: p.name, kind: p.kind, options, value })
+  }
+  return resolved
 }

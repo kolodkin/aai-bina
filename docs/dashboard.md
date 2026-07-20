@@ -120,7 +120,12 @@ empty literal, so the query keeps its shape and the column simply drops out of t
 grouping.
 
 As with [query params](./query.md), `options` and `options_sql` are mutually
-exclusive and the first option is the default. An `options_sql` may itself
+exclusive, and the first option is selected for you unless the param opts out
+with **`default: none`** — which leaves the selector empty and holds back every
+query referencing it until a choice is made. Use it when the first option is an
+arbitrary pick rather than a sensible default (any table, any column). A
+dependent `options_sql` whose `{param}` is still unset simply resolves to no
+options, so the dashboard opens waiting rather than erroring. An `options_sql` may itself
 reference another `{param}` — so a field list can depend on the selected table —
 and those are resolved in dependency order; a cycle is an error.
 
