@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   BrowserRouter,
   Link,
@@ -14,7 +14,7 @@ import DashboardView, { type DashboardPush } from './DashboardView'
 import ExplorerView from './ExplorerView'
 import { Toast } from './Toast'
 import WorkspaceSwitcher from './WorkspaceSwitcher'
-import { useDismiss } from './useDismiss'
+import Popover from './Popover'
 import { activeWorkspace, setActiveWorkspace } from './workspace'
 
 // App shell: routing, shared connection state, the connection pill + agent
@@ -42,10 +42,6 @@ function Shell() {
   }, [copied])
 
   // Dismiss the header popovers on an outside click.
-  const dbRef = useRef<HTMLDivElement>(null)
-  const agentRef = useRef<HTMLDivElement>(null)
-  useDismiss(dbOpen, dbRef, () => setDbOpen(false))
-  useDismiss(agentOpen, agentRef, () => setAgentOpen(false))
 
   function switchWorkspace(name: string) {
     setActiveWorkspace(name)
@@ -190,7 +186,13 @@ function Shell() {
     <main className="relative flex min-h-screen items-center justify-center px-6 py-10 text-slate-100">
       {ready && connection && (
         <div className="absolute left-4 top-4 flex items-center gap-2">
-          <div className="relative" ref={dbRef}>
+          <Popover
+            open={dbOpen && connection.databases.length > 0}
+            onDismiss={() => setDbOpen(false)}
+            testId="db-select"
+            panelRole="listbox"
+            panelClassName="max-h-72 w-64 overflow-auto p-1 text-sm"
+            trigger={
             <button
               type="button"
               data-testid="connection-status"
@@ -209,12 +211,8 @@ function Shell() {
                 <span className="text-xs text-slate-400">▾</span>
               )}
             </button>
-            {dbOpen && connection.databases.length > 0 && (
-              <div
-                data-testid="db-select"
-                role="listbox"
-                className="glass-popover absolute left-0 top-full z-10 mt-2 max-h-72 w-64 overflow-auto p-1 text-sm"
-              >
+            }
+          >
                 {connection.databases.map((db) => (
                   <button
                     key={db}
@@ -229,9 +227,7 @@ function Shell() {
                     {db}
                   </button>
                 ))}
-              </div>
-            )}
-          </div>
+          </Popover>
           <button
             type="button"
             data-testid="connection-copy"
@@ -265,7 +261,12 @@ function Shell() {
               )}
             </svg>
           </button>
-          <div className="relative" ref={agentRef}>
+          <Popover
+            open={agentOpen}
+            onDismiss={() => setAgentOpen(false)}
+            testId="agent-panel"
+            panelClassName="w-72 p-3 text-sm"
+            trigger={
             <button
               type="button"
               data-testid="agent-toggle"
@@ -290,11 +291,8 @@ function Shell() {
                 <circle cx="15" cy="13" r="1" />
               </svg>
             </button>
-            {agentOpen && (
-              <div
-                data-testid="agent-panel"
-                className="glass-popover absolute left-0 top-full z-10 mt-2 w-72 p-3 text-sm"
-              >
+            }
+          >
                 <label className="flex items-center gap-2 font-medium text-slate-200">
                   <input
                     type="checkbox"
@@ -327,9 +325,7 @@ function Shell() {
                     <p className="text-xs text-slate-400">{agentCommand}</p>
                   </div>
                 )}
-              </div>
-            )}
-          </div>
+          </Popover>
         </div>
       )}
 

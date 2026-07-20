@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { invalidateGitStatus } from './gitsync'
-import { useDismiss } from './useDismiss'
+import Popover from './Popover'
 import {
   createWorkspace,
   deleteWorkspace,
@@ -26,11 +26,6 @@ export default function WorkspaceSwitcher({ workspace, onSwitch }: Props) {
   const [name, setName] = useState('')
   const [remote, setRemote] = useState('')
   const [branch, setBranch] = useState('')
-  const rootRef = useRef<HTMLDivElement>(null)
-  useDismiss(open || manage, rootRef, () => {
-    setOpen(false)
-    setManage(false)
-  })
 
   async function reload() {
     try {
@@ -100,21 +95,31 @@ export default function WorkspaceSwitcher({ workspace, onSwitch }: Props) {
   }
 
   return (
-    <div className="relative" ref={rootRef}>
-      <button
-        type="button"
-        data-testid="workspace-switcher"
-        onClick={() => {
-          setOpen((o) => !o)
-          if (!open) void reload()
-        }}
-        className="glass-chip flex items-center gap-2 px-3 py-1.5 text-sm font-medium"
-      >
-        {workspace}
-        <span className="text-xs text-slate-400">▾</span>
-      </button>
+    <Popover
+      open={open || manage}
+      onDismiss={() => {
+        setOpen(false)
+        setManage(false)
+      }}
+      align="right"
+      panelClassName={manage ? 'w-80 space-y-2 p-3 text-sm' : 'w-64 p-1 text-sm'}
+      trigger={
+        <button
+          type="button"
+          data-testid="workspace-switcher"
+          onClick={() => {
+            setOpen((o) => !o)
+            if (!open) void reload()
+          }}
+          className="glass-chip flex items-center gap-2 px-3 py-1.5 text-sm font-medium"
+        >
+          {workspace}
+          <span className="text-xs text-slate-400">▾</span>
+        </button>
+      }
+    >
       {open && (
-        <div className="glass-popover absolute right-0 top-full z-10 mt-2 w-64 p-1 text-sm">
+        <>
           {list.map((w) => (
             <button
               key={w.name}
@@ -142,10 +147,10 @@ export default function WorkspaceSwitcher({ workspace, onSwitch }: Props) {
           >
             Manage workspaces…
           </button>
-        </div>
+        </>
       )}
       {manage && (
-        <div className="glass-popover absolute right-0 top-full z-10 mt-2 w-80 space-y-2 p-3 text-sm">
+        <>
           <div className="text-xs text-slate-400">Workspace name</div>
           <input
             data-testid="workspace-name-input"
@@ -205,8 +210,8 @@ export default function WorkspaceSwitcher({ workspace, onSwitch }: Props) {
               {error}
             </p>
           )}
-        </div>
+        </>
       )}
-    </div>
+    </Popover>
   )
 }

@@ -60,3 +60,22 @@ def test_commit_and_restore_dashboard_round_trip(page: Page, base_url: str):
     d = httpx.get(f"{base_url}/api/dashboards/gs%20e2e").json()
     assert "v1" in d["html"]
     assert d["queries"] == {"q": "SELECT 1"}
+
+
+def test_revisions_dismiss_on_outside_click_and_escape(page: Page, base_url: str):
+    """The Restore revision list dismisses like every other popover."""
+    if not _configured(base_url):
+        pytest.skip("git sync is not configured (no GIT_SYNC_REMOTE)")
+    page.goto(f"{base_url}/dashboard")
+    toggle = page.get_by_test_id("git-restore-toggle")
+    revisions = page.get_by_test_id("git-revisions")
+
+    toggle.click()
+    expect(revisions).to_be_visible()
+    page.mouse.click(500, 600)
+    expect(revisions).to_have_count(0)
+
+    toggle.click()
+    expect(revisions).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(revisions).to_have_count(0)
