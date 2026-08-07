@@ -69,6 +69,15 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Export pinned test dependencies
+        run: uv export --frozen --group test --no-emit-project -o requirements-test.txt
+
+      - name: Upload requirements artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: requirements
+          path: requirements-test.txt
+
   # Install the built wheel into a clean venv (no repo checkout) and verify the
   # packaged server comes up: /api/health, the bundled SPA at /, and the
   # index.html fallback for client-side routes.
@@ -108,8 +117,43 @@ jobs:
             || { echo "SPA fallback route did not return 200"; cat server.log; exit 1; }
           kill "$pid"
 
+  # Run the packaged backend test suite against the installed wheel. No
+  # checkout — the tests ship inside the queryview package, so this exercises
+  # exactly the bits users install.
+  test-package-pytest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Create virtual environment
+        run: uv venv --python 3.11
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Download requirements artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: requirements
+
+      - name: Install pinned dependencies and built wheel
+        run: |
+          uv pip install -r requirements-test.txt
+          uv pip install --no-deps --no-index --find-links dist/ aaibina
+
+      - name: Run packaged tests against the installed wheel
+        working-directory: ${{ runner.temp }}
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+        run: uv run --no-project pytest --pyargs queryview
+
   publish:
-    needs: test-package
+    needs: [test-package, test-package-pytest]
     runs-on: ubuntu-latest
     permissions:
       contents: write
