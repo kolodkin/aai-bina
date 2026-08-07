@@ -38,6 +38,7 @@ def test_fresh_db_is_migrated_to_head():
 
     # The stamped revision is the latest in the migration tree.
     from alembic.script import ScriptDirectory
+
     from queryview.connect import _alembic_config
 
     head = ScriptDirectory.from_config(_alembic_config()).get_current_head()
@@ -52,8 +53,9 @@ def test_config_blob_migration_backfills_existing_clickhouse_row(tmp_path, monke
     import json
     import sqlite3
 
-    import queryview.connect as _c
     from alembic import command
+
+    import queryview.connect as _c
     from queryview.connect import _alembic_config, _db_path, _decrypt_str, _encrypt_str
 
     monkeypatch.setenv("DB_PATH", str(tmp_path / "blob.db"))

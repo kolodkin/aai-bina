@@ -42,7 +42,7 @@ jobs:
         run: uv sync --frozen --group test
 
       - name: Run backend unit tests
-        run: uv run --frozen pytest backend/tests
+        run: uv run --frozen pytest backend/queryview
 
   test-e2e:
     runs-on: ubuntu-latest

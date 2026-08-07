@@ -8,6 +8,7 @@ import asyncio
 import sqlite3
 
 import pytest
+
 from queryview.connect import _db_path
 from queryview.workspaces import (
     DEFAULT_WORKSPACE,

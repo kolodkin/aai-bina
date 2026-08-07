@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 
 from fastapi.testclient import TestClient
+
 from queryview.main import app
 
 # The git_env fixture (bare repo + GIT_SYNC_* env vars) lives in conftest.py.

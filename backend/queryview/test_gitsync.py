@@ -7,6 +7,7 @@ import asyncio
 import subprocess
 
 import pytest
+
 from queryview import gitsync
 from queryview.gitsync import (
     GitSyncError,

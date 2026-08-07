@@ -9,6 +9,7 @@ import asyncio
 
 import duckdb
 import pytest
+
 from queryview.drivers.duckdb import DuckConfig, DuckDBDriver
 
 
