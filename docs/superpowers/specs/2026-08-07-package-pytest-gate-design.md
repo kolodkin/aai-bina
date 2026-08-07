@@ -1,10 +1,11 @@
-# Package pytest gate for the PyPI publish flow
+# Package pytest + e2e gates for the PyPI publish flow
 
 ## Goal
 
-Gate the `aaibina` PyPI release on the backend pytest suite running against the
-built wheel — aaiclick-style — and adopt aaiclick's side-by-side test layout so
-the tests ship inside the package.
+Gate the `aaibina` PyPI release on the backend pytest suite and the Playwright
+e2e suite running against the built wheel — aaiclick-style — and adopt
+aaiclick's side-by-side test layout so the backend tests ship inside the
+package.
 
 ## Test layout
 
@@ -52,13 +53,32 @@ only).
   4. `uv pip install --no-deps --no-index --find-links dist/ aaibina`
   5. From `${{ runner.temp }}`: `uv run --no-project pytest --pyargs queryview`
      (with `VIRTUAL_ENV` pointing at the workspace venv).
-- `publish` job: `needs: [test-package, test-package-pytest]` — the curl smoke
-  test stays (it verifies the bundled SPA serves, which pytests don't cover).
+- New `test-package-e2e` job (`needs: [build, test-package-pytest]` — the
+  expensive e2e run starts only after the backend pytests pass). A copy of
+  ci.yml's `test-e2e` job with the app-under-test swapped from source to the
+  built wheel:
+  - Same ClickHouse + Postgres `services:` blocks, checkout (for `e2e/` and
+    the `start-git-daemon` composite action), Playwright chromium install,
+    git daemon, and pytest invocation.
+  - No Node/npm/frontend-build steps — the wheel already contains the SPA.
+  - Deps: `uv sync --frozen --group test --no-install-project`, then install
+    the wheel from the `dist` artifact; start the server with the installed
+    `aaibina` binary so Playwright drives the exact bytes being published.
+  - No report-deploy / checks-annotation steps (they need `DEPLOY_KEY`);
+    upload Playwright traces as an artifact on failure instead.
+  - Skippable via a new `skip-e2e` boolean `workflow_dispatch` input
+    (emergency escape hatch for flake-blocked releases, mirroring aaiclick's
+    `skip-docker-e2e`).
+- `publish` job: `needs: [test-package, test-package-pytest, test-package-e2e]`
+  with an aaiclick-style `if: always() && ...` condition requiring smoke and
+  pytest success and e2e success-or-skipped. The curl smoke test stays (it
+  verifies the bundled SPA serves even if e2e is skipped).
 
 ## Docs
 
 - `README.md` publish section: mention the release is also gated on the
-  packaged test suite run against the installed wheel.
+  packaged test suite and the Playwright e2e suite run against the installed
+  wheel.
 - `CLAUDE.md`: new `# Tests` section stating the convention — tests side by
   side with code in the relevant module package; e2e tests in their own
   top-level folder; the packaged suite must pass against the installed wheel
@@ -66,5 +86,5 @@ only).
 
 ## Out of scope
 
-No e2e/Playwright gate in the publish flow (needs ClickHouse/Postgres services
-and a browser; CI covers it per-PR). No container images. No test matrix.
+No container images. No test matrix. No e2e report publishing from the release
+workflow.
