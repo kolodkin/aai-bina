@@ -4,6 +4,7 @@ the old /api/clickhouse paths are gone (404)."""
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+
 from queryview.main import app
 
 

@@ -16,6 +16,11 @@ on:
         required: false
         type: boolean
         default: false
+      skip-e2e:
+        description: "Skip the Playwright e2e release gate (emergency only)"
+        required: false
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_RUNNER_NODE_VERSION: node24
@@ -69,6 +74,15 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Export pinned test dependencies
+        run: uv export --frozen --group test --no-emit-project -o requirements-test.txt
+
+      - name: Upload requirements artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: requirements
+          path: requirements-test.txt
+
   # Install the built wheel into a clean venv (no repo checkout) and verify the
   # packaged server comes up: /api/health, the bundled SPA at /, and the
   # index.html fallback for client-side routes.
@@ -108,8 +122,143 @@ jobs:
             || { echo "SPA fallback route did not return 200"; cat server.log; exit 1; }
           kill "$pid"
 
+  # Run the packaged backend test suite against the installed wheel. No
+  # checkout — the tests ship inside the queryview package, so this exercises
+  # exactly the bits users install.
+  test-package-pytest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Create virtual environment
+        run: uv venv --python 3.11
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Download requirements artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: requirements
+
+      - name: Install pinned dependencies and built wheel
+        run: |
+          uv pip install -r requirements-test.txt
+          uv pip install --no-deps --no-index --find-links dist/ aaibina
+
+      - name: Run packaged tests against the installed wheel
+        working-directory: ${{ runner.temp }}
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+        run: uv run --no-project pytest --pyargs queryview
+
+  # Playwright e2e against the installed wheel: server and SPA are the exact
+  # bytes being published (no Node/frontend build — the wheel ships the SPA).
+  # The checkout supplies only e2e/, uv.lock, and the git-daemon action.
+  # Runs after the packaged pytest gate so the expensive leg starts only once
+  # the cheap one passes.
+  test-package-e2e:
+    needs: [build, test-package-pytest]
+    if: ${{ !inputs.skip-e2e }}
+    runs-on: ubuntu-latest
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:24
+        ports:
+          - 8123:8123
+        # Probe the HTTP interface (8123) — what the backend actually uses —
+        # so the readiness gate matches the app.
+        options: >-
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --add-host=host.docker.internal:host-gateway
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install test dependencies (project not installed)
+        run: uv sync --frozen --group test --no-install-project
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install built wheel
+        run: uv pip install --no-deps dist/aaibina-*.whl
+
+      - name: Install Playwright browser
+        run: uv run --no-sync playwright install --with-deps chromium
+
+      - name: Start git daemon
+        uses: ./.github/actions/start-git-daemon
+
+      - name: Start backend from the installed wheel
+        run: |
+          SERVE_STATIC=1 .venv/bin/aaibina > backend.log 2>&1 &
+          echo $! > backend.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/api/health > /dev/null; then
+              echo "Backend is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend failed to start"; cat backend.log; exit 1
+
+      - name: Run Playwright e2e tests
+        env:
+          BASE_URL: http://localhost:8000
+        run: |
+          uv run --no-sync pytest e2e \
+            --tracing retain-on-failure \
+            --output test-results
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill "$(cat backend.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload trace artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-release
+          path: test-results/
+          retention-days: 1
+          if-no-files-found: ignore
+
   publish:
-    needs: test-package
+    needs: [test-package, test-package-pytest, test-package-e2e]
+    if: >-
+      always()
+      && needs.test-package.result == 'success'
+      && needs.test-package-pytest.result == 'success'
+      && (needs.test-package-e2e.result == 'success'
+          || needs.test-package-e2e.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write

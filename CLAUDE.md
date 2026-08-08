@@ -8,6 +8,17 @@
 1. Use `uv run` (e.g. `uv run pytest`, `uv run python ...`), not `python -m` or a
    manually activated virtualenv.
 
+# Tests
+
+1. Pytest tests live side by side with the code they test, inside the relevant
+   module package (e.g. `backend/queryview/test_queries.py`,
+   `backend/queryview/drivers/test_clickhouse.py`), with shared fixtures in
+   `backend/queryview/conftest.py`. They ship in the wheel, and the release
+   workflow runs them against the installed package
+   (`pytest --pyargs queryview`).
+2. Exception: e2e (Playwright) tests live in the top-level `e2e/` folder —
+   they test the running app through its HTTP surface, not a module.
+
 # Conventions
 
 ## Docs

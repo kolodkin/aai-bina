@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+
 from queryview.drivers import DRIVERS, Driver
 from queryview.drivers.clickhouse import ChConfig
 from queryview.drivers.duckdb import DuckConfig

@@ -5,6 +5,7 @@ in test_workspaces.py."""
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+
 from queryview.main import app
 
 

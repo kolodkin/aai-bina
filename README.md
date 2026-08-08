@@ -90,9 +90,12 @@ Override the target URL with `BASE_URL=http://localhost:4173 uv run --group test
 
 The **Publish to PyPI** workflow (`.github/workflows/publish.yaml`, manual
 dispatch with a `vX.Y.Z` tag input) builds the SPA into the wheel
-(`queryview/static/`), smoke-tests the installed package, publishes
+(`queryview/static/`), then gates the release on the installed wheel: an HTTP
+smoke test, the packaged backend test suite (`pytest --pyargs queryview`), and
+the Playwright e2e suite driving the packaged server (skippable via the
+`skip-e2e` input for emergencies). It then publishes
 [`aaibina`](https://pypi.org/project/aaibina/) via PyPI trusted publishing,
-then pushes the tag and creates the GitHub release. The package version comes
+pushes the tag, and creates the GitHub release. The package version comes
 from the tag (no version bump in `pyproject.toml`).
 
 An installed wheel serves the bundled UI by default:

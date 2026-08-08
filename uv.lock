@@ -42,7 +42,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.0" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", specifier = ">=1.9" },
+    { name = "mcp", specifier = ">=1.9,<2" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "sqlmodel", specifier = ">=0.0.16" },

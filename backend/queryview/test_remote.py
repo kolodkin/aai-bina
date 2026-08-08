@@ -2,6 +2,7 @@ import asyncio
 import time
 
 from fastapi.testclient import TestClient
+
 from queryview import remote
 from queryview.main import app
 

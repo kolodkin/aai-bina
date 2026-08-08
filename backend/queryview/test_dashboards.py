@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 
 from fastapi.testclient import TestClient
+
 from queryview import remote
 from queryview.dashboards import (
     _upsert_and_push,

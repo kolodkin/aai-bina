@@ -129,6 +129,7 @@ def test_same_name_is_distinct_per_workspace(default_ws_id):
 
 def test_api_unknown_workspace_is_404():
     from fastapi.testclient import TestClient
+
     from queryview.main import app
 
     c = TestClient(app)
