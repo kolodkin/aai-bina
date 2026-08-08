@@ -88,6 +88,25 @@ async def list_dashboards(workspace_id: int) -> list[dict[str, Any]]:
     return [{"name": r.name, "connection": r.connection, "updated_at": r.updated_at} for r in rows]
 
 
+async def list_dashboards_full(workspace_id: int) -> list[dict[str, Any]]:
+    """One workspace's dashboards ordered by name, with the full payload in
+    get_dashboard's shape (`queries` parsed to a dict). Used by the
+    whole-workspace YAML export."""
+    await _ensure_schema()
+    async with AsyncSession(_engine_for_db()) as s:
+        rows = (
+            await s.exec(select(Dashboard).where(Dashboard.workspace_id == workspace_id).order_by(Dashboard.name))
+        ).all()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            queries = json.loads(r.queries)
+        except (ValueError, TypeError):
+            queries = {}
+        out.append({"name": r.name, "connection": r.connection, "html": r.html, "queries": queries})
+    return out
+
+
 def _dashboard_event(name: str, connection: str, html: str, queries: dict[str, str]) -> dict[str, Any]:
     """The SSE payload the browser renders for a pushed dashboard."""
     return {

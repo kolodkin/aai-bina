@@ -57,6 +57,32 @@ async def list_predefined_queries(conn_type: str, workspace_id: int) -> list[dic
     ]
 
 
+async def list_all_predefined_queries(workspace_id: int) -> list[dict[str, str | None]]:
+    """Every saved query in one workspace regardless of connection type,
+    ordered by (type, name) — the row shape of list_predefined_queries plus
+    `type`. Used by the whole-workspace YAML export."""
+    await _ensure_schema()
+    async with AsyncSession(_engine_for_db()) as s:
+        rows = (
+            await s.exec(
+                select(PredefinedQuery)
+                .where(PredefinedQuery.workspace_id == workspace_id)
+                .order_by(PredefinedQuery.type, PredefinedQuery.query_name)
+            )
+        ).all()
+    return [
+        {
+            "type": r.type,
+            "query_name": r.query_name,
+            "query": r.query,
+            "cell_view": r.cell_view,
+            "order_by": r.order_by,
+            "fields": r.fields,
+        }
+        for r in rows
+    ]
+
+
 async def get_predefined_query(conn_type: str, query_name: str, workspace_id: int) -> dict[str, str | None] | None:
     """One saved query by (workspace, type, name) — the unique key — in the same
     row shape as list_predefined_queries items, or None."""

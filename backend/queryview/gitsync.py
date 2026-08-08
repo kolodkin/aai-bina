@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from .yamlio import dump_yaml as _dump
+
 if TYPE_CHECKING:
     from .workspaces import WorkspaceRec
 
@@ -29,23 +31,8 @@ class GitSyncError(Exception):
 
 
 # --- Serialization ---------------------------------------------------------
-
-
-def _repr_str(dumper: yaml.SafeDumper, data: str):
-    # Multiline strings (SQL, cell_view) as literal blocks for readable diffs.
-    style = "|" if "\n" in data else None
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
-
-
-class _Dumper(yaml.SafeDumper):
-    pass
-
-
-_Dumper.add_representer(str, _repr_str)
-
-
-def _dump(data: Any) -> str:
-    return yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True)
+# The literal-block YAML dumper lives in yamlio.py (shared with YAML
+# export/import); the per-entity repo file formats below stay gitsync's own.
 
 
 _SAFE = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._ -")

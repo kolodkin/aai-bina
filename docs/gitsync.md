@@ -61,6 +61,7 @@ optional `session_id` (see [workspace.md](./workspace.md)).
 ## Related docs
 
 - [workspace.md](./workspace.md) — workspaces: per-workspace remotes.
+- [export-import.md](./export-import.md) — one-shot YAML export/import of the same entities, no git needed.
 - [query.md](./query.md) — predefined queries.
 - [dashboard.md](./dashboard.md) — dashboards.
 - [api.md](./api.md) — backend JSON API.

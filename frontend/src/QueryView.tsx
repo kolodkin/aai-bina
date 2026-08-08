@@ -8,6 +8,7 @@ import { ResultsTable } from './ResultsTable'
 import { shownColumnIndices } from './presentation'
 import { parseTsv } from './tsv'
 import { DRIVERS, type DriverMeta } from './drivers'
+import ExportImportControls from './ExportImportControls'
 import GitSyncControls from './GitSyncControls'
 import { activeWorkspace } from './workspace'
 import { suggestCompletions, type Suggestion } from './promptSuggestions'
@@ -1233,6 +1234,13 @@ function QueryPanel({
           connType={connectionType}
           disabled={busy || !selectedName.trim()}
           onRestored={() => void onQueryRestored()}
+        />
+        <ExportImportControls
+          kind="query"
+          name={selectedName}
+          connType={connectionType}
+          disabled={busy}
+          onImported={() => void onQueryRestored()}
         />
       </div>
 

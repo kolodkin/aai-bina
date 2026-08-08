@@ -54,6 +54,17 @@ rest and never returned by the API. See [workspace.md](./workspace.md).
 | PATCH  | `/api/workspaces/{name}`  | `{name?, remote?, branch?}`   | Rename/reconfigure. A null `remote` clears it; an absent key leaves it unchanged. `{ok}`. |
 | DELETE | `/api/workspaces/{name}`  | —                             | Delete an empty workspace. `{ok}`; unknown → `404`, still owns entities → `409`. |
 
+## YAML export / import
+
+Predefined queries and dashboards can be downloaded as self-describing YAML
+documents and imported back — per entity or a whole workspace at once. See
+[export-import.md](./export-import.md) for the document shapes.
+
+| Method | Path          | Body / params                              | Description |
+| ------ | ------------- | ------------------------------------------ | ----------- |
+| GET    | `/api/export` | `?kind=&name=&conn_type=&workspace=`       | Download one entity (`kind` `query`/`dashboard`, `name`, `conn_type` for queries) or the whole workspace (`kind=workspace`) as YAML, with a `Content-Disposition` filename. `400` bad args, `404` unknown entity/workspace. |
+| POST   | `/api/import` | raw YAML body, `?workspace=`               | Import a document into a workspace, upserting by name; the document's `kind` decides what is written. `{ok, kind, queries, dashboards}`. `400` malformed document. |
+
 ## Git sync
 
 Predefined queries and dashboards can be backed up to (and restored from) each
@@ -81,4 +92,5 @@ optional `session_id` (see [workspace.md](./workspace.md)).
 - [remote.md](./remote.md) — pushing queries to a live session over MCP.
 - [dashboard.md](./dashboard.md) — the dashboard page, `upsert_dashboard`, and the `window.queries` contract.
 - [gitsync.md](./gitsync.md) — backing up and restoring queries and dashboards via git.
+- [export-import.md](./export-import.md) — YAML export/import of queries, dashboards and workspaces.
 - [workspace.md](./workspace.md) — workspaces: entity ownership and per-workspace remotes.

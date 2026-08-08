@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 
-from . import gitsync, remote, workspaces
+from . import gitsync, remote, workspaces, yamlio
 from .connect import (
     _ensure_schema,
     connect_new,
@@ -589,6 +589,68 @@ async def git_restore(request: Request):
     if isinstance(ws, JSONResponse):
         return ws
     return await _gitsync_json(gitsync.restore(ws, kind, name, conn_type, _clean_str(b.get("ref")) or None))
+
+
+# --- YAML export / import (see docs/export-import.md) ----------------------
+
+
+# Download one entity — or the whole workspace — as a self-describing YAML
+# document (its `kind` field drives import, never the filename).
+@app.get("/api/export")
+async def export_yaml(request: Request):
+    q = request.query_params
+    kind = _clean_str(q.get("kind"))
+    name = _clean_str(q.get("name"))
+    conn_type = _clean_str(q.get("conn_type"))
+    if (
+        kind not in ("query", "dashboard", "workspace")
+        or (kind != "workspace" and not name)
+        or (kind == "query" and not conn_type)
+    ):
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": "kind ('query'|'dashboard'|'workspace'), name and (for queries) conn_type are required",
+            },
+            status_code=400,
+        )
+    ws = await _resolve_workspace(q.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
+    try:
+        if kind == "query":
+            text = await yamlio.export_query(conn_type, name, ws.id)
+            filename = f"{gitsync.slug(name)}.query.yaml"
+        elif kind == "dashboard":
+            text = await yamlio.export_dashboard(name, ws.id)
+            filename = f"{gitsync.slug(name)}.dashboard.yaml"
+        else:
+            text = await yamlio.export_workspace(ws.id)
+            filename = f"{gitsync.slug(ws.name)}.workspace.yaml"
+    except yamlio.YamlIOError as e:
+        return JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+    return PlainTextResponse(
+        text,
+        media_type="application/x-yaml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# Import a YAML document (raw request body) into a workspace, upserting by
+# name. The document's `kind` decides what gets written.
+@app.post("/api/import")
+async def import_yaml(request: Request):
+    ws = await _resolve_workspace(request.query_params.get("workspace"))
+    if isinstance(ws, JSONResponse):
+        return ws
+    text = (await request.body()).decode("utf-8", "replace")
+    if not text.strip():
+        return JSONResponse({"ok": False, "message": "YAML body required"}, status_code=400)
+    try:
+        r = await yamlio.import_text(text, ws.id)
+    except yamlio.YamlIOError as e:
+        return JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
+    return {"ok": True, **r}
 
 
 # --- Workspaces (see docs/workspace.md) ------------------------------------
