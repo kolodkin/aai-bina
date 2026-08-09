@@ -337,17 +337,25 @@ def test_query_param_options_sql_populates_dropdown(seeded_test_db, page: Page, 
 
 
 def test_query_param_options_and_options_sql_are_mutually_exclusive(seeded_test_db, page: Page, shot) -> None:
-    """A param declaring both `options` and `options_sql` is a config error: the
-    entry is dropped during parse, so no dropdown renders for it."""
+    """A param declaring both `options` and `options_sql` is a config error:
+    server-side cell_view validation rejects the save, so the modal stays open
+    and no dropdown ever renders."""
     _open_query_panel(page)
-    _author_params_yaml(
-        page,
-        "both-keys",
-        "SELECT name FROM items WHERE name = {sel} ORDER BY id",
-        "params:\n  - name: sel\n    options: [alpha, beta]\n    options_sql: SELECT name FROM items\n",
+    page.get_by_test_id("query-input").fill("SELECT name FROM items WHERE name = {sel} ORDER BY id")
+    page.once("dialog", lambda d: d.accept("both-keys"))
+    page.get_by_test_id("query-predefined-select").select_option("::new::")
+    page.get_by_test_id("cell-view-toggle").click()
+    expect(page.get_by_test_id("cell-view-modal")).to_be_visible()
+    page.get_by_test_id("cell-view-input").fill(
+        "params:\n  - name: sel\n    options: [alpha, beta]\n    options_sql: SELECT name FROM items\n"
     )
+    page.get_by_test_id("cell-view-save").click()
+    # Rejected: the modal stays open (a clean persist is what closes it).
+    expect(page.get_by_test_id("cell-view-modal")).to_be_visible()
+    shot("both options + options_sql -> save rejected")
+    page.get_by_test_id("cell-view-cancel").click()
+    expect(page.get_by_test_id("query-error")).to_contain_text("invalid cell_view")
     expect(page.locator('[data-testid="param-select"][data-param="sel"]')).to_have_count(0)
-    shot("both options + options_sql -> no dropdown")
 
 
 def test_query_param_options_sql_no_rows_blocks_run(seeded_test_db, page: Page, shot) -> None:
