@@ -31,6 +31,18 @@ class PredefinedQuery(SQLModel, table=True):
     fields: str | None = Field(default=None)
 
 
+def _row_dict(r: PredefinedQuery) -> dict[str, str | None]:
+    """The row shape every accessor here returns (order_by/fields stay the
+    stored JSON text)."""
+    return {
+        "query_name": r.query_name,
+        "query": r.query,
+        "cell_view": r.cell_view,
+        "order_by": r.order_by,
+        "fields": r.fields,
+    }
+
+
 async def list_predefined_queries(conn_type: str, workspace_id: int) -> list[dict[str, str | None]]:
     """Saved queries for a connection type within one workspace, ordered by name."""
     await _ensure_schema()
@@ -45,16 +57,7 @@ async def list_predefined_queries(conn_type: str, workspace_id: int) -> list[dic
                 .order_by(PredefinedQuery.query_name)
             )
         ).all()
-    return [
-        {
-            "query_name": r.query_name,
-            "query": r.query,
-            "cell_view": r.cell_view,
-            "order_by": r.order_by,
-            "fields": r.fields,
-        }
-        for r in rows
-    ]
+    return [_row_dict(r) for r in rows]
 
 
 async def list_all_predefined_queries(workspace_id: int) -> list[dict[str, str | None]]:
@@ -70,17 +73,7 @@ async def list_all_predefined_queries(workspace_id: int) -> list[dict[str, str |
                 .order_by(PredefinedQuery.type, PredefinedQuery.query_name)
             )
         ).all()
-    return [
-        {
-            "type": r.type,
-            "query_name": r.query_name,
-            "query": r.query,
-            "cell_view": r.cell_view,
-            "order_by": r.order_by,
-            "fields": r.fields,
-        }
-        for r in rows
-    ]
+    return [{"type": r.type, **_row_dict(r)} for r in rows]
 
 
 async def get_predefined_query(conn_type: str, query_name: str, workspace_id: int) -> dict[str, str | None] | None:
@@ -97,15 +90,7 @@ async def get_predefined_query(conn_type: str, query_name: str, workspace_id: in
                 )
             )
         ).first()
-    if row is None:
-        return None
-    return {
-        "query_name": row.query_name,
-        "query": row.query,
-        "cell_view": row.cell_view,
-        "order_by": row.order_by,
-        "fields": row.fields,
-    }
+    return _row_dict(row) if row is not None else None
 
 
 async def list_predefined_queries_view(conn_type: str, workspace_id: int) -> list[dict]:
@@ -122,6 +107,32 @@ async def list_predefined_queries_view(conn_type: str, workspace_id: int) -> lis
     return rows
 
 
+async def save_predefined_queries(rows: list[dict[str, str | None]], *, workspace_id: int) -> None:
+    """Upsert many predefined queries — each a dict with `type`, `query_name`,
+    `query` and optional `cell_view`/`order_by`/`fields` (JSON text) — in one
+    transaction, keyed by (workspace, type, query_name)."""
+    await _ensure_schema()
+    async with AsyncSession(_engine_for_db()) as s:
+        for r in rows:
+            row = (
+                await s.exec(
+                    select(PredefinedQuery).where(
+                        PredefinedQuery.type == r["type"],
+                        PredefinedQuery.query_name == r["query_name"],
+                        PredefinedQuery.workspace_id == workspace_id,
+                    )
+                )
+            ).first()
+            if row is None:
+                row = PredefinedQuery(query_name=r["query_name"], type=r["type"], workspace_id=workspace_id, query="")
+            row.query = r["query"] or ""
+            row.cell_view = r.get("cell_view")
+            row.order_by = r.get("order_by")
+            row.fields = r.get("fields")
+            s.add(row)
+        await s.commit()
+
+
 async def save_predefined_query(
     query_name: str,
     conn_type: str,
@@ -133,31 +144,16 @@ async def save_predefined_query(
     workspace_id: int,
 ) -> None:
     """Upsert a predefined query by (workspace, type, query_name)."""
-    await _ensure_schema()
-    async with AsyncSession(_engine_for_db()) as s:
-        row = (
-            await s.exec(
-                select(PredefinedQuery).where(
-                    PredefinedQuery.type == conn_type,
-                    PredefinedQuery.query_name == query_name,
-                    PredefinedQuery.workspace_id == workspace_id,
-                )
-            )
-        ).first()
-        if row is None:
-            row = PredefinedQuery(
-                query_name=query_name,
-                type=conn_type,
-                workspace_id=workspace_id,
-                query=query,
-                cell_view=cell_view,
-                order_by=order_by,
-                fields=fields,
-            )
-        else:
-            row.query = query
-            row.cell_view = cell_view
-            row.order_by = order_by
-            row.fields = fields
-        s.add(row)
-        await s.commit()
+    await save_predefined_queries(
+        [
+            {
+                "type": conn_type,
+                "query_name": query_name,
+                "query": query,
+                "cell_view": cell_view,
+                "order_by": order_by,
+                "fields": fields,
+            }
+        ],
+        workspace_id=workspace_id,
+    )

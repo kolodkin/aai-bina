@@ -595,38 +595,18 @@ async def git_restore(request: Request):
 
 
 # Download one entity — or the whole workspace — as a self-describing YAML
-# document (its `kind` field drives import, never the filename).
+# document (its `kind` field drives import, never the filename). Validation,
+# dispatch and the download filename live in yamlio.export.
 @app.get("/api/export")
 async def export_yaml(request: Request):
     q = request.query_params
-    kind = _clean_str(q.get("kind"))
-    name = _clean_str(q.get("name"))
-    conn_type = _clean_str(q.get("conn_type"))
-    if (
-        kind not in ("query", "dashboard", "workspace")
-        or (kind != "workspace" and not name)
-        or (kind == "query" and not conn_type)
-    ):
-        return JSONResponse(
-            {
-                "ok": False,
-                "message": "kind ('query'|'dashboard'|'workspace'), name and (for queries) conn_type are required",
-            },
-            status_code=400,
-        )
     ws = await _resolve_workspace(q.get("workspace"))
     if isinstance(ws, JSONResponse):
         return ws
     try:
-        if kind == "query":
-            text = await yamlio.export_query(conn_type, name, ws.id)
-            filename = f"{gitsync.slug(name)}.query.yaml"
-        elif kind == "dashboard":
-            text = await yamlio.export_dashboard(name, ws.id)
-            filename = f"{gitsync.slug(name)}.dashboard.yaml"
-        else:
-            text = await yamlio.export_workspace(ws.id)
-            filename = f"{gitsync.slug(ws.name)}.workspace.yaml"
+        filename, text = await yamlio.export(
+            _clean_str(q.get("kind")), _clean_str(q.get("name")), _clean_str(q.get("conn_type")), ws
+        )
     except yamlio.YamlIOError as e:
         return JSONResponse({"ok": False, "message": str(e)}, status_code=e.status)
     return PlainTextResponse(

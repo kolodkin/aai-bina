@@ -29,43 +29,42 @@ class Dashboard(SQLModel, table=True):
     updated_at: int  # unix ms
 
 
+async def upsert_dashboards(items: list[dict[str, Any]], *, workspace_id: int) -> None:
+    """Upsert many dashboards — each a dict with `name`, `connection`, `html`
+    and a `queries` dict — in one transaction, keyed by (workspace, name).
+    `queries` is serialized to JSON text."""
+    await _ensure_schema()
+    async with AsyncSession(_engine_for_db()) as s:
+        for d in items:
+            row = (
+                await s.exec(
+                    select(Dashboard).where(Dashboard.name == d["name"], Dashboard.workspace_id == workspace_id)
+                )
+            ).first()
+            if row is None:
+                row = Dashboard(
+                    name=d["name"], workspace_id=workspace_id, connection="", html="", queries="", updated_at=0
+                )
+            row.connection = d["connection"]
+            row.html = d["html"]
+            row.queries = json.dumps(d["queries"])
+            row.updated_at = _now_ms()
+            s.add(row)
+        await s.commit()
+
+
 async def upsert_dashboard(
     name: str, connection: str, html: str, queries: dict[str, str], *, workspace_id: int
 ) -> None:
     """Upsert a dashboard by (workspace, name); `queries` is serialized to JSON text."""
-    await _ensure_schema()
-    payload = json.dumps(queries)
-    async with AsyncSession(_engine_for_db()) as s:
-        row = (
-            await s.exec(select(Dashboard).where(Dashboard.name == name, Dashboard.workspace_id == workspace_id))
-        ).first()
-        if row is None:
-            row = Dashboard(
-                name=name,
-                workspace_id=workspace_id,
-                connection=connection,
-                html=html,
-                queries=payload,
-                updated_at=_now_ms(),
-            )
-        else:
-            row.connection = connection
-            row.html = html
-            row.queries = payload
-            row.updated_at = _now_ms()
-        s.add(row)
-        await s.commit()
+    await upsert_dashboards(
+        [{"name": name, "connection": connection, "html": html, "queries": queries}], workspace_id=workspace_id
+    )
 
 
-async def get_dashboard(name: str, workspace_id: int) -> dict[str, Any] | None:
-    """A single dashboard with its `queries` parsed back to a dict, or None."""
-    await _ensure_schema()
-    async with AsyncSession(_engine_for_db()) as s:
-        row = (
-            await s.exec(select(Dashboard).where(Dashboard.name == name, Dashboard.workspace_id == workspace_id))
-        ).first()
-    if row is None:
-        return None
+def _payload(row: Dashboard) -> dict[str, Any]:
+    """A row's full payload with `queries` parsed back to a dict (leniently —
+    unparsable stored text degrades to an empty map)."""
     try:
         queries = json.loads(row.queries)
     except (ValueError, TypeError):
@@ -76,6 +75,16 @@ async def get_dashboard(name: str, workspace_id: int) -> dict[str, Any] | None:
         "html": row.html,
         "queries": queries,
     }
+
+
+async def get_dashboard(name: str, workspace_id: int) -> dict[str, Any] | None:
+    """A single dashboard with its `queries` parsed back to a dict, or None."""
+    await _ensure_schema()
+    async with AsyncSession(_engine_for_db()) as s:
+        row = (
+            await s.exec(select(Dashboard).where(Dashboard.name == name, Dashboard.workspace_id == workspace_id))
+        ).first()
+    return _payload(row) if row is not None else None
 
 
 async def list_dashboards(workspace_id: int) -> list[dict[str, Any]]:
@@ -97,14 +106,7 @@ async def list_dashboards_full(workspace_id: int) -> list[dict[str, Any]]:
         rows = (
             await s.exec(select(Dashboard).where(Dashboard.workspace_id == workspace_id).order_by(Dashboard.name))
         ).all()
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        try:
-            queries = json.loads(r.queries)
-        except (ValueError, TypeError):
-            queries = {}
-        out.append({"name": r.name, "connection": r.connection, "html": r.html, "queries": queries})
-    return out
+    return [_payload(r) for r in rows]
 
 
 def _dashboard_event(name: str, connection: str, html: str, queries: dict[str, str]) -> dict[str, Any]:

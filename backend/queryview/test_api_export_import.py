@@ -62,7 +62,7 @@ def test_query_export_headers_and_round_trip(default_ws_id):
     assert next(x for x in rows if x["query_name"] == "api yio")["query"] == "SELECT 1"
 
 
-def test_workspace_export_import_between_workspaces(default_ws_id):
+def test_workspace_export_import_between_workspaces(default_ws_id, wipe_workspace_entities):
     from queryview.dashboards import upsert_dashboard
 
     c = TestClient(app)
@@ -79,16 +79,7 @@ def test_workspace_export_import_between_workspaces(default_ws_id):
         assert d["queries"] == {"q": "SELECT 1"}
     finally:
         # Leave no imported entities behind: wipe the target then delete it.
-        from sqlalchemy import text as _sql
-
-        import queryview.connect as _c
         from queryview.workspaces import resolve
 
-        async def _wipe():
-            ws = await resolve("api yio target")
-            async with _c._engine_for_db().begin() as conn:
-                await conn.execute(_sql("DELETE FROM predefined_queries WHERE workspace_id = :w"), {"w": ws.id})
-                await conn.execute(_sql("DELETE FROM dashboards WHERE workspace_id = :w"), {"w": ws.id})
-
-        _run(_wipe())
+        wipe_workspace_entities(_run(resolve("api yio target")).id)
         assert c.delete("/api/workspaces/api yio target").json() == {"ok": True}

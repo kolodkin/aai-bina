@@ -7,7 +7,6 @@ upserts the DB row; HEAD never moves. Docs: docs/gitsync.md, docs/workspace.md."
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import shutil
 from pathlib import Path
@@ -15,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from .yamlio import dump_yaml as _dump
+from .yamlio import YamlIOError, dashboard_from_data, dump_yaml, query_from_data, query_to_data, slug
 
 if TYPE_CHECKING:
     from .workspaces import WorkspaceRec
@@ -31,24 +30,10 @@ class GitSyncError(Exception):
 
 
 # --- Serialization ---------------------------------------------------------
-# The literal-block YAML dumper lives in yamlio.py (shared with YAML
-# export/import); the per-entity repo file formats below stay gitsync's own.
-
-
-_SAFE = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._ -")
-
-
-def slug(name: str) -> str:
-    """Filesystem-safe name: percent-encode (UTF-8) anything outside
-    [A-Za-z0-9._ -] plus a leading dot. The canonical name lives inside the
-    YAML — restore trusts the file content, never the path."""
-    out: list[str] = []
-    for i, ch in enumerate(name):
-        if ch in _SAFE and not (ch == "." and i == 0):
-            out.append(ch)
-        else:
-            out.append("".join(f"%{b:02X}" for b in ch.encode("utf-8")))
-    return "".join(out)
+# The entity <-> mapping codec (and the literal-block dumper and slug) lives
+# in yamlio.py, shared with YAML export/import; this section only owns the
+# repo file layout: query files carry no `type` (the path does), a dashboard
+# splits into meta.yaml / dashboard.html / queries.yaml.
 
 
 def query_relpath(conn_type: str, name: str) -> str:
@@ -63,14 +48,7 @@ def query_to_yaml(row: dict[str, Any]) -> str:
     """One predefined-query row (as returned by list_predefined_queries) as
     YAML. cell_view stays a verbatim string; order_by/fields are stored in the
     DB as JSON text and exported as parsed YAML values. None keys are omitted."""
-    data: dict[str, Any] = {"query_name": row["query_name"], "query": row["query"]}
-    if row.get("cell_view"):
-        data["cell_view"] = row["cell_view"]
-    if row.get("order_by"):
-        data["order_by"] = json.loads(row["order_by"])
-    if row.get("fields"):
-        data["fields"] = json.loads(row["fields"])
-    return _dump(data)
+    return dump_yaml(query_to_data(row))
 
 
 def query_from_yaml(text: str) -> dict[str, Any]:
@@ -80,24 +58,18 @@ def query_from_yaml(text: str) -> dict[str, Any]:
         data = yaml.safe_load(text)
     except yaml.YAMLError as e:
         raise GitSyncError(f"malformed query file: {e}") from e
-    if not isinstance(data, dict) or not data.get("query_name") or not data.get("query"):
-        raise GitSyncError("malformed query file: query_name and query are required")
-    ob, fl = data.get("order_by"), data.get("fields")
-    return {
-        "query_name": data["query_name"],
-        "query": data["query"],
-        "cell_view": data.get("cell_view") or None,
-        "order_by": json.dumps(ob) if ob else None,
-        "fields": json.dumps(fl) if fl else None,
-    }
+    try:
+        return query_from_data(data)
+    except YamlIOError as e:
+        raise GitSyncError(str(e)) from e
 
 
 def dashboard_to_files(d: dict[str, Any]) -> dict[str, str]:
     """A dashboard (as returned by get_dashboard) as its three repo files."""
     return {
-        "meta.yaml": _dump({"name": d["name"], "connection": d["connection"]}),
+        "meta.yaml": dump_yaml({"name": d["name"], "connection": d["connection"]}),
         "dashboard.html": d["html"],
-        "queries.yaml": _dump(d["queries"] or {}),
+        "queries.yaml": dump_yaml(d["queries"] or {}),
     }
 
 
@@ -105,19 +77,14 @@ def dashboard_from_files(files: dict[str, str]) -> dict[str, Any]:
     """Inverse of dashboard_to_files."""
     try:
         meta = yaml.safe_load(files.get("meta.yaml") or "")
-        queries = yaml.safe_load(files.get("queries.yaml") or "") or {}
+        queries = yaml.safe_load(files.get("queries.yaml") or "")
     except yaml.YAMLError as e:
         raise GitSyncError(f"malformed dashboard file: {e}") from e
-    if not isinstance(meta, dict) or not meta.get("name") or not meta.get("connection"):
-        raise GitSyncError("malformed meta.yaml: name and connection are required")
-    if not isinstance(queries, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in queries.items()):
-        raise GitSyncError("malformed queries.yaml: expected {name: SQL} map")
-    return {
-        "name": meta["name"],
-        "connection": meta["connection"],
-        "html": files.get("dashboard.html", ""),
-        "queries": queries,
-    }
+    data = {**(meta if isinstance(meta, dict) else {}), "html": files.get("dashboard.html", ""), "queries": queries}
+    try:
+        return dashboard_from_data(data, require_html=False)
+    except YamlIOError as e:
+        raise GitSyncError(str(e)) from e
 
 
 # --- Configuration ---------------------------------------------------------

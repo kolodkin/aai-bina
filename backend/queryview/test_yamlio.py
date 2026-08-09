@@ -8,11 +8,27 @@ import asyncio
 import pytest
 import yaml
 
-from queryview.yamlio import YamlIOError, export_dashboard, export_query, export_workspace, import_text, parse_document
+from queryview.yamlio import (
+    YamlIOError,
+    export_dashboard,
+    export_query,
+    export_workspace,
+    import_text,
+    parse_document,
+    slug,
+)
 
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def test_slug_passthrough_and_encoding():
+    assert slug("top_errors") == "top_errors"
+    assert slug("top errors 2.0") == "top errors 2.0"
+    assert slug("a/b") == "a%2Fb"
+    assert slug(".hidden") == "%2Ehidden"
+    assert slug("héllo") == "h%C3%A9llo"
 
 
 # --- parse_document validation ---------------------------------------------
@@ -126,7 +142,7 @@ def test_dashboard_export_import_round_trip(default_ws_id):
     assert d["connection"] == "prod" and "v1" in d["html"] and d["queries"] == {"panel": "SELECT 1"}
 
 
-def test_workspace_export_import_round_trip(default_ws_id):
+def test_workspace_export_import_round_trip(default_ws_id, wipe_workspace_entities):
     """Export one workspace's whole content and import it into another."""
     from queryview.dashboards import get_dashboard, upsert_dashboard
     from queryview.queries import get_predefined_query, save_predefined_query
@@ -151,16 +167,7 @@ def test_workspace_export_import_round_trip(default_ws_id):
         d = _run(get_dashboard("ws dash", target.id))
         assert d is not None and d["queries"] == {"a": "SELECT 3"}
         # Clean the target so delete_workspace succeeds (it must be empty).
-        from sqlalchemy import text as _sql
-
-        import queryview.connect as _c
-
-        async def _wipe(ws_id: int):
-            async with _c._engine_for_db().begin() as conn:
-                await conn.execute(_sql("DELETE FROM predefined_queries WHERE workspace_id = :w"), {"w": ws_id})
-                await conn.execute(_sql("DELETE FROM dashboards WHERE workspace_id = :w"), {"w": ws_id})
-
-        _run(_wipe(target.id))
+        wipe_workspace_entities(target.id)
     finally:
         _run(delete_workspace("yio target"))
 

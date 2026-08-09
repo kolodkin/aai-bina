@@ -35,6 +35,28 @@ def git_env(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def wipe_workspace_entities():
+    """A callable that deletes every entity a workspace owns — teardown for
+    import tests that must leave a non-default workspace empty so
+    delete_workspace accepts it."""
+    import asyncio
+
+    from sqlalchemy import text
+
+    def _wipe(workspace_id: int) -> None:
+        import queryview.connect as c
+
+        async def go():
+            async with c._engine_for_db().begin() as conn:
+                await conn.execute(text("DELETE FROM predefined_queries WHERE workspace_id = :w"), {"w": workspace_id})
+                await conn.execute(text("DELETE FROM dashboards WHERE workspace_id = :w"), {"w": workspace_id})
+
+        asyncio.run(go())
+
+    return _wipe
+
+
+@pytest.fixture
 def default_ws_id() -> int:
     """The seeded default workspace's id, for store-level calls in tests."""
     import asyncio
