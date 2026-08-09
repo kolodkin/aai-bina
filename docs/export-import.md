@@ -2,10 +2,9 @@
 
 Predefined queries and dashboards can be exported to plain YAML files and
 imported back — one entity at a time, or a whole workspace as a single bundle.
-Unlike [git sync](./gitsync.md) this needs no git remote: it's a file download
-you can keep anywhere, hand to a colleague, or use to copy content between
-workspaces and instances. Connections are never exported (their config is
-encrypted credentials).
+Unlike [git sync](./gitsync.md) this needs no git remote — just a file you can
+share or use to copy content between workspaces and instances. Connections are
+never exported (their config is encrypted credentials).
 
 ## Documents
 
@@ -46,11 +45,10 @@ dashboards: # list of dashboard entries (as above, minus kind)
 ```
 
 Import upserts by name into the target workspace (same overwrite semantics as
-a git-sync restore) and validates the whole document before writing anything —
-a malformed file changes nothing. Validation covers the nested YAML too:
-`cell_view` must satisfy the contract in [query.md](./query.md#cell-views),
-and `order_by`/`fields` the same rules as a save. The workspace bundle intentionally carries
-no workspace name, so it imports into whichever workspace you choose.
+a git-sync restore) and validates the whole document — including `cell_view`
+([query.md](./query.md#cell-views)) and `order_by`/`fields` — before writing
+anything, so a malformed file changes nothing. The bundle carries no workspace
+name, so it imports into whichever workspace you choose.
 
 ## UI
 

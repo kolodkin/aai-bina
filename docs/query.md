@@ -143,12 +143,10 @@ query — editor edits take effect only after **Save** (which re-fetches the lis
 Ad-hoc SQL with no selected query renders plain, as does a broken (unparseable or
 unrecognized-shape) `cell_view`.
 
-Every write path **validates** the `cell_view` YAML against this contract —
-the save endpoint, remote push, YAML import and git restore all reject
-(`invalid cell_view: …`) a document that doesn't parse, isn't a mapping, has an
-entry without a string `type` (`link`/`custom`) and non-empty `value`, or has a
-malformed `params:` block. Reads stay lenient: rows stored before validation
-existed still render (broken entries fall back to plain text).
+Every write path — save, remote push, YAML import, git restore — **validates**
+`cell_view` against this contract and rejects violations
+(`invalid cell_view: …`). Reads stay lenient: rows stored before validation
+existed still render, with broken entries falling back to plain text.
 
 ### Pushed cell views (MCP / remote)
 
