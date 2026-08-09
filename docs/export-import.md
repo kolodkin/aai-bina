@@ -47,7 +47,9 @@ dashboards: # list of dashboard entries (as above, minus kind)
 
 Import upserts by name into the target workspace (same overwrite semantics as
 a git-sync restore) and validates the whole document before writing anything —
-a malformed file changes nothing. The workspace bundle intentionally carries
+a malformed file changes nothing. Validation covers the nested YAML too:
+`cell_view` must satisfy the contract in [query.md](./query.md#cell-views),
+and `order_by`/`fields` the same rules as a save. The workspace bundle intentionally carries
 no workspace name, so it imports into whichever workspace you choose.
 
 ## UI

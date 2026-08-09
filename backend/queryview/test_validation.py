@@ -1,4 +1,4 @@
-from queryview.validation import MAX_LIMIT, clamp_paging, presentation_error
+from queryview.validation import MAX_LIMIT, cell_view_error, clamp_paging, presentation_error
 
 
 def test_none_inputs_are_valid():
@@ -30,6 +30,54 @@ def test_non_list_order_by_rejected():
 def test_non_string_field_rejected():
     assert presentation_error(None, ["ok", 3]) is not None
     assert presentation_error(None, ["ok", ""]) is not None
+
+
+def test_cell_view_absent_or_empty_is_valid():
+    assert cell_view_error(None) is None
+    assert cell_view_error("") is None
+    assert cell_view_error("   \n") is None
+    assert cell_view_error("---\n") is None  # empty document
+
+
+def test_cell_view_valid_entries_and_params():
+    doc = (
+        "cve_id:\n"
+        "  type: link\n"
+        "  value: https://nvd.nist.gov/vuln/detail/{cell}\n"
+        "status:\n"
+        "  type: custom\n"
+        "  value: <strong>{cell}</strong>\n"
+        "params:\n"
+        "  - name: env\n"
+        "    options: [prod, staging]\n"
+        "  - name: host\n"
+        "    options_sql: SELECT DISTINCT host FROM t\n"
+    )
+    assert cell_view_error(doc) is None
+
+
+def test_cell_view_rejects_unparsable_yaml_and_non_mapping():
+    assert cell_view_error("col: [unclosed\n") is not None
+    assert cell_view_error("- a list\n") is not None
+    assert cell_view_error("just a scalar") is not None
+    assert cell_view_error(42) is not None  # not YAML text at all
+
+
+def test_cell_view_rejects_bad_entries():
+    assert cell_view_error("col: not a mapping\n") is not None
+    assert cell_view_error("col:\n  type: lnik\n  value: x\n") is not None  # typo'd type
+    assert cell_view_error("col:\n  type: link\n") is not None  # missing value
+    assert cell_view_error("col:\n  type: link\n  value: ''\n") is not None
+
+
+def test_cell_view_rejects_bad_params():
+    assert cell_view_error("params: notalist\n") is not None
+    assert cell_view_error("params:\n  - options: [a]\n") is not None  # no name
+    # options and options_sql are mutually exclusive; one is required
+    assert cell_view_error("params:\n  - name: p\n") is not None
+    assert cell_view_error("params:\n  - name: p\n    options: [a]\n    options_sql: SELECT 1\n") is not None
+    assert cell_view_error("params:\n  - name: p\n    options: []\n") is not None
+    assert cell_view_error("params:\n  - name: p\n    options: [{a: b}]\n") is not None
 
 
 def test_clamp_paging():

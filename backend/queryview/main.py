@@ -31,7 +31,7 @@ from .dashboards import _upsert_and_push, get_dashboard, list_dashboards
 from .drivers import DRIVERS
 from .mcp_server import mcp
 from .queries import list_predefined_queries_view, save_predefined_query
-from .validation import presentation_error
+from .validation import cell_view_error, presentation_error
 
 # SPA bundle shipped inside the wheel (release CI copies frontend/dist here);
 # absent in a source checkout, where the repo's frontend/dist is used instead.
@@ -296,6 +296,9 @@ async def predefined_queries_save(request: Request):
             status_code=400,
         )
     raw_cv = b.get("cell_view")
+    cverr = cell_view_error(raw_cv)
+    if cverr is not None:
+        return JSONResponse({"ok": False, "message": cverr}, status_code=400)
     # Store the raw YAML text verbatim; empty string => NULL (no custom views).
     cell_view = raw_cv if isinstance(raw_cv, str) and raw_cv.strip() else None
     order_by_arr = b.get("order_by")

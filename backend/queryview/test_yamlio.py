@@ -61,6 +61,12 @@ def test_parse_query_validates_presentation():
         parse_document(doc)
 
 
+def test_parse_query_validates_cell_view_yaml():
+    doc = 'kind: query\ntype: clickhouse\nquery_name: x\nquery: SELECT 1\ncell_view: "col: [unclosed"\n'
+    with pytest.raises(YamlIOError):
+        parse_document(doc)
+
+
 def test_parse_dashboard_requires_fields():
     with pytest.raises(YamlIOError):
         parse_document("kind: dashboard\nname: d\nconnection: c\n")  # no html
@@ -93,7 +99,7 @@ def test_query_export_import_round_trip(default_ws_id):
             "yio query",
             "clickhouse",
             "SELECT 1\nFROM t",
-            "col:\n  type: link\n",
+            "col:\n  type: link\n  value: https://x/{cell}\n",
             '[{"name": "col", "dir": "DESC"}]',
             '["col"]',
             workspace_id=default_ws_id,

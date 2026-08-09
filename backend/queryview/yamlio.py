@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from .validation import presentation_error
+from .validation import cell_view_error, presentation_error
 
 if TYPE_CHECKING:
     from .workspaces import WorkspaceRec
@@ -98,10 +98,8 @@ def query_from_data(data: Any, where: str = "query file") -> dict[str, Any]:
     query_name = _require_str(data, "query_name", where)
     query = _require_str(data, "query", where)
     cell_view = data.get("cell_view")
-    if cell_view is not None and not isinstance(cell_view, str):
-        raise YamlIOError(f"malformed {where}: cell_view must be a string")
     ob, fl = data.get("order_by"), data.get("fields")
-    perr = presentation_error(ob, fl)
+    perr = cell_view_error(cell_view) or presentation_error(ob, fl)
     if perr is not None:
         raise YamlIOError(f"malformed {where}: {perr}")
     return {
