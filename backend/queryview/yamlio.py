@@ -10,14 +10,12 @@ Docs: docs/export-import.md."""
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 
 from .validation import cell_view_error, presentation_error
-
-if TYPE_CHECKING:
-    from .workspaces import WorkspaceRec
+from .workspaces import WorkspaceRec
 
 
 class YamlIOError(Exception):

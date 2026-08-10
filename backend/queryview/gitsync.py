@@ -10,14 +10,12 @@ import asyncio
 import os
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 
+from .workspaces import WorkspaceRec
 from .yamlio import YamlIOError, dashboard_from_data, dump_yaml, query_from_data, query_to_data, slug
-
-if TYPE_CHECKING:
-    from .workspaces import WorkspaceRec
 
 
 class GitSyncError(Exception):
