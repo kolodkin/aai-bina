@@ -120,7 +120,9 @@ def test_query_export_import_round_trip(default_ws_id):
         assert copy[key] == orig[key]
     import json
 
-    assert json.loads(copy["order_by"]) == json.loads(orig["order_by"])
+    ob_copy, ob_orig = copy["order_by"], orig["order_by"]
+    assert ob_copy is not None and ob_orig is not None
+    assert json.loads(ob_copy) == json.loads(ob_orig)
 
 
 def test_dashboard_export_import_round_trip(default_ws_id):

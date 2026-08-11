@@ -4,7 +4,7 @@ connect.py."""
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel, select
@@ -107,10 +107,10 @@ async def list_predefined_queries_view(conn_type: str, workspace_id: int) -> lis
     return rows
 
 
-async def save_predefined_queries(rows: list[dict[str, str | None]], *, workspace_id: int) -> None:
-    """Upsert many predefined queries — each a dict with `type`, `query_name`,
-    `query` and optional `cell_view`/`order_by`/`fields` (JSON text) — in one
-    transaction, keyed by (workspace, type, query_name)."""
+async def save_predefined_queries(rows: list[dict[str, Any]], *, workspace_id: int) -> None:
+    """Upsert many predefined queries — each a dict with string `type`,
+    `query_name`, `query` and optional `cell_view`/`order_by`/`fields` (JSON
+    text or None) — in one transaction, keyed by (workspace, type, query_name)."""
     await _ensure_schema()
     async with AsyncSession(_engine_for_db()) as s:
         for r in rows:
