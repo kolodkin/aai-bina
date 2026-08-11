@@ -1,9 +1,12 @@
-"""Strict validation for the structured presentation fields (order_by, fields)
-carried on a push or a predefined-query save. cell_view is intentionally NOT
-validated here (lenient by design). Shared by remote.push and the save endpoint
-so every write path enforces the same rules."""
+"""Strict validation for the presentation fields carried on a push, a
+predefined-query save, or a YAML import/restore: order_by/fields (structured)
+and cell_view (raw YAML text, checked against the contract in
+docs/query.md#cell-views). Shared by every write path so they all enforce the
+same rules; reads stay lenient (the client drops entries it can't use)."""
 
 from __future__ import annotations
+
+import yaml
 
 MAX_LIMIT = 10000
 
@@ -31,6 +34,67 @@ def presentation_error(order_by: object, fields: object) -> str | None:
         for f in fields:
             if not isinstance(f, str) or not f:
                 return "invalid fields: each column must be a non-empty string"
+    return None
+
+
+def _cell_view_params_error(raw: object) -> str | None:
+    """Validate the reserved `params:` selector list (see docs/query.md)."""
+    if not isinstance(raw, list):
+        return "invalid cell_view: params must be a list of selector specs"
+    for i, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            return f"invalid cell_view: params[{i}] must be a mapping"
+        name = entry.get("name")
+        if not isinstance(name, str) or not name:
+            return f"invalid cell_view: params[{i}] name must be a non-empty string"
+        options, sql = entry.get("options"), entry.get("options_sql")
+        if (options is None) == (sql is None):
+            return f"invalid cell_view: params[{i}] must declare exactly one of options or options_sql"
+        if sql is not None and (not isinstance(sql, str) or not sql.strip()):
+            return f"invalid cell_view: params[{i}] options_sql must be a non-empty string"
+        if options is not None:
+            if not isinstance(options, list) or not options:
+                return f"invalid cell_view: params[{i}] options must be a non-empty list"
+            if any(isinstance(v, (dict, list)) or v is None for v in options):
+                return f"invalid cell_view: params[{i}] options must be scalars"
+    return None
+
+
+def cell_view_error(cell_view: object) -> str | None:
+    """Return an error message if a cell_view YAML text is malformed, else None.
+    None / empty text is valid (no custom views). The contract
+    (docs/query.md#cell-views): a YAML mapping whose reserved `params` key holds
+    selector specs and whose other entries are column -> {type: link|custom,
+    value: str} (extra keys are allowed)."""
+    if cell_view is None:
+        return None
+    if not isinstance(cell_view, str):
+        return "invalid cell_view: must be YAML text"
+    if not cell_view.strip():
+        return None
+    try:
+        doc = yaml.safe_load(cell_view)
+    except yaml.YAMLError as e:
+        return f"invalid cell_view: not valid YAML ({e})"
+    if doc is None:
+        return None
+    if not isinstance(doc, dict):
+        return "invalid cell_view: must be a YAML mapping of column -> {type, value}"
+    for key, entry in doc.items():
+        if not isinstance(key, str) or not key:
+            return "invalid cell_view: column names must be non-empty strings"
+        if key == "params":
+            perr = _cell_view_params_error(entry)
+            if perr is not None:
+                return perr
+            continue
+        if not isinstance(entry, dict):
+            return f"invalid cell_view: entry {key!r} must be a {{type, value}} mapping"
+        if entry.get("type") not in ("link", "custom"):
+            return f"invalid cell_view: entry {key!r} type must be 'link' or 'custom'"
+        value = entry.get("value")
+        if not isinstance(value, str) or not value:
+            return f"invalid cell_view: entry {key!r} value must be a non-empty string"
     return None
 
 

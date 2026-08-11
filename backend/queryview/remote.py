@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from .validation import presentation_error
+from .validation import cell_view_error, presentation_error
 
 LOCK_TTL_SECONDS = 30.0
 
@@ -118,7 +118,9 @@ def push(remote_id: str, payload: dict[str, Any]) -> tuple[bool, str]:
     channel = _channels.get(remote_id)
     if channel is None:
         return False, "unknown or inactive session"
-    err = presentation_error(payload.get("order_by"), payload.get("fields"))
+    err = presentation_error(payload.get("order_by"), payload.get("fields")) or cell_view_error(
+        payload.get("cell_view")
+    )
     if err is not None:
         return False, err
     if _human_holds(channel):

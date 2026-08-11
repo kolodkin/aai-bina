@@ -171,6 +171,15 @@ def test_push_rejects_invalid_order_by():
         remote.unregister(rid)
 
 
+def test_push_rejects_malformed_cell_view():
+    rid = remote.register()
+    try:
+        ok, msg = remote.push(rid, {"type": "query", "query": "SELECT 1", "cell_view": "col: [unclosed"})
+        assert ok is False and "invalid cell_view" in msg
+    finally:
+        remote.unregister(rid)
+
+
 def test_release_by_nonowner_is_noop():
     rid = remote.register()
     try:

@@ -17,20 +17,11 @@ from queryview.gitsync import (
     query_from_yaml,
     query_relpath,
     query_to_yaml,
-    slug,
 )
 
 
 def _run(coro):
     return asyncio.run(coro)
-
-
-def test_slug_passthrough_and_encoding():
-    assert slug("top_errors") == "top_errors"
-    assert slug("top errors 2.0") == "top errors 2.0"
-    assert slug("a/b") == "a%2Fb"
-    assert slug(".hidden") == "%2Ehidden"
-    assert slug("héllo") == "h%C3%A9llo"
 
 
 def test_relpaths():

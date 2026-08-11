@@ -143,6 +143,11 @@ query — editor edits take effect only after **Save** (which re-fetches the lis
 Ad-hoc SQL with no selected query renders plain, as does a broken (unparseable or
 unrecognized-shape) `cell_view`.
 
+Every write path — save, remote push, YAML import, git restore — **validates**
+`cell_view` against this contract and rejects violations
+(`invalid cell_view: …`). Reads stay lenient: rows stored before validation
+existed still render, with broken entries falling back to plain text.
+
 ### Pushed cell views (MCP / remote)
 
 A remote push (the `push_query` MCP tool, or `POST /api/remote/push`) may carry a
@@ -228,8 +233,9 @@ The **first column of every row** becomes an option, in the query's own order
 The query runs once against the current connection when the predefined query
 loads, and results are cached for the session. The first row is the default.
 
-`options` and `options_sql` are **mutually exclusive** — declaring both drops the
-param. If the `options_sql` query **fails or returns no rows**, the param has
+`options` and `options_sql` are **mutually exclusive** — declaring both is
+rejected at save time (and the client parse drops such an entry from
+pre-validation rows). If the `options_sql` query **fails or returns no rows**, the param has
 nothing to choose from, so the main query is **blocked** (run controls disabled)
 and the error banner names the param.
 

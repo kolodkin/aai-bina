@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import ExportImportControls from './ExportImportControls'
 import GitSyncControls from './GitSyncControls'
 import { activeWorkspace } from './workspace'
 
@@ -224,6 +225,17 @@ function DashboardView({
           name={name}
           disabled={!name}
           onRestored={() => {
+            setLocalPush(null)
+            setReloadNonce((n) => n + 1)
+          }}
+        />
+        <ExportImportControls
+          kind="dashboard"
+          name={name}
+          onImported={() => {
+            // The imported file may carry any dashboard name: refresh the
+            // dropdown, and re-load the open one in case it was overwritten.
+            void loadDashboards()
             setLocalPush(null)
             setReloadNonce((n) => n + 1)
           }}

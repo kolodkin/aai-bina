@@ -22,7 +22,7 @@ independently. Saved connections are shared (SQLite).
 | POST   | `/api/db/describe`  | `{query}`                              | Describe the query's output columns via ClickHouse `DESCRIBE` (no data scanned). `{ok, fields:[{name, type}]}` \| `{ok:false, message}`. Empty query → `400`; no session / no database → `409`. |
 | GET    | `/api/db/tables`    | —                                      | Tables of this session's selected database (the Explorer sidebar). `{ok, tables:[{name, rows, bytes, query}]}` — rows/bytes are engine estimates (null when untracked); `query` is the browse SELECT quoted with the driver's identifier quote — \| `{ok:false, message}`. No session / no database → `409`. |
 | GET    | `/api/predefined-queries`   | `?type=<connType>&workspace=`          | A workspace's predefined queries for a connection type (`workspace` defaults to `default`). `{queries:[{query_name, query, cell_view}]}`. `cell_view` is raw YAML text (or `null`) — see [query.md](./query.md#cell-views). |
-| POST   | `/api/predefined-queries`   | `{query_name, type, query, cell_view?, workspace?}` | Upsert a predefined query in a workspace. `cell_view` is optional raw YAML text; empty/missing clears it. `{ok}`; missing required fields → `400`. |
+| POST   | `/api/predefined-queries`   | `{query_name, type, query, cell_view?, workspace?}` | Upsert a predefined query in a workspace. `cell_view` is optional raw YAML text, validated against the contract in [query.md](./query.md#cell-views); empty/missing clears it. `{ok}`; missing required fields or malformed `cell_view` → `400`. |
 | GET    | `/api/remote/events`        | —                                      | SSE stream a browser opens when "remote control" is armed. Emits a `ready` event (`{id}`) then `query` and `dashboard` events with pushed payloads (each emitted under the SSE event named by the payload's `type`). |
 | POST   | `/api/remote/push`          | `{session_id, query, limit?, offset?, order_by?, fields?}` | Push a query to a live session (the surface `push_query` and the e2e suite use). `{ok}` \| `{ok:false, message}` (unknown session). Empty `query`/`session_id` → `400`. |
 | POST   | `/api/runqueries`           | `{connection, queries:{name:SQL}}`     | Run a dashboard's named queries against a saved connection (by name), using its stored database. Fail-fast: `{ok, results:{name:{col:[…]}}}` (column-oriented) on full success; on any failure an HTTP error with `{ok:false, message}` — `404` unknown connection, `400` bad body / no selected database / a failing query (message prefixed with the panel name). See [dashboard.md](./dashboard.md). |
@@ -54,6 +54,17 @@ rest and never returned by the API. See [workspace.md](./workspace.md).
 | PATCH  | `/api/workspaces/{name}`  | `{name?, remote?, branch?}`   | Rename/reconfigure. A null `remote` clears it; an absent key leaves it unchanged. `{ok}`. |
 | DELETE | `/api/workspaces/{name}`  | —                             | Delete an empty workspace. `{ok}`; unknown → `404`, still owns entities → `409`. |
 
+## YAML export / import
+
+Predefined queries and dashboards can be downloaded as self-describing YAML
+documents and imported back — per entity or a whole workspace at once. See
+[export-import.md](./export-import.md) for the document shapes.
+
+| Method | Path          | Body / params                              | Description |
+| ------ | ------------- | ------------------------------------------ | ----------- |
+| GET    | `/api/export` | `?kind=&name=&conn_type=&workspace=`       | Download one entity (`kind` `query`/`dashboard`, `name`, `conn_type` for queries) or the whole workspace (`kind=workspace`) as YAML, with a `Content-Disposition` filename. `400` bad args, `404` unknown entity/workspace. |
+| POST   | `/api/import` | raw YAML body, `?workspace=`               | Import a document into a workspace, upserting by name; the document's `kind` decides what is written. `{ok, kind, queries, dashboards}`. `400` malformed document. |
+
 ## Git sync
 
 Predefined queries and dashboards can be backed up to (and restored from) each
@@ -81,4 +92,5 @@ optional `session_id` (see [workspace.md](./workspace.md)).
 - [remote.md](./remote.md) — pushing queries to a live session over MCP.
 - [dashboard.md](./dashboard.md) — the dashboard page, `upsert_dashboard`, and the `window.queries` contract.
 - [gitsync.md](./gitsync.md) — backing up and restoring queries and dashboards via git.
+- [export-import.md](./export-import.md) — YAML export/import of queries, dashboards and workspaces.
 - [workspace.md](./workspace.md) — workspaces: entity ownership and per-workspace remotes.

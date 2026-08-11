@@ -8,7 +8,9 @@ import { ResultsTable } from './ResultsTable'
 import { shownColumnIndices } from './presentation'
 import { parseTsv } from './tsv'
 import { DRIVERS, type DriverMeta } from './drivers'
+import ExportImportControls from './ExportImportControls'
 import GitSyncControls from './GitSyncControls'
+import { downloadText } from './yamlio'
 import { activeWorkspace } from './workspace'
 import { suggestCompletions, type Suggestion } from './promptSuggestions'
 import { escapeHtml, substituteCellTemplate } from './cellView'
@@ -1065,13 +1067,7 @@ function QueryPanel({
         setError(data.message ?? 'query failed')
         return
       }
-      const blob = new Blob([data.output as string], { type: 'text/csv' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'query.csv'
-      a.click()
-      URL.revokeObjectURL(url)
+      downloadText('query.csv', data.output as string, 'text/csv')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'request failed')
     } finally {
@@ -1233,6 +1229,13 @@ function QueryPanel({
           connType={connectionType}
           disabled={busy || !selectedName.trim()}
           onRestored={() => void onQueryRestored()}
+        />
+        <ExportImportControls
+          kind="query"
+          name={selectedName}
+          connType={connectionType}
+          disabled={busy}
+          onImported={() => void onQueryRestored()}
         />
       </div>
 

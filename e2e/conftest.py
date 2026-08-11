@@ -19,7 +19,13 @@ def base_url() -> str:
 
 @pytest.fixture(scope="session")
 def browser_type_launch_args(browser_type_launch_args: dict) -> dict:
-    return {**browser_type_launch_args, "args": ["--no-sandbox"]}
+    args = {**browser_type_launch_args, "args": ["--no-sandbox"]}
+    # Environments with a pre-installed browser (no network to download the
+    # pinned revision) can point the launch at it instead.
+    exe = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE")
+    if exe:
+        args["executable_path"] = exe
+    return args
 
 
 @pytest.fixture

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import ExportImportControls from './ExportImportControls'
 import { invalidateGitStatus } from './gitsync'
 import {
   createWorkspace,
@@ -165,6 +166,10 @@ export default function WorkspaceSwitcher({ workspace, onSwitch }: Props) {
             placeholder="main"
             className="w-full rounded bg-white/10 px-2 py-1 text-slate-100"
           />
+          <div className="text-xs text-slate-400">
+            Export / import the whole workspace (queries + dashboards) as YAML
+          </div>
+          <ExportImportControls kind="workspace" compact onImported={() => void reload()} />
           <div className="flex gap-2 pt-1">
             <button
               type="button"
