@@ -10,7 +10,8 @@ Run the released package — API + bundled SPA on http://localhost:8000:
 uvx aaibina
 ```
 
-`PORT` picks the listen port (default 8000): `PORT=9000 uvx aaibina`.
+`--port` (or the `PORT` env var) picks the listen port, default 8000:
+`uvx aaibina --port 9000`.
 
 ## Layout
 
