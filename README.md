@@ -13,6 +13,18 @@ uvx aaibina
 `--port` (or the `PORT` env var) picks the listen port, default 8000:
 `uvx aaibina --port 9000`.
 
+Or run the container image — every release publishes
+`ghcr.io/kolodkin/aaibina` to GHCR for `linux/amd64` and `linux/arm64`, tagged
+`vX.Y.Z` and (for non-pre-releases) `latest`:
+
+```bash
+docker run -p 8000:8000 ghcr.io/kolodkin/aaibina:latest
+```
+
+State (the SQLite DB and its encryption key) lives in `/home/aaibina`; mount a
+volume there to persist it across containers:
+`docker run -p 8000:8000 -v aaibina-data:/home/aaibina ghcr.io/kolodkin/aaibina:latest`.
+
 ## Layout
 
 ```
