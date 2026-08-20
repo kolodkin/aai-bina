@@ -721,9 +721,20 @@ else:
         return JSONResponse({"error": "not found"}, status_code=404)
 
 
+def _resolve_port(argv: list[str] | None = None) -> int:
+    """Listen port: --port beats the PORT env var, which beats 8000."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="aaibina")
+    parser.add_argument("--port", type=int, help="listen port (default: $PORT or 8000)")
+    args = parser.parse_args(argv)
+    if args.port is not None:
+        return args.port
+    return int(os.environ.get("PORT", "8000"))
+
+
 def run() -> None:
-    """Console-script entry point: launch uvicorn honoring PORT (default 8000)."""
+    """Console-script entry point: launch uvicorn on the resolved port."""
     import uvicorn
 
-    port = int(os.environ.get("PORT", "8000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=_resolve_port())
