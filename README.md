@@ -2,6 +2,14 @@
 
 Project skeleton: **Python** backend (**FastAPI + SQLModel**) + **Vite + React + TypeScript** SPA frontend with **Tailwind CSS**, plus **[Playwright](https://playwright.dev)** end-to-end tests.
 
+## Quick start
+
+Run the released package — API + bundled SPA on http://localhost:8000:
+
+```bash
+uvx aaibina
+```
+
 ## Layout
 
 ```
@@ -98,12 +106,27 @@ the Playwright e2e suite driving the packaged server (skippable via the
 pushes the tag, and creates the GitHub release. The package version comes
 from the tag (no version bump in `pyproject.toml`).
 
-An installed wheel serves the bundled UI by default:
+An installed wheel serves the bundled UI by default — see
+[Quick start](#quick-start).
+
+## MCP server
+
+The backend mounts a FastMCP server (Streamable HTTP) at
+`http://localhost:8000/mcp`. There is nothing extra to start — it runs inside
+the server process (`uvx aaibina`, `npm run dev`, ...). Hook up an MCP client,
+e.g.:
 
 ```bash
-pip install aaibina
-aaibina            # API + SPA on http://localhost:8000
+claude mcp add --transport http queryview http://localhost:8000/mcp
 ```
+
+Tools: `run_query` (read-only SQL, rows returned to the agent), `push_query`
+and `push_dashboard` (fill a live browser session), `list_queries` /
+`list_dashboards`, and `git_store` / `git_history` / `git_restore` (workspace
+git backups). The push tools target an **armed** browser session: enable
+"Allow remote control" from the agent icon next to the connection pill and use
+the session id it shows. See [docs/remote.md](docs/remote.md) for the full
+protocol.
 
 ## API
 
