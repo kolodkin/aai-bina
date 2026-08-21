@@ -21,6 +21,9 @@ Or run the container image — every release publishes
 docker run -p 8000:8000 ghcr.io/kolodkin/aaibina:latest
 ```
 
+To serve on a different host port, remap it (the container keeps listening on
+8000, which its healthcheck probes): `docker run -p 9000:8000 ...`.
+
 State (the SQLite DB and its encryption key) lives in `/home/aaibina`; mount a
 volume there to persist it across containers:
 `docker run -p 8000:8000 -v aaibina-data:/home/aaibina ghcr.io/kolodkin/aaibina:latest`.
