@@ -2,7 +2,10 @@ name: Publish to PyPI
 
 # Simpler analog of aaiclick's publish.yaml: build the SPA into the wheel,
 # smoke-test the installed package, then publish via PyPI trusted publishing
-# and cut a GitHub release. No container images or e2e release gates.
+# and cut a GitHub release. Like aaiclick, a multi-arch container image is
+# built from the release wheel, pushed to GHCR as an rc tag, smoke-tested,
+# and promoted (same digests) to vX.Y.Z / latest after publish. Repeated
+# steps are YAML-anchored at first use and aliased below.
 
 on:
   workflow_dispatch:
@@ -82,6 +85,117 @@ jobs:
         with:
           name: requirements
           path: requirements-test.txt
+
+  build-rc-image:
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: amd64
+            runner: ubuntu-latest
+          - platform: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      IMAGE: ghcr.io/kolodkin/aaibina
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      # The image pip-installs aaibina==<version>. The wheel is not on PyPI
+      # yet (publish is gated on this very image), so serve the artifact from
+      # a local pypiserver; it redirects unknown packages to pypi.org, so
+      # dependencies resolve through the same index URL.
+      - name: Serve wheel via local pypiserver
+        run: |
+          docker run -d --name pypiserver -p 8080:8080 \
+            pypiserver/pypiserver:v2.3.2 run -p 8080 -a . -P . --server gunicorn
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8080/simple/ >/dev/null 2>&1 && break
+            if [ "$i" -eq 30 ]; then
+              echo "pypiserver did not come up in time" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          for f in dist/*.whl dist/*.tar.gz; do
+            curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
+          done
+
+      - &ghcr-login
+        name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Native per-arch builds (no QEMU). --network=host lets the build reach
+      # the pypiserver on localhost; pip trusts localhost for plain HTTP.
+      - name: Build & push per-arch rc image
+        run: |
+          VERSION="${{ inputs.tag }}"
+          PEP440="${VERSION#v}"
+          ARCH_TAG="${VERSION}-rc-${{ matrix.platform }}"
+          docker build --network=host -f docker/Dockerfile \
+            --build-arg AAIBINA_VERSION="${PEP440}" \
+            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
+            -t "${IMAGE}:${ARCH_TAG}" .
+          docker push "${IMAGE}:${ARCH_TAG}"
+
+  merge-rc-image:
+    needs: build-rc-image
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - *ghcr-login
+
+      - name: Assemble multi-arch rc manifest
+        run: |
+          REF="ghcr.io/kolodkin/aaibina"
+          TAG="${{ inputs.tag }}-rc"
+          docker buildx imagetools create -t "${REF}:${TAG}" \
+            "${REF}:${TAG}-amd64" "${REF}:${TAG}-arm64"
+
+  # Run the exact rc image that will be promoted and verify the containerized
+  # server comes up: /api/health, the bundled SPA at /, and the index.html
+  # fallback for client-side routes.
+  test-image:
+    needs: merge-rc-image
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    steps:
+      - *ghcr-login
+
+      - name: Smoke-test rc image
+        run: |
+          docker run -d --name aaibina -p 8000:8000 \
+            "ghcr.io/kolodkin/aaibina:${{ inputs.tag }}-rc"
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/api/health > /dev/null && break
+            if [ "$i" -eq 30 ]; then
+              echo "Server failed to start"; docker logs aaibina; exit 1
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:8000/ | grep -q "<!doctype html>" \
+            || { echo "/ did not serve the bundled SPA"; docker logs aaibina; exit 1; }
+          test "$(curl -sf -o /dev/null -w '%{http_code}' http://localhost:8000/some/client/route)" = "200" \
+            || { echo "SPA fallback route did not return 200"; docker logs aaibina; exit 1; }
+          docker rm -f aaibina
 
   # Install the built wheel into a clean venv (no repo checkout) and verify the
   # packaged server comes up: /api/health, the bundled SPA at /, and the
@@ -252,11 +366,12 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    needs: [test-package, test-package-pytest, test-package-e2e]
+    needs: [test-package, test-package-pytest, test-package-e2e, test-image]
     if: >-
       always()
       && needs.test-package.result == 'success'
       && needs.test-package-pytest.result == 'success'
+      && needs.test-image.result == 'success'
       && (needs.test-package-e2e.result == 'success'
           || needs.test-package-e2e.result == 'skipped')
     runs-on: ubuntu-latest
@@ -291,3 +406,38 @@ jobs:
             --title "${{ inputs.tag }}" \
             --generate-notes \
             ${{ inputs.pre-release && '--prerelease' || '' }}
+
+  promote-image:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - *ghcr-login
+
+      # Retag the exact multi-arch manifest the smoke gate tested — no
+      # rebuild, no wait-for-PyPI. Tested digests ARE the published digests.
+      - name: Promote rc manifest
+        run: |
+          REF="ghcr.io/kolodkin/aaibina"
+          TAGS=(-t "${REF}:${{ inputs.tag }}")
+          if [ "${{ inputs.pre-release }}" != "true" ]; then
+            TAGS+=(-t "${REF}:latest")
+          fi
+          docker buildx imagetools create "${TAGS[@]}" "${REF}:${{ inputs.tag }}-rc"
+
+      # Best-effort: GITHUB_TOKEN may lack package-version delete rights;
+      # leftover -rc tags are harmless and useful for debugging.
+      - name: Clean up rc tags
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for suffix in rc rc-amd64 rc-arm64; do
+            TAG="${{ inputs.tag }}-${suffix}"
+            VERSION_ID=$(gh api "/user/packages/container/aaibina/versions" --paginate \
+              --jq ".[] | select(.metadata.container.tags[]? == \"${TAG}\") | .id" | head -n1)
+            if [ -n "$VERSION_ID" ]; then
+              gh api -X DELETE "/user/packages/container/aaibina/versions/${VERSION_ID}" || true
+            fi
+          done
