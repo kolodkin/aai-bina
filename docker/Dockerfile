@@ -6,7 +6,7 @@ FROM python:3.13-slim
 ARG QUERYVIEW_VERSION
 ARG PIP_INDEX_URL=https://pypi.org/simple/
 
-LABEL org.opencontainers.image.source="https://github.com/kolodkin/aai-bina"
+LABEL org.opencontainers.image.source="https://github.com/kolodkin/queryview"
 LABEL org.opencontainers.image.description="QueryView API server + SPA"
 
 RUN pip install --no-cache-dir \

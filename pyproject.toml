@@ -21,9 +21,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kolodkin/aai-bina"
-Repository = "https://github.com/kolodkin/aai-bina"
-Issues = "https://github.com/kolodkin/aai-bina/issues"
+Homepage = "https://github.com/kolodkin/queryview"
+Repository = "https://github.com/kolodkin/queryview"
+Issues = "https://github.com/kolodkin/queryview/issues"
 
 [project.scripts]
 queryview = "queryview.main:run"
