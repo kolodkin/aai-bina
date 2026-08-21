@@ -7,26 +7,26 @@ Project skeleton: **Python** backend (**FastAPI + SQLModel**) + **Vite + React +
 Run the released package — API + bundled SPA on http://localhost:8000:
 
 ```bash
-uvx aaibina
+uvx queryview
 ```
 
 `--port` (or the `PORT` env var) picks the listen port, default 8000:
-`uvx aaibina --port 9000`.
+`uvx queryview --port 9000`.
 
 Or run the container image — every release publishes
-`ghcr.io/kolodkin/aaibina` to GHCR for `linux/amd64` and `linux/arm64`, tagged
+`ghcr.io/kolodkin/queryview` to GHCR for `linux/amd64` and `linux/arm64`, tagged
 `vX.Y.Z` and (for non-pre-releases) `latest`:
 
 ```bash
-docker run -p 8000:8000 ghcr.io/kolodkin/aaibina:latest
+docker run -p 8000:8000 ghcr.io/kolodkin/queryview:latest
 ```
 
 To serve on a different host port, remap it (the container keeps listening on
 8000, which its healthcheck probes): `docker run -p 9000:8000 ...`.
 
-State (the SQLite DB and its encryption key) lives in `/home/aaibina`; mount a
+State (the SQLite DB and its encryption key) lives in `/home/queryview`; mount a
 volume there to persist it across containers:
-`docker run -p 8000:8000 -v aaibina-data:/home/aaibina ghcr.io/kolodkin/aaibina:latest`.
+`docker run -p 8000:8000 -v queryview-data:/home/queryview ghcr.io/kolodkin/queryview:latest`.
 
 ## Layout
 
@@ -120,7 +120,7 @@ dispatch with a `vX.Y.Z` tag input) builds the SPA into the wheel
 smoke test, the packaged backend test suite (`pytest --pyargs queryview`), and
 the Playwright e2e suite driving the packaged server (skippable via the
 `skip-e2e` input for emergencies). It then publishes
-[`aaibina`](https://pypi.org/project/aaibina/) via PyPI trusted publishing,
+[`queryview`](https://pypi.org/project/queryview/) via PyPI trusted publishing,
 pushes the tag, and creates the GitHub release. The package version comes
 from the tag (no version bump in `pyproject.toml`).
 
@@ -131,7 +131,7 @@ An installed wheel serves the bundled UI by default — see
 
 The backend mounts a FastMCP server (Streamable HTTP) at
 `http://localhost:8000/mcp`. There is nothing extra to start — it runs inside
-the server process (`uvx aaibina`, `npm run dev`, ...). Hook up an MCP client,
+the server process (`uvx queryview`, `npm run dev`, ...). Hook up an MCP client,
 e.g.:
 
 ```bash

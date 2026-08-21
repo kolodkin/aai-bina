@@ -67,7 +67,7 @@ jobs:
 
       - name: Verify wheel contains SPA bundle
         run: |
-          wheel=$(ls dist/aaibina-*.whl | head -n 1)
+          wheel=$(ls dist/queryview-*.whl | head -n 1)
           unzip -l "$wheel" | grep -q "queryview/static/index.html" \
             || { echo "Built wheel $wheel does not contain queryview/static/index.html"; exit 1; }
 
@@ -102,7 +102,7 @@ jobs:
           - platform: arm64
             runner: ubuntu-24.04-arm
     env:
-      IMAGE: ghcr.io/kolodkin/aaibina
+      IMAGE: ghcr.io/kolodkin/queryview
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -113,7 +113,7 @@ jobs:
           name: dist
           path: dist/
 
-      # The image pip-installs aaibina==<version>. The wheel is not on PyPI
+      # The image pip-installs queryview==<version>. The wheel is not on PyPI
       # yet (publish is gated on this very image), so serve the artifact from
       # a local pypiserver; it redirects unknown packages to pypi.org, so
       # dependencies resolve through the same index URL.
@@ -149,7 +149,7 @@ jobs:
           PEP440="${VERSION#v}"
           ARCH_TAG="${VERSION}-rc-${{ matrix.platform }}"
           docker build --network=host -f docker/Dockerfile \
-            --build-arg AAIBINA_VERSION="${PEP440}" \
+            --build-arg QUERYVIEW_VERSION="${PEP440}" \
             --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
             -t "${IMAGE}:${ARCH_TAG}" .
           docker push "${IMAGE}:${ARCH_TAG}"
@@ -164,7 +164,7 @@ jobs:
 
       - name: Assemble multi-arch rc manifest
         run: |
-          REF="ghcr.io/kolodkin/aaibina"
+          REF="ghcr.io/kolodkin/queryview"
           TAG="${{ inputs.tag }}-rc"
           docker buildx imagetools create -t "${REF}:${TAG}" \
             "${REF}:${TAG}-amd64" "${REF}:${TAG}-arm64"
@@ -182,20 +182,20 @@ jobs:
 
       - name: Smoke-test rc image
         run: |
-          docker run -d --name aaibina -p 8000:8000 \
-            "ghcr.io/kolodkin/aaibina:${{ inputs.tag }}-rc"
+          docker run -d --name queryview -p 8000:8000 \
+            "ghcr.io/kolodkin/queryview:${{ inputs.tag }}-rc"
           for i in $(seq 1 30); do
             curl -sf http://localhost:8000/api/health > /dev/null && break
             if [ "$i" -eq 30 ]; then
-              echo "Server failed to start"; docker logs aaibina; exit 1
+              echo "Server failed to start"; docker logs queryview; exit 1
             fi
             sleep 1
           done
           curl -sf http://localhost:8000/ | grep -q "<!doctype html>" \
-            || { echo "/ did not serve the bundled SPA"; docker logs aaibina; exit 1; }
+            || { echo "/ did not serve the bundled SPA"; docker logs queryview; exit 1; }
           test "$(curl -sf -o /dev/null -w '%{http_code}' http://localhost:8000/some/client/route)" = "200" \
-            || { echo "SPA fallback route did not return 200"; docker logs aaibina; exit 1; }
-          docker rm -f aaibina
+            || { echo "SPA fallback route did not return 200"; docker logs queryview; exit 1; }
+          docker rm -f queryview
 
   # Install the built wheel into a clean venv (no repo checkout) and verify the
   # packaged server comes up: /api/health, the bundled SPA at /, and the
@@ -216,12 +216,12 @@ jobs:
       - name: Install built wheel
         run: |
           uv venv --python 3.11
-          uv pip install dist/aaibina-*.whl
+          uv pip install dist/queryview-*.whl
 
       - name: Smoke-test installed package
         working-directory: ${{ runner.temp }}
         run: |
-          DB_PATH="$PWD/queryview.db" "$GITHUB_WORKSPACE/.venv/bin/aaibina" > server.log 2>&1 &
+          DB_PATH="$PWD/queryview.db" "$GITHUB_WORKSPACE/.venv/bin/queryview" > server.log 2>&1 &
           pid=$!
           for i in $(seq 1 30); do
             curl -sf http://localhost:8000/api/health > /dev/null && break
@@ -263,7 +263,7 @@ jobs:
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-test.txt
-          uv pip install --no-deps --no-index --find-links dist/ aaibina
+          uv pip install --no-deps --no-index --find-links dist/ queryview
 
       - name: Run packaged tests against the installed wheel
         working-directory: ${{ runner.temp }}
@@ -321,7 +321,7 @@ jobs:
           path: dist/
 
       - name: Install built wheel
-        run: uv pip install --no-deps dist/aaibina-*.whl
+        run: uv pip install --no-deps dist/queryview-*.whl
 
       - name: Install Playwright browser
         run: uv run --no-sync playwright install --with-deps chromium
@@ -331,7 +331,7 @@ jobs:
 
       - name: Start backend from the installed wheel
         run: |
-          SERVE_STATIC=1 .venv/bin/aaibina > backend.log 2>&1 &
+          SERVE_STATIC=1 .venv/bin/queryview > backend.log 2>&1 &
           echo $! > backend.pid
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/api/health > /dev/null; then
@@ -419,7 +419,7 @@ jobs:
       # rebuild, no wait-for-PyPI. Tested digests ARE the published digests.
       - name: Promote rc manifest
         run: |
-          REF="ghcr.io/kolodkin/aaibina"
+          REF="ghcr.io/kolodkin/queryview"
           TAGS=(-t "${REF}:${{ inputs.tag }}")
           if [ "${{ inputs.pre-release }}" != "true" ]; then
             TAGS+=(-t "${REF}:latest")
@@ -435,9 +435,9 @@ jobs:
         run: |
           for suffix in rc rc-amd64 rc-arm64; do
             TAG="${{ inputs.tag }}-${suffix}"
-            VERSION_ID=$(gh api "/user/packages/container/aaibina/versions" --paginate \
+            VERSION_ID=$(gh api "/user/packages/container/queryview/versions" --paginate \
               --jq ".[] | select(.metadata.container.tags[]? == \"${TAG}\") | .id" | head -n1)
             if [ -n "$VERSION_ID" ]; then
-              gh api -X DELETE "/user/packages/container/aaibina/versions/${VERSION_ID}" || true
+              gh api -X DELETE "/user/packages/container/queryview/versions/${VERSION_ID}" || true
             fi
           done
