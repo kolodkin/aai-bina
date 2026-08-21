@@ -38,7 +38,7 @@ from .validation import cell_view_error, presentation_error
 _PACKAGED_STATIC = Path(__file__).resolve().parent / "static"
 
 # Opt-in in a source checkout; defaults on for an installed wheel (which ships
-# its SPA bundle) so `pip install aaibina` serves the UI out of the box.
+# its SPA bundle) so `pip install queryview` serves the UI out of the box.
 SERVE_STATIC = os.environ.get("SERVE_STATIC", "1" if _PACKAGED_STATIC.is_dir() else "") == "1"
 
 
@@ -725,7 +725,7 @@ def _resolve_port(argv: list[str] | None = None) -> int:
     """Listen port: --port beats the PORT env var, which beats 8000."""
     import argparse
 
-    parser = argparse.ArgumentParser(prog="aaibina")
+    parser = argparse.ArgumentParser(prog="queryview")
     parser.add_argument("--port", type=int, help="listen port (default: $PORT or 8000)")
     args = parser.parse_args(argv)
     if args.port is not None:

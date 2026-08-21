@@ -1,5 +1,5 @@
 [project]
-name = "aaibina"
+name = "queryview"
 dynamic = ["version"]
 description = "QueryView: FastAPI + SQLModel backend and React SPA over the ClickHouse HTTP interface"
 readme = "README.md"
@@ -21,13 +21,13 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kolodkin/aai-bina"
-Repository = "https://github.com/kolodkin/aai-bina"
-Issues = "https://github.com/kolodkin/aai-bina/issues"
+Homepage = "https://github.com/kolodkin/queryview"
+Repository = "https://github.com/kolodkin/queryview"
+Issues = "https://github.com/kolodkin/queryview/issues"
 
 [project.scripts]
+queryview = "queryview.main:run"
 queryview-backend = "queryview.main:run"
-aaibina = "queryview.main:run"
 
 [dependency-groups]
 test = [
